@@ -302,6 +302,71 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 12,
+    name: 'subscription dunning lifecycle and public system status incident tracking',
+    up(db) {
+      if (!hasColumn(db, 'subscriptions', 'grace_period_end')) {
+        db.exec('ALTER TABLE subscriptions ADD COLUMN grace_period_end TEXT');
+      }
+      if (!hasColumn(db, 'subscriptions', 'dunning_attempts')) {
+        db.exec('ALTER TABLE subscriptions ADD COLUMN dunning_attempts INTEGER NOT NULL DEFAULT 0');
+      }
+      if (!hasColumn(db, 'subscriptions', 'last_dunning_at')) {
+        db.exec('ALTER TABLE subscriptions ADD COLUMN last_dunning_at TEXT');
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS system_components (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT UNIQUE NOT NULL,
+          group_name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'OPERATIONAL' CHECK(status IN ('OPERATIONAL', 'DEGRADED', 'PARTIAL_OUTAGE', 'MAJOR_OUTAGE', 'MAINTENANCE')),
+          order_index INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        CREATE TABLE IF NOT EXISTS incidents (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          impact TEXT NOT NULL DEFAULT 'MINOR' CHECK(impact IN ('NONE', 'MINOR', 'MAJOR', 'CRITICAL')),
+          status TEXT NOT NULL DEFAULT 'INVESTIGATING' CHECK(status IN ('INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          resolved_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS incident_updates (
+          id TEXT PRIMARY KEY,
+          incident_id TEXT NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+          status TEXT NOT NULL CHECK(status IN ('INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED')),
+          message TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_system_components_slug ON system_components(slug);
+        CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_incident_updates_incident ON incident_updates(incident_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_subscriptions_renewal ON subscriptions(status, next_renewal_date);
+      `);
+
+      // Seed default components if none exist
+      const count = (db.prepare('SELECT COUNT(*) as c FROM system_components').get() as { c: number }).c;
+      if (count === 0) {
+        const seedStmt = db.prepare(`
+          INSERT INTO system_components (id, name, slug, group_name, status, order_index, updated_at)
+          VALUES (?, ?, ?, ?, 'OPERATIONAL', ?, datetime('now', 'utc'))
+        `);
+        seedStmt.run('cmp_api', 'REST API & Authentication', 'api', 'Core Platform', 1);
+        seedStmt.run('cmp_dashboard', 'Customer Management Portal', 'dashboard', 'Core Platform', 2);
+        seedStmt.run('cmp_payments', 'Stripe Payments & Checkout', 'payments', 'Billing Engine', 3);
+        seedStmt.run('cmp_nodes_fra', 'Frankfurt Edge Node (reg_fra_1)', 'node-fra-1', 'Infrastructure', 4);
+        seedStmt.run('cmp_nodes_lon', 'London Edge Node (reg_lon_1)', 'node-lon-1', 'Infrastructure', 5);
+        seedStmt.run('cmp_email', 'Transactional Email Outbox', 'email', 'Platform Services', 6);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

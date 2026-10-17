@@ -101,6 +101,13 @@ import {
   listTicketAttachments,
   getTicketAttachment,
 } from './modules/support/tickets.js';
+import {
+  getPublicSystemStatus,
+  createIncident,
+  updateIncident,
+  updateComponentStatus,
+} from './modules/status/status.js';
+import { processSubscriptionRenewals } from './modules/billing/renewal-dunning.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -334,6 +341,17 @@ export function buildServer(): FastifyInstance {
       return reply.redirect('/login');
     });
   }
+
+  app.get('/status', async (_req, reply) => {
+    const filePath = path.join(publicDir, 'status.html');
+    if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'public, max-age=30').send(renderHtml('status.html'));
+    return reply.status(404).send('Not Found');
+  });
+
+  app.get('/api/v1/status', async (_req, reply) => {
+    const status = getPublicSystemStatus(getDatabase());
+    return reply.header('Cache-Control', 'public, max-age=15').send(status);
+  });
 
   app.get('/admin', async (req, reply) => {
     if (!req.auth) return reply.redirect('/login?next=/admin');
@@ -1483,6 +1501,7 @@ export function buildServer(): FastifyInstance {
       { id: 'nav-tickets', title: 'Support Tickets', category: 'Navigation', icon: 'bubble-chat', path: '/app/support', shortcut: 'G T' },
       { id: 'nav-audit', title: 'Security Audit Trail', category: 'Navigation', icon: 'shield-01', path: '/app/activity', shortcut: 'G A' },
       { id: 'nav-settings', title: 'Security, MFA & Team', category: 'Navigation', icon: 'settings-01', path: '/app/settings', shortcut: 'G ,' },
+      { id: 'nav-status', title: 'System Status & Incidents', category: 'Navigation', icon: 'activity', path: '/status' },
     ];
 
     const actions = [
@@ -1831,6 +1850,63 @@ export function buildServer(): FastifyInstance {
         .run(generateId('aud'), req.auth!.user.id, params.data.userId, req.ip, generateId('cor'), JSON.stringify({ from: current, role: parsed.data.role, status: parsed.data.status, reason: parsed.data.reason }));
     })();
     return { userId: params.data.userId, role: parsed.data.role, status: parsed.data.status };
+  });
+
+  // --- Admin Status & Incident Management ---
+  const incidentCreateSchema = z.object({
+    title: z.string().trim().min(3).max(200),
+    impact: z.enum(['NONE', 'MINOR', 'MAJOR', 'CRITICAL']),
+    status: z.enum(['INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED']),
+    message: z.string().trim().min(5).max(2000),
+    affectedComponentIds: z.array(z.string()).optional(),
+    affectedComponentStatus: z.enum(['OPERATIONAL', 'DEGRADED', 'PARTIAL_OUTAGE', 'MAJOR_OUTAGE', 'MAINTENANCE']).optional(),
+  });
+
+  app.post('/api/v1/admin/incidents', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+    const parsed = incidentCreateSchema.safeParse(req.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Valid incident details required', details: parsed.error.issues });
+    const incident = createIncident(parsed.data, req.auth!.user.id, getDatabase());
+    return reply.status(201).send(incident);
+  });
+
+  const incidentUpdateSchema = z.object({
+    status: z.enum(['INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED']),
+    message: z.string().trim().min(5).max(2000),
+    impact: z.enum(['NONE', 'MINOR', 'MAJOR', 'CRITICAL']).optional(),
+  });
+
+  app.post('/api/v1/admin/incidents/:id/updates', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+    const params = z.object({ id: z.string() }).safeParse(req.params);
+    const parsed = incidentUpdateSchema.safeParse(req.body);
+    if (!params.success || !parsed.success) return reply.status(400).send({ error: 'Valid incident update details required' });
+    try {
+      const update = updateIncident(params.data.id, parsed.data, req.auth!.user.id, getDatabase());
+      return reply.status(200).send(update);
+    } catch (err: any) {
+      return reply.status(404).send({ error: err.message || 'Incident not found' });
+    }
+  });
+
+  const componentStatusSchema = z.object({
+    status: z.enum(['OPERATIONAL', 'DEGRADED', 'PARTIAL_OUTAGE', 'MAJOR_OUTAGE', 'MAINTENANCE']),
+  });
+
+  app.patch('/api/v1/admin/components/:id', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+    const params = z.object({ id: z.string() }).safeParse(req.params);
+    const parsed = componentStatusSchema.safeParse(req.body);
+    if (!params.success || !parsed.success) return reply.status(400).send({ error: 'Valid component status required' });
+    try {
+      updateComponentStatus(params.data.id, parsed.data.status, req.auth!.user.id, getDatabase());
+      return reply.status(200).send({ id: params.data.id, status: parsed.data.status });
+    } catch (err: any) {
+      return reply.status(404).send({ error: err.message || 'Component not found' });
+    }
+  });
+
+  // --- Admin Subscription Renewal & Dunning Trigger ---
+  app.post('/api/v1/admin/billing/process-renewals', { preHandler: [requireAuth, requireStaffPermission('accounts:manage')] }, async (_req, reply) => {
+    const result = await processSubscriptionRenewals(getDatabase());
+    return reply.status(200).send(result);
   });
 
   return app;

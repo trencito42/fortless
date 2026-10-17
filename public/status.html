@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#eff1f5">
+  <title>FORTLESS — System Status</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="/assets/petal-app.css">
+  <style>
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font, 'Inter Tight', system-ui, sans-serif);
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+    }
+    .status-wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }
+    .status-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+    }
+    .status-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--ink);
+      font-weight: 800;
+      font-size: 20px;
+      letter-spacing: -0.03em;
+    }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .banner {
+      border-radius: 18px;
+      padding: 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--s1);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+      border: 1px solid var(--s3);
+      transition: all 0.3s ease;
+    }
+    .banner.good { border-left: 6px solid var(--good); }
+    .banner.warn { border-left: 6px solid var(--warn); }
+    .banner.bad { border-left: 6px solid var(--bad); }
+    .banner.info { border-left: 6px solid var(--info); }
+    .dotc {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: currentColor;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .dotc.pulse {
+      box-shadow: 0 0 0 0 rgba(14, 107, 53, 0.4);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(14, 107, 53, 0.5); }
+      70% { box-shadow: 0 0 0 10px rgba(14, 107, 53, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(14, 107, 53, 0); }
+    }
+    .components-card {
+      background: var(--s1);
+      border: 1px solid var(--s3);
+      border-radius: 18px;
+      overflow: hidden;
+      margin-bottom: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.03);
+    }
+    .component-group-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink3);
+      padding: 14px 20px 8px;
+      background: var(--s2);
+      border-bottom: 1px solid var(--s3);
+    }
+    .component-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--s2);
+    }
+    .component-row:last-child {
+      border-bottom: none;
+    }
+    .incidents-card {
+      background: var(--s1);
+      border: 1px solid var(--s3);
+      border-radius: 18px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+    .incident-item {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--s2);
+    }
+    .incident-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .incident-update {
+      margin-top: 10px;
+      padding-left: 12px;
+      border-left: 2px solid var(--s3);
+      font-size: 13.5px;
+      color: var(--ink2);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .badge.good { background: var(--good-bg, #d6f5e0); color: var(--good, #0e6b35); }
+    .badge.warn { background: var(--warn-bg, #fdefc8); color: var(--warn, #855000); }
+    .badge.bad { background: var(--bad-bg, #fde1e2); color: var(--bad, #b8232a); }
+    .badge.info { background: var(--info-bg, #e3e5ff); color: var(--info, #4a56e2); }
+  </style>
+</head>
+<body>
+  <div class="status-wrap">
+    <header class="status-header">
+      <a href="/" class="status-brand">
+        <span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true" style="width:16px;height:16px;display:block"></span>
+        <span>fortless</span>
+        <span class="badge info">STATUS</span>
+      </a>
+      <div style="display:flex;align-items:center;gap:12px">
+        <a href="/app" class="btn s sec" style="text-decoration:none;font-size:13px;font-weight:600">Open App →</a>
+      </div>
+    </header>
+
+    <div id="statusBanner" class="banner good">
+      <i id="statusDot" class="dotc pulse" style="color:var(--good)"></i>
+      <div>
+        <h2 id="statusHeadline" style="margin:0 0 4px;font-size:20px;font-weight:800;letter-spacing:-0.03em">Checking platform status…</h2>
+        <span id="statusTimestamp" class="faint" style="font-size:12px">Telemetry active</span>
+      </div>
+    </div>
+
+    <div id="activeIncidentsSection" style="display:none">
+      <h3 style="font-size:16px;margin:0 0 12px;font-weight:700">Active Incidents</h3>
+      <div id="activeIncidentsList" class="incidents-card"></div>
+    </div>
+
+    <h3 style="font-size:16px;margin:0 0 12px;font-weight:700">System Services</h3>
+    <div id="componentsCard" class="components-card">
+      <div style="padding:32px;text-align:center;color:var(--ink2)">Loading service components…</div>
+    </div>
+
+    <div id="pastIncidentsSection">
+      <h3 style="font-size:16px;margin:28px 0 12px;font-weight:700">Past Incidents</h3>
+      <div id="pastIncidentsList" class="incidents-card">
+        <div style="color:var(--ink3);font-size:13.5px">No incidents reported in the last 30 days.</div>
+      </div>
+    </div>
+
+    <footer style="margin-top:40px;text-align:center;font-size:12.5px;color:var(--ink3)">
+      <span>FORTLESS Infrastructure & Hosting Platform · Frankfurt & London Nodes</span>
+    </footer>
+  </div>
+
+  <script>
+    (async function() {
+      const esc = (s) => String(s || '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+      const date = (v) => v ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(v)) : '—';
+      
+      const badgeFor = (st) => {
+        if (st === 'OPERATIONAL') return '<span class="badge good">Operational</span>';
+        if (st === 'DEGRADED') return '<span class="badge warn">Degraded</span>';
+        if (st === 'PARTIAL_OUTAGE') return '<span class="badge warn">Partial Outage</span>';
+        if (st === 'MAJOR_OUTAGE') return '<span class="badge bad">Outage</span>';
+        if (st === 'MAINTENANCE') return '<span class="badge info">Maintenance</span>';
+        return '<span class="badge">' + esc(st) + '</span>';
+      };
+
+      try {
+        const res = await fetch('/api/v1/status');
+        const data = await res.json();
+
+        // Banner
+        const banner = document.getElementById('statusBanner');
+        const dot = document.getElementById('statusDot');
+        const headline = document.getElementById('statusHeadline');
+        const timestamp = document.getElementById('statusTimestamp');
+
+        headline.textContent = data.headline;
+        timestamp.textContent = 'Last verified: ' + date(data.generatedAt);
+
+        if (data.indicator === 'OPERATIONAL') {
+          banner.className = 'banner good';
+          dot.style.color = 'var(--good)';
+        } else if (data.indicator === 'DEGRADED') {
+          banner.className = 'banner warn';
+          dot.style.color = 'var(--warn)';
+        } else if (data.indicator === 'MAJOR_OUTAGE') {
+          banner.className = 'banner bad';
+          dot.style.color = 'var(--bad)';
+        } else if (data.indicator === 'MAINTENANCE') {
+          banner.className = 'banner info';
+          dot.style.color = 'var(--info)';
+        }
+
+        // Components Grouping
+        const compCard = document.getElementById('componentsCard');
+        const groups = {};
+        for (const c of data.components) {
+          if (!groups[c.groupName]) groups[c.groupName] = [];
+          groups[c.groupName].push(c);
+        }
+
+        let compHtml = '';
+        for (const [groupName, items] of Object.entries(groups)) {
+          compHtml += '<div class="component-group-title">' + esc(groupName) + '</div>';
+          for (const item of items) {
+            compHtml += '<div class="component-row"><div><b>' + esc(item.name) + '</b></div>' + badgeFor(item.status) + '</div>';
+          }
+        }
+        compCard.innerHTML = compHtml;
+
+        // Active Incidents
+        if (data.activeIncidents && data.activeIncidents.length) {
+          const actSec = document.getElementById('activeIncidentsSection');
+          const actList = document.getElementById('activeIncidentsList');
+          actSec.style.display = 'block';
+          actList.innerHTML = data.activeIncidents.map(inc => `
+            <div class="incident-item">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <b style="font-size:15px">${esc(inc.title)}</b>
+                <span class="badge ${inc.status === 'INVESTIGATING' ? 'warn' : 'info'}">${esc(inc.status)}</span>
+              </div>
+              <small class="faint" style="font-size:12px">Started ${date(inc.createdAt)}</small>
+              ${inc.updates.map(u => `
+                <div class="incident-update">
+                  <div style="font-size:11px;font-weight:700;text-transform:uppercase;margin-bottom:2px">${esc(u.status)} · ${date(u.createdAt)}</div>
+                  <p style="margin:0">${esc(u.message)}</p>
+                </div>
+              `).join('')}
+            </div>
+          `).join('');
+        }
+
+        // Past Incidents
+        if (data.pastIncidents && data.pastIncidents.length) {
+          const pastList = document.getElementById('pastIncidentsList');
+          pastList.innerHTML = data.pastIncidents.map(inc => `
+            <div class="incident-item">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <b style="font-size:14px">${esc(inc.title)}</b>
+                <span class="badge good">Resolved</span>
+              </div>
+              <small class="faint" style="font-size:12px">Resolved ${date(inc.resolvedAt || inc.updatedAt)}</small>
+              ${inc.updates.slice(-1).map(u => `
+                <div class="incident-update">
+                  <p style="margin:0">${esc(u.message)}</p>
+                </div>
+              `).join('')}
+            </div>
+          `).join('');
+        }
+      } catch (e) {
+        document.getElementById('statusHeadline').textContent = 'Status Telemetry Offline';
+        document.getElementById('statusBanner').className = 'banner bad';
+      }
+    })();
+  </script>
+</body>
+</html>

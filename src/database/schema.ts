@@ -331,6 +331,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   renewal_price_minor_units INTEGER NOT NULL,
   currency TEXT NOT NULL DEFAULT 'EUR',
   auto_renew INTEGER NOT NULL DEFAULT 1,
+  grace_period_end TEXT,
+  dunning_attempts INTEGER NOT NULL DEFAULT 0,
+  last_dunning_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
@@ -542,7 +545,39 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS system_components (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  group_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'OPERATIONAL' CHECK(status IN ('OPERATIONAL', 'DEGRADED', 'PARTIAL_OUTAGE', 'MAJOR_OUTAGE', 'MAINTENANCE')),
+  order_index INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS incidents (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  impact TEXT NOT NULL DEFAULT 'MINOR' CHECK(impact IN ('NONE', 'MINOR', 'MAJOR', 'CRITICAL')),
+  status TEXT NOT NULL DEFAULT 'INVESTIGATING' CHECK(status IN ('INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  resolved_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS incident_updates (
+  id TEXT PRIMARY KEY,
+  incident_id TEXT NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK(status IN ('INVESTIGATING', 'IDENTIFIED', 'MONITORING', 'RESOLVED')),
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
 -- Indices for high-frequency queries
+CREATE INDEX IF NOT EXISTS idx_system_components_slug ON system_components(slug);
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_incident_updates_incident ON incident_updates(incident_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_renewal ON subscriptions(status, next_renewal_date);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_staff_memberships_status ON staff_memberships(status, role);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
