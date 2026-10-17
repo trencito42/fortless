@@ -9,6 +9,7 @@ import {
   verifyEmail,
   requestPasswordReset,
   resetPassword,
+  changePassword,
   listUserSessions,
   revokeUserSession,
   revokeOtherUserSessions,
@@ -20,6 +21,19 @@ import {
   getMfaStatus,
   hasPendingMfaSession,
 } from '../src/modules/identity/auth.js';
+import {
+  listAccountMembers,
+  listAccountInvitations,
+  inviteAccountMember,
+  revokeAccountMember,
+  acceptAccountInvitation,
+} from '../src/modules/identity/teams.js';
+import {
+  processEmailOutbox,
+  getSandboxReceipts,
+  clearSandboxReceipts,
+} from '../src/modules/email/outbox.js';
+import { config } from '../src/config/index.js';
 import { seedInitialCatalog, getPublishedPlans } from '../src/modules/catalog/catalog.js';
 import { createQuote, verifyQuote } from '../src/modules/pricing/quote.js';
 import { processCheckout } from '../src/modules/checkout/checkout.js';
@@ -742,6 +756,222 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       runMigrations(db);
       expect(getStaffAccess(staff.user.id, db)?.role).toBe('ADMINISTRATOR');
       expect(getStaffAccess(customer.user.id, db)).toBeNull();
+    });
+  });
+
+  describe('Category G: Team Management, Password Change & Transactional Email Outbox', () => {
+    it('TEAM-01: Owner can invite a team member; invitation and transactional email are persisted atomically', () => {
+      const owner = registerUser(
+        { email: 'orgowner@example.com', password: 'OwnerPassword123!', name: 'Org Owner', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      const invite = inviteAccountMember(
+        {
+          accountId: owner.account.id,
+          invitedByUserId: owner.user.id,
+          email: 'engineer@example.com',
+          role: 'TECH_ADMIN',
+          ipAddress: '127.0.0.1',
+        },
+        db
+      );
+
+      expect(invite.invitationId).toMatch(/^inv_/);
+      expect(invite.rawToken).toBeDefined();
+
+      const invitations = listAccountInvitations(owner.account.id, db);
+      expect(invitations).toHaveLength(1);
+      expect(invitations[0]!.email).toBe('engineer@example.com');
+      expect(invitations[0]!.role).toBe('TECH_ADMIN');
+
+      // Check email outbox
+      const outbox = db.prepare("SELECT * FROM email_outbox WHERE recipient = 'engineer@example.com'").all() as { template: string; status: string }[];
+      expect(outbox).toHaveLength(1);
+      expect(outbox[0]!.template).toBe('account_invitation');
+      expect(outbox[0]!.status).toBe('PENDING');
+    });
+
+    it('TEAM-02: Non-owner without permission cannot invite team members (fails closed)', () => {
+      const owner = registerUser(
+        { email: 'owner2@example.com', password: 'OwnerPassword123!', name: 'Owner', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const viewer = registerUser(
+        { email: 'viewer@example.com', password: 'ViewerPassword123!', name: 'Viewer', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      // Add viewer to owner's workspace
+      db.prepare("INSERT INTO memberships (id, account_id, user_id, role) VALUES ('mem_viewer', ?, ?, 'VIEWER')")
+        .run(owner.account.id, viewer.user.id);
+
+      expect(() => {
+        inviteAccountMember(
+          {
+            accountId: owner.account.id,
+            invitedByUserId: viewer.user.id,
+            email: 'unauthorized@example.com',
+            role: 'BILLING_MANAGER',
+            ipAddress: '127.0.0.1',
+          },
+          db
+        );
+      }).toThrow('Only workspace owners and technical administrators can invite new members.');
+    });
+
+    it('TEAM-03: Invitee can accept invitation and joins workspace with specified role', () => {
+      const owner = registerUser(
+        { email: 'teamcorp@example.com', password: 'CorporatePassword1!', name: 'Corp Owner', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const invitee = registerUser(
+        { email: 'invitee@example.com', password: 'InviteePassword1!', name: 'Invited Engineer', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      // Verify invitee email
+      db.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc') WHERE id = ?").run(invitee.user.id);
+
+      const { rawToken } = inviteAccountMember(
+        {
+          accountId: owner.account.id,
+          invitedByUserId: owner.user.id,
+          email: 'invitee@example.com',
+          role: 'BILLING_MANAGER',
+          ipAddress: '127.0.0.1',
+        },
+        db
+      );
+
+      const result = acceptAccountInvitation(rawToken, invitee.user.id, '127.0.0.1', db);
+      expect(result.accountId).toBe(owner.account.id);
+      expect(result.role).toBe('BILLING_MANAGER');
+
+      const members = listAccountMembers(owner.account.id, db);
+      expect(members).toHaveLength(2);
+      const joined = members.find((m) => m.userId === invitee.user.id);
+      expect(joined?.role).toBe('BILLING_MANAGER');
+    });
+
+    it('TEAM-04: Last-owner protection: workspace owner cannot remove the last owner', () => {
+      const owner = registerUser(
+        { email: 'soleowner@example.com', password: 'SoleOwnerPassword1!', name: 'Sole Owner', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const members = listAccountMembers(owner.account.id, db);
+      const ownerMember = members[0]!;
+
+      expect(() => {
+        revokeAccountMember(
+          {
+            accountId: owner.account.id,
+            actorUserId: owner.user.id,
+            membershipId: ownerMember.id,
+            ipAddress: '127.0.0.1',
+          },
+          db
+        );
+      }).toThrow('Cannot remove the primary workspace account owner.');
+    });
+
+    it('AUTH-12: Password change from settings validates current password, updates hash, revokes other sessions, and queues security alert', () => {
+      const user = registerUser(
+        { email: 'changepass@example.com', password: 'OldPassword123!', name: 'Change Pass', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      db.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc') WHERE id = ?").run(user.user.id);
+
+      const session1 = loginUser({ email: 'changepass@example.com', password: 'OldPassword123!', ipAddress: '1.1.1.1', userAgent: 'desktop' }, db);
+      const session2 = loginUser({ email: 'changepass@example.com', password: 'OldPassword123!', ipAddress: '2.2.2.2', userAgent: 'phone' }, db);
+
+      const authCtx2 = authenticateSession(session2.token, db);
+      expect(authCtx2).not.toBeNull();
+
+      // Wrong current password fails
+      expect(() => {
+        changePassword(
+          {
+            userId: user.user.id,
+            accountId: user.account.id,
+            currentPassword: 'WrongPassword!',
+            newPassword: 'BrandNewPassword123!',
+            currentSessionId: authCtx2!.session.id,
+            ipAddress: '2.2.2.2',
+          },
+          db
+        );
+      }).toThrow('Current password is incorrect.');
+
+      // Correct password change succeeds
+      changePassword(
+        {
+          userId: user.user.id,
+          accountId: user.account.id,
+          currentPassword: 'OldPassword123!',
+          newPassword: 'BrandNewPassword123!',
+          currentSessionId: authCtx2!.session.id,
+          ipAddress: '2.2.2.2',
+        },
+        db
+      );
+
+      // Session 1 is revoked, Session 2 remains valid
+      expect(authenticateSession(session1.token, db)).toBeNull();
+      expect(authenticateSession(session2.token, db)).not.toBeNull();
+
+      // Can sign in with new password
+      const newSession = loginUser({ email: 'changepass@example.com', password: 'BrandNewPassword123!', ipAddress: '3.3.3.3', userAgent: 'laptop' }, db);
+      expect(newSession.token).toBeDefined();
+
+      // Security notification email queued
+      const alerts = db.prepare("SELECT * FROM email_outbox WHERE recipient = 'changepass@example.com' AND template = 'security_alert'").all();
+      expect(alerts).toHaveLength(1);
+    });
+
+    it('EML-01: Registration and password reset write to email_outbox atomically', () => {
+      registerUser(
+        { email: 'outboxcheck@example.com', password: 'StrongPassword123!', name: 'Outbox Check', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      // Verification email was queued
+      const verifyMails = db.prepare("SELECT * FROM email_outbox WHERE recipient = 'outboxcheck@example.com' AND template = 'email_verification'").all() as { payload_json: string }[];
+      expect(verifyMails).toHaveLength(1);
+      const payload = JSON.parse(verifyMails[0]!.payload_json);
+      expect(payload.verifyUrl).toContain('/verify-email?token=');
+
+      // Request password reset queues reset email
+      requestPasswordReset('outboxcheck@example.com', db);
+      const resetMails = db.prepare("SELECT * FROM email_outbox WHERE recipient = 'outboxcheck@example.com' AND template = 'password_reset'").all() as { payload_json: string }[];
+      expect(resetMails).toHaveLength(1);
+      const resetPayload = JSON.parse(resetMails[0]!.payload_json);
+      expect(resetPayload.resetUrl).toContain('/reset-password?token=');
+    });
+
+    it('EML-02: Sandboxed email processing generates real offline receipts with correct template rendering', async () => {
+      clearSandboxReceipts();
+      const previousMode = config.EMAIL_MODE;
+      config.EMAIL_MODE = 'sandbox';
+
+      try {
+        registerUser(
+          { email: 'receipttest@example.com', password: 'ReceiptPassword123!', name: 'Receipt Test', ipAddress: '127.0.0.1', userAgent: 'test' },
+          db
+        );
+
+        const result = await processEmailOutbox(db);
+        expect(result.sent).toBeGreaterThanOrEqual(1);
+
+        const receipts = getSandboxReceipts();
+        const receipt = receipts.find((r) => r.recipient === 'receipttest@example.com');
+        expect(receipt).toBeDefined();
+        expect(receipt?.subject).toBe('Verify your Fortless account');
+        expect(receipt?.text).toContain('Please verify your email address for Fortless');
+        expect(receipt?.html).toContain('Verify Email Address');
+      } finally {
+        config.EMAIL_MODE = previousMode;
+        clearSandboxReceipts();
+      }
     });
   });
 });

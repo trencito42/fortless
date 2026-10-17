@@ -9,6 +9,7 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "migrate": "tsx src/scripts/migrate.ts",
+    "staff:bootstrap-owner": "tsx src/scripts/bootstrap-owner.ts",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest"
   },

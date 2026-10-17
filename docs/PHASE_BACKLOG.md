@@ -23,9 +23,9 @@ Ordering Principle: Hard Dependencies & Security Risk First
 ---
 
 ## Phase 3 — Identity, Authorization, Email & User Settings
-- [ ] **Slice 3.1**: Transactional email outbox table and sandbox adapter with retry logic and fail-closed reporting.
-- [ ] **Slice 3.2**: Audited initial staff `OWNER` bootstrap CLI (`npm run staff:bootstrap-owner`).
-- [ ] **Slice 3.3**: Account settings deletion/export lifecycle and organization team member invitation flow.
+- [x] **Slice 3.1**: Transactional email outbox table (`email_outbox`) and sandbox adapter with retry logic, fail-closed reporting, and templating.
+- [x] **Slice 3.2**: Audited initial staff `OWNER` bootstrap CLI (`npm run staff:bootstrap-owner`) enforcing verified email and MFA.
+- [x] **Slice 3.3**: Organization team member invitation flow (`/api/v1/account/members`), last-owner protection, and change password flow.
 - [ ] **Slice 3.4**: WebAuthn / Passkeys exploration and step-up enrollment.
 
 ---

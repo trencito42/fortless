@@ -60,10 +60,16 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/api/v1/auth/mfa/enroll/confirm` | POST | `LOCAL_VERIFIED` | Confirms live RFC 6238 code; generates 10 one-time recovery codes. |
 | `/api/v1/auth/mfa/disable` | POST | `LOCAL_VERIFIED` | Requires password + live TOTP; revokes factor. |
 | `/api/v1/auth/step-up` | POST | `LOCAL_VERIFIED` | Generates 10-minute session-scoped privilege evidence for destructive actions. |
+| `/api/v1/auth/password/change` | POST | `LOCAL_VERIFIED` | Validates current password, updates Argon2id hash, revokes other sessions, writes audit log. |
 | `/api/v1/auth/sessions` | GET | `LOCAL_VERIFIED` | Lists active sessions for current user with device/IP info. |
 | `/api/v1/auth/sessions/:id` | DELETE | `LOCAL_VERIFIED` | Revokes specific session; tenant-scoped. |
 | `/api/v1/auth/sessions/revoke-others` | POST | `LOCAL_VERIFIED` | Revokes all other sessions except current. |
 | `/api/v1/auth/logout` | POST | `LOCAL_VERIFIED` | Destroys current session token and clears cookie. |
+| `/api/v1/account/members` | GET | `LOCAL_VERIFIED` | Lists workspace team members and pending invitations. |
+| `/api/v1/account/members/invite` | POST | `LOCAL_VERIFIED` | Sends workspace invitation; queues signed email atomically. |
+| `/api/v1/account/members/:membershipId` | DELETE | `LOCAL_VERIFIED` | Removes workspace member with strict last-owner protection. |
+| `/api/v1/account/invitations/accept` | POST | `LOCAL_VERIFIED` | Consumes invitation token and adds user to workspace. |
+| `/api/v1/email/status` | GET | `LOCAL_VERIFIED` | Returns truthful email outbox status, mode, and queue counts. |
 
 ### Catalog & Pricing
 | Endpoint | Method | Status | Notes |

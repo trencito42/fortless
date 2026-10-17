@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
+import { queueEmail } from '../email/outbox.js';
 
 export interface User {
   id: string;
@@ -182,6 +183,14 @@ export function registerUser(
     trx.prepare(`INSERT INTO memberships (id, account_id, user_id, role) VALUES (?, ?, ?, 'OWNER')`)
       .run(generateId('mem'), accountId, userId);
     const verificationToken = createPurposeToken('email_verification_tokens', userId, VERIFY_TTL_MS, trx);
+    queueEmail(trx, {
+      recipient: normalizedEmail,
+      template: 'email_verification',
+      payload: {
+        name: data.name.trim(),
+        verifyUrl: `https://fortless.net/verify-email?token=${verificationToken}`,
+      },
+    });
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.registration_pending', 'user', ?, ?, ?)`)
       .run(generateId('aud'), accountId, userId, userId, data.ipAddress, generateId('cor'));
@@ -213,9 +222,22 @@ export function verifyEmail(
 }
 
 export function resendVerification(email: string, db: Database.Database = getDatabase()): string | null {
-  const user = db.prepare("SELECT id FROM users WHERE email = ? AND status = 'PENDING_VERIFICATION'")
-    .get(email.trim().toLowerCase()) as { id: string } | undefined;
-  return user ? createPurposeToken('email_verification_tokens', user.id, VERIFY_TTL_MS, db) : null;
+  const normalizedEmail = email.trim().toLowerCase();
+  return runInTransaction((trx) => {
+    const user = trx.prepare("SELECT id, name FROM users WHERE email = ? AND status = 'PENDING_VERIFICATION'")
+      .get(normalizedEmail) as { id: string; name: string } | undefined;
+    if (!user) return null;
+    const token = createPurposeToken('email_verification_tokens', user.id, VERIFY_TTL_MS, trx);
+    queueEmail(trx, {
+      recipient: normalizedEmail,
+      template: 'email_verification',
+      payload: {
+        name: user.name,
+        verifyUrl: `https://fortless.net/verify-email?token=${token}`,
+      },
+    });
+    return token;
+  }, db);
 }
 function identifierDigest(email: string): string { return crypto.createHash('sha256').update(email.trim().toLowerCase()).digest('hex'); }
 function recordLoginAttempt(email: string, ipAddress: string, succeeded: boolean, db: Database.Database): void {
@@ -254,20 +276,86 @@ export function loginUser(
 }
 
 export function requestPasswordReset(email: string, db: Database.Database = getDatabase()): string | null {
-  const user = db.prepare("SELECT id FROM users WHERE email = ? AND status != 'SUSPENDED'").get(email.trim().toLowerCase()) as { id: string } | undefined;
-  return user ? createPurposeToken('password_reset_tokens', user.id, RESET_TTL_MS, db) : null;
+  const normalizedEmail = email.trim().toLowerCase();
+  return runInTransaction((trx) => {
+    const user = trx.prepare("SELECT id, name FROM users WHERE email = ? AND status != 'SUSPENDED'")
+      .get(normalizedEmail) as { id: string; name: string } | undefined;
+    if (!user) return null;
+    const token = createPurposeToken('password_reset_tokens', user.id, RESET_TTL_MS, trx);
+    queueEmail(trx, {
+      recipient: normalizedEmail,
+      template: 'password_reset',
+      payload: {
+        resetUrl: `https://fortless.net/reset-password?token=${token}`,
+      },
+    });
+    return token;
+  }, db);
 }
 export function resetPassword(token: string, password: string, db: Database.Database = getDatabase()): void {
   const passwordError = validatePassword(password);
   if (passwordError) throw new Error(passwordError);
   runInTransaction((trx) => {
-    const row = trx.prepare(`SELECT prt.user_id FROM password_reset_tokens prt JOIN users u ON u.id = prt.user_id
+    const row = trx.prepare(`SELECT prt.user_id, u.email FROM password_reset_tokens prt JOIN users u ON u.id = prt.user_id
       WHERE prt.id = ? AND prt.consumed_at IS NULL AND prt.expires_at > datetime('now', 'utc') AND u.status != 'SUSPENDED'`)
-      .get(tokenDigest(token)) as { user_id: string } | undefined;
+      .get(tokenDigest(token)) as { user_id: string; email: string } | undefined;
     if (!row) throw new Error('This password reset link is invalid or has expired.');
     trx.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'utc') WHERE id = ?").run(hashPassword(password), row.user_id);
     trx.prepare("UPDATE password_reset_tokens SET consumed_at = datetime('now', 'utc') WHERE user_id = ? AND consumed_at IS NULL").run(row.user_id);
     trx.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id);
+    queueEmail(trx, {
+      recipient: row.email,
+      template: 'security_alert',
+      payload: {
+        title: 'Password Changed',
+        details: 'Your Fortless account password was reset and all existing device sessions were revoked.',
+      },
+    });
+  }, db);
+}
+
+export function changePassword(
+  data: {
+    userId: string;
+    accountId: string;
+    currentPassword: string;
+    newPassword: string;
+    currentSessionId: string;
+    ipAddress: string;
+  },
+  db: Database.Database = getDatabase()
+): void {
+  const passwordError = validatePassword(data.newPassword);
+  if (passwordError) throw new Error(passwordError);
+
+  runInTransaction((trx) => {
+    const user = trx.prepare('SELECT password_hash, email FROM users WHERE id = ?').get(data.userId) as
+      | { password_hash: string; email: string }
+      | undefined;
+    if (!user || !verifyPassword(user.password_hash, data.currentPassword)) {
+      throw new Error('Current password is incorrect.');
+    }
+
+    trx.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'utc') WHERE id = ?")
+      .run(hashPassword(data.newPassword), data.userId);
+
+    // Revoke all other sessions except the current one
+    trx.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(data.userId, data.currentSessionId);
+
+    // Queue security notification email
+    queueEmail(trx, {
+      recipient: user.email,
+      template: 'security_alert',
+      payload: {
+        title: 'Password Changed from Settings',
+        details: 'Your Fortless account password was changed from account settings. Other active sessions were revoked.',
+      },
+    });
+
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+      VALUES (?, ?, ?, 'USER', 'user.password_changed', 'user', ?, ?, ?)
+    `).run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
   }, db);
 }
 

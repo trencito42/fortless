@@ -1050,6 +1050,42 @@ button.li{width:100%;border:0;background:none;text-align:left}
   </div>
 </div>
 
+<!-- INVITE MEMBER MODAL -->
+<div id="inviteMemberModal" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="inviteModalTitle">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="tx">
+        <h3 id="inviteModalTitle">Invite workspace member</h3>
+        <small class="muted">Send an invitation to collaborate on this workspace.</small>
+      </div>
+      <button class="btn ghost sq s" type="button" data-close-invite aria-label="Close dialog">✕</button>
+    </div>
+    <form id="inviteMemberForm" class="col" style="gap:16px" novalidate>
+      <div class="field">
+        <label for="inviteEmail">Email address</label>
+        <div class="inp">
+          <input type="email" id="inviteEmail" required placeholder="colleague@example.com" autocomplete="email">
+        </div>
+      </div>
+      <div class="field">
+        <label for="inviteRole">Role</label>
+        <div class="inp">
+          <select id="inviteRole">
+            <option value="VIEWER">Viewer (Read-only)</option>
+            <option value="TECH_ADMIN" selected>Technical Administrator</option>
+            <option value="BILLING_MANAGER">Billing Manager</option>
+            <option value="OWNER">Owner (Full access)</option>
+          </select>
+        </div>
+      </div>
+      <div class="foot">
+        <button type="button" class="btn sec" data-close-invite>Cancel</button>
+        <button type="submit" class="btn" id="sendInviteBtn">Send invitation</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 if (false) {
 // --- CLIENT STATE ---

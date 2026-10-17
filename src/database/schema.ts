@@ -459,6 +459,32 @@ CREATE TABLE IF NOT EXISTS idempotency_records (
   PRIMARY KEY (account_id, scope, idempotency_key)
 );
 
+CREATE TABLE IF NOT EXISTS email_outbox (
+  id TEXT PRIMARY KEY,
+  recipient TEXT NOT NULL,
+  template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'security_alert')),
+  subject TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SENT', 'FAILED')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  sent_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS account_invitations (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('OWNER', 'BILLING_MANAGER', 'TECH_ADMIN', 'VIEWER')),
+  token_hash TEXT NOT NULL UNIQUE,
+  invited_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  accepted_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
 -- Indices for high-frequency queries
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_staff_memberships_status ON staff_memberships(status, role);
@@ -472,4 +498,6 @@ CREATE INDEX IF NOT EXISTS idx_services_account ON services(account_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_account ON tickets(account_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_account ON audit_events(account_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_events_status ON outbox_events(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_account_invitations_account ON account_invitations(account_id, email);
 `;

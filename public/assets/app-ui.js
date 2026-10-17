@@ -152,7 +152,7 @@
     if (route === 'billing') loadInvoices();
     if (route === 'tickets') loadTickets();
     if (route === 'audit') loadAudit();
-    if (route === 'settings') { loadMfa(); loadSessions(); }
+    if (route === 'settings') { loadMfa(); loadSessions(); loadTeamMembers(); loadEmailStatus(); }
   }
 
   function message(host, text, type = '') {
@@ -481,6 +481,56 @@
     } catch (error) { button.disabled = false; toast(error.message, 'bad'); }
   }
 
+  async function loadTeamMembers() {
+    const host = document.getElementById('teamMemberList');
+    if (!host) return;
+    message(host, 'Loading team members…');
+    try {
+      const data = await api('/api/v1/account/members');
+      if (!data.members || !data.members.length) {
+        host.innerHTML = `<div class="state-message"><span>No team members found.</span></div>`;
+        return;
+      }
+      host.innerHTML = `<div class="table-card" style="margin-top:8px"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;border-bottom:1px solid var(--s3);color:var(--ink2)"><th style="padding:8px">Member</th><th style="padding:8px">Role</th><th style="padding:8px">Joined</th><th style="padding:8px;text-align:right">Action</th></tr></thead><tbody>${data.members.map((m) => `
+        <tr style="border-bottom:1px solid var(--s2)">
+          <td style="padding:10px 8px"><b>${esc(m.name)}</b><br><small class="muted">${esc(m.email)}</small></td>
+          <td style="padding:10px 8px"><span class="badge ${m.role === 'OWNER' ? 'accent' : 'info'} s">${esc(m.role)}</span></td>
+          <td style="padding:10px 8px" class="muted">${date(m.createdAt)}</td>
+          <td style="padding:10px 8px;text-align:right">
+            ${m.isOwner ? '<span class="badge good s">Workspace Owner</span>' : `<button class="btn badt xs" type="button" data-revoke-member="${esc(m.id)}">Remove</button>`}
+          </td>
+        </tr>
+      `).join('')}</tbody></table></div>`;
+    } catch (error) {
+      message(host, error.message, 'bad');
+    }
+  }
+
+  async function loadEmailStatus() {
+    const host = document.getElementById('emailDeliveryStatus');
+    if (!host) return;
+    try {
+      const status = await api('/api/v1/email/status');
+      const modeBadges = {
+        disabled: '<span class="badge warn s">DISABLED (Zero fake delivery)</span>',
+        sandbox: '<span class="badge info s">SANDBOX (Local receipts active)</span>',
+        live: '<span class="badge good s">LIVE TRANSPORT</span>',
+      };
+      host.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border-radius:12px;">
+          <span>Transport Mode</span>
+          ${modeBadges[status.mode] || status.mode}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border-radius:12px;">
+          <span>Outbox Queue</span>
+          <span><b>${status.pendingCount}</b> pending · <b>${status.sentCount}</b> sent · <b>${status.failedCount}</b> failed</span>
+        </div>
+      `;
+    } catch (error) {
+      host.innerHTML = `<div class="state-message bad"><span>${esc(error.message)}</span></div>`;
+    }
+  }
+
   async function revokeDevice(sessionId, button) {
     button.disabled = true;
     try {
@@ -513,6 +563,21 @@
     sessionsCard.className = 'card sessions-card';
     sessionsCard.innerHTML = `<div class="section-card-head"><span class="ico-b accent">${hero('device')}</span><div class="tx"><h2>Active devices</h2><p>Review every valid session and sign out devices you no longer use.</p></div><div class="actions"><button id="revokeOtherSessionsBtn" class="btn sec s" type="button">Loading devices…</button></div></div><div id="sessionList" class="z-ss"><div class="state-message">${hero('refresh')}<span>Loading active devices…</span></div></div>`;
     settingsGrid.appendChild(sessionsCard);
+
+    const teamCard = document.createElement('div');
+    teamCard.className = 'card team-card';
+    teamCard.innerHTML = `<div class="section-card-head"><span class="ico-b accent">${hero('cube')}</span><div class="tx"><h2>Workspace team</h2><p>Collaborators and administrators for this workspace.</p></div><div class="actions"><button id="openInviteModalBtn" class="btn sec s" type="button">${hero('plus', 's')}Invite member</button></div></div><div id="teamMemberList"><div class="state-message">${hero('refresh')}<span>Loading team members…</span></div></div>`;
+    settingsGrid.appendChild(teamCard);
+
+    const passwordCard = document.createElement('div');
+    passwordCard.className = 'card password-card';
+    passwordCard.innerHTML = `<div class="section-card-head"><span class="ico-b accent">${hero('shield')}</span><div class="tx"><h2>Change password</h2><p>Update your credentials. Revokes other active device sessions.</p></div></div><form id="changePasswordForm" class="col" style="gap:12px;margin-top:12px"><div class="field"><label for="curPass">Current password</label><div class="inp"><input id="curPass" name="currentPassword" type="password" required autocomplete="current-password"></div></div><div class="field"><label for="newPass">New password</label><div class="inp"><input id="newPass" name="newPassword" type="password" required minlength="12" autocomplete="new-password"></div></div><div class="row" style="justify-content:flex-end"><button class="btn s" type="submit">Update password</button></div></form>`;
+    settingsGrid.appendChild(passwordCard);
+
+    const emailCard = document.createElement('div');
+    emailCard.className = 'card email-card';
+    emailCard.innerHTML = `<div class="section-card-head"><span class="ico-b accent">${hero('paper')}</span><div class="tx"><h2>Email delivery</h2><p>Durable transactional email outbox status.</p></div></div><div id="emailDeliveryStatus" class="col" style="gap:8px;margin-top:8px"><div class="state-message">${hero('refresh')}<span>Checking delivery status…</span></div></div>`;
+    settingsGrid.appendChild(emailCard);
   }
 
   function bindEvents() {
@@ -564,16 +629,71 @@
       if (copySecret) navigator.clipboard.writeText(copySecret.dataset.copySecret).then(() => toast('Setup key copied.', 'good'));
       const copyRecovery = event.target.closest('[data-copy-recovery]');
       if (copyRecovery) navigator.clipboard.writeText(copyRecovery.dataset.copyRecovery).then(() => toast('Recovery codes copied.', 'good'));
-      if (event.target.closest('[data-open-ticket]')) document.getElementById('newTicketModal').hidden = false;
       if (event.target.closest('[data-close-new-ticket]')) {
         document.getElementById('newTicketModal').hidden = true;
         document.getElementById('ticketFormError').hidden = true;
+      }
+      if (event.target.closest('#openInviteModalBtn')) {
+        document.getElementById('inviteMemberModal').hidden = false;
+      }
+      if (event.target.closest('[data-close-invite]')) {
+        document.getElementById('inviteMemberModal').hidden = true;
+      }
+      const revokeMember = event.target.closest('[data-revoke-member]');
+      if (revokeMember) {
+        const membershipId = revokeMember.dataset.revokeMember;
+        if (confirm('Are you sure you want to remove this team member?')) {
+          revokeMember.disabled = true;
+          api(`/api/v1/account/members/${encodeURIComponent(membershipId)}`, { method: 'DELETE' })
+            .then(() => { toast('Team member removed.', 'good'); loadTeamMembers(); })
+            .catch((err) => { revokeMember.disabled = false; toast(err.message, 'bad'); });
+        }
       }
     });
     document.addEventListener('submit', (event) => {
       if (event.target.matches('[data-mfa-enroll-form]')) { event.preventDefault(); beginMfaEnrollment(event.target); }
       if (event.target.matches('[data-mfa-confirm-form]')) { event.preventDefault(); confirmMfaEnrollment(event.target); }
       if (event.target.matches('[data-mfa-disable-form]')) { event.preventDefault(); disableMfa(event.target); }
+      if (event.target.id === 'inviteMemberForm') {
+        event.preventDefault();
+        const email = document.getElementById('inviteEmail').value;
+        const role = document.getElementById('inviteRole').value;
+        const btn = document.getElementById('sendInviteBtn');
+        btn.disabled = true;
+        api('/api/v1/account/members/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, role }),
+        })
+          .then(() => {
+            toast('Invitation sent.', 'good');
+            document.getElementById('inviteMemberModal').hidden = true;
+            document.getElementById('inviteMemberForm').reset();
+            loadTeamMembers();
+          })
+          .catch((err) => toast(err.message, 'bad'))
+          .finally(() => { btn.disabled = false; });
+      }
+      if (event.target.id === 'changePasswordForm') {
+        event.preventDefault();
+        const form = event.target;
+        const curPass = form.currentPassword.value;
+        const newPass = form.newPassword.value;
+        const btn = form.querySelector('[type=submit]');
+        btn.disabled = true;
+        api('/api/v1/auth/password/change', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword: curPass, newPassword: newPass }),
+        })
+          .then((res) => {
+            toast(res.message || 'Password updated. Other sessions revoked.', 'good');
+            form.reset();
+            loadSessions();
+          })
+          .catch((err) => toast(err.message, 'bad'))
+          .finally(() => { btn.disabled = false; });
+      }
     });
     document.addEventListener('input', (event) => {
       if (event.target.id === 'auditSearch') { renderAudit(); return; }

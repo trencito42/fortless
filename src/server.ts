@@ -26,11 +26,19 @@ import {
   resendVerification,
   requestPasswordReset,
   resetPassword,
+  changePassword,
   generateId,
   type AuthContext,
   MfaConfigurationUnavailableError,
   completeStepUp,
 } from './modules/identity/auth.js';
+import {
+  listAccountMembers,
+  listAccountInvitations,
+  inviteAccountMember,
+  revokeAccountMember,
+  acceptAccountInvitation,
+} from './modules/identity/teams.js';
 import { getPublishedPlans } from './modules/catalog/catalog.js';
 import { createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
@@ -559,6 +567,99 @@ export function buildServer(): FastifyInstance {
     if (!revoked) return reply.status(404).send({ error: 'Session not found.' });
     if (isCurrent) reply.clearCookie('fortless_session', { path: '/' });
     return { revoked: true, currentSessionRevoked: isCurrent };
+  });
+
+  // Auth: Change Password from Settings
+  app.post('/api/v1/auth/password/change', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = z.object({
+      currentPassword: z.string().min(1).max(128),
+      newPassword: z.string().min(12).max(128),
+    }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Current password and a valid new password (min 12 chars) are required.' });
+    try {
+      changePassword({
+        userId: req.auth!.user.id,
+        accountId: req.auth!.account.id,
+        currentPassword: parse.data.currentPassword,
+        newPassword: parse.data.newPassword,
+        currentSessionId: req.auth!.session.id,
+        ipAddress: req.ip,
+      });
+      return reply.send({ success: true, message: 'Password updated. Other sessions have been revoked.' });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  // Team & Organization Management
+  app.get('/api/v1/account/members', { preHandler: [requireAuth] }, async (req) => {
+    return {
+      members: listAccountMembers(req.auth!.account.id),
+      invitations: listAccountInvitations(req.auth!.account.id),
+    };
+  });
+
+  app.post('/api/v1/account/members/invite', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = z.object({
+      email: z.string().email(),
+      role: z.enum(['OWNER', 'BILLING_MANAGER', 'TECH_ADMIN', 'VIEWER']),
+    }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'A valid email and role (OWNER, BILLING_MANAGER, TECH_ADMIN, VIEWER) are required.' });
+    try {
+      const result = inviteAccountMember({
+        accountId: req.auth!.account.id,
+        invitedByUserId: req.auth!.user.id,
+        email: parse.data.email,
+        role: parse.data.role,
+        ipAddress: req.ip,
+      });
+      return reply.status(201).send({ success: true, invitationId: result.invitationId });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/v1/account/members/:membershipId', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = z.object({ membershipId: z.string().min(1) }).safeParse(req.params);
+    if (!parse.success) return reply.status(400).send({ error: 'Membership ID is required.' });
+    try {
+      revokeAccountMember({
+        accountId: req.auth!.account.id,
+        actorUserId: req.auth!.user.id,
+        membershipId: parse.data.membershipId,
+        ipAddress: req.ip,
+      });
+      return reply.send({ success: true, message: 'Team member removed.' });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/v1/account/invitations/accept', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = z.object({ token: z.string().min(1) }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Invitation token is required.' });
+    try {
+      const result = acceptAccountInvitation(parse.data.token, req.auth!.user.id, req.ip);
+      return reply.send({ success: true, accountId: result.accountId, role: result.role });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  // Email Delivery Status
+  app.get('/api/v1/email/status', { preHandler: [requireAuth] }, async () => {
+    const db = getDatabase();
+    const counts = db.prepare(`
+      SELECT status, count(*) AS count FROM email_outbox GROUP BY status
+    `).all() as { status: string; count: number }[];
+    const countMap: Record<string, number> = { PENDING: 0, SENT: 0, FAILED: 0 };
+    for (const c of counts) countMap[c.status] = c.count;
+    return {
+      mode: config.EMAIL_MODE,
+      pendingCount: countMap['PENDING'] || 0,
+      sentCount: countMap['SENT'] || 0,
+      failedCount: countMap['FAILED'] || 0,
+    };
   });
 
   // Catalog: Published Plans
