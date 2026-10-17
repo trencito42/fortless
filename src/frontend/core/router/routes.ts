@@ -19,6 +19,12 @@ export const CLIENT_ROUTES: Record<string, RouteDefinition> = {
     title: 'Deploy Service · FORTLESS',
     subtitle: 'Select configuration, location, and billing cycle.',
   },
+  domains: {
+    id: 'domains',
+    path: '/app/domains',
+    title: 'Domains & DNS · FORTLESS',
+    subtitle: 'Domain registration, TLD pricing catalog, and authoritative DNS zones.',
+  },
   billing: {
     id: 'billing',
     path: '/app/billing',

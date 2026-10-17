@@ -573,6 +573,33 @@ CREATE TABLE IF NOT EXISTS incident_updates (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS domain_zones (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  domain_name TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  auto_renew INTEGER NOT NULL DEFAULT 1,
+  nameservers TEXT NOT NULL DEFAULT '["ns1.fortless.net","ns2.fortless.net"]',
+  whois_privacy INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dns_records (
+  id TEXT PRIMARY KEY,
+  zone_id TEXT NOT NULL REFERENCES domain_zones(id) ON DELETE CASCADE,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  record_type TEXT NOT NULL,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  ttl INTEGER NOT NULL DEFAULT 3600,
+  priority INTEGER,
+  weight INTEGER,
+  port INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
 -- Indices for high-frequency queries
 CREATE INDEX IF NOT EXISTS idx_system_components_slug ON system_components(slug);
 CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status, created_at);
@@ -596,4 +623,8 @@ CREATE INDEX IF NOT EXISTS idx_notifications_account_user ON notifications(accou
 CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id);
 CREATE INDEX IF NOT EXISTS idx_passkey_cred_id ON passkey_credentials(credential_id);
 CREATE INDEX IF NOT EXISTS idx_webauthn_challenge ON webauthn_challenges(challenge, expires_at);
+CREATE INDEX IF NOT EXISTS idx_domain_zones_account ON domain_zones(account_id);
+CREATE INDEX IF NOT EXISTS idx_domain_zones_name ON domain_zones(domain_name);
+CREATE INDEX IF NOT EXISTS idx_dns_records_zone ON dns_records(zone_id);
+CREATE INDEX IF NOT EXISTS idx_dns_records_account ON dns_records(account_id);
 `;

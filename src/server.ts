@@ -112,6 +112,17 @@ import {
   updateComponentStatus,
 } from './modules/status/status.js';
 import { processSubscriptionRenewals } from './modules/billing/renewal-dunning.js';
+import {
+  searchDomain,
+  createDomainZone,
+  listDomainZones,
+  getDomainZone,
+  listDnsRecords,
+  createDnsRecord,
+  updateDnsRecord,
+  deleteDnsRecord,
+  TLD_CATALOG,
+} from './modules/domains/dns.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -292,7 +303,7 @@ export function buildServer(): FastifyInstance {
 
   app.get('/app/:view', async (req, reply) => {
     const { view } = req.params as { view: string };
-    const allowedViews = new Set(['deploy', 'billing', 'support', 'activity', 'settings']);
+    const allowedViews = new Set(['deploy', 'billing', 'support', 'activity', 'settings', 'domains']);
     if (!allowedViews.has(view)) return reply.redirect('/app');
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(`/app/${view}`)}`);
     const appPath = path.join(publicDir, 'app.html');
@@ -1352,6 +1363,148 @@ export function buildServer(): FastifyInstance {
       return reply.send({ success: true, ...result });
     } catch (err: unknown) {
       return reply.status(422).send({ error: (err as Error).message });
+    }
+  });
+
+  // Domains & DNS: Search
+  app.get('/api/v1/domains/search', async (req) => {
+    const query = ((req.query as Record<string, string>)?.query || '').trim();
+    return { ...searchDomain(getDatabase(), query), catalog: TLD_CATALOG };
+  });
+
+  // Domains & DNS: TLD Catalog
+  app.get('/api/v1/domains/tlds', async () => {
+    return { tlds: TLD_CATALOG };
+  });
+
+  // Domains & DNS: List Zones (Tenant Isolated)
+  app.get('/api/v1/domains/zones', { preHandler: [requireAuth] }, async (req) => {
+    return { zones: listDomainZones(getDatabase(), req.auth!.account.id) };
+  });
+
+  // Domains & DNS: Create / Register Zone (Tenant Isolated)
+  const createZoneSchema = z.object({
+    domainName: z.string().trim().min(3).max(253),
+    autoRenew: z.boolean().optional(),
+    whoisPrivacy: z.boolean().optional(),
+    periodYears: z.number().int().min(1).max(10).optional(),
+  });
+
+  app.post('/api/v1/domains/zones', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = createZoneSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    try {
+      const zone = createDomainZone(getDatabase(), {
+        accountId: req.auth!.account.id,
+        domainName: parse.data.domainName,
+        autoRenew: parse.data.autoRenew,
+        whoisPrivacy: parse.data.whoisPrivacy,
+        periodYears: parse.data.periodYears,
+        actorUserId: req.auth!.user.id,
+        ipAddress: req.ip,
+      });
+      return reply.status(201).send({ zone });
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
+  // Domains & DNS: Get Zone Detail
+  app.get('/api/v1/domains/zones/:zoneId', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { zoneId } = req.params as { zoneId: string };
+    const zone = getDomainZone(getDatabase(), req.auth!.account.id, zoneId);
+    if (!zone) {
+      return reply.status(404).send({ error: 'Domain zone not found' });
+    }
+    const records = listDnsRecords(getDatabase(), req.auth!.account.id, zoneId);
+    return { zone, records };
+  });
+
+  // Domains & DNS: List DNS Records for Zone
+  app.get('/api/v1/domains/zones/:zoneId/records', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { zoneId } = req.params as { zoneId: string };
+    try {
+      const records = listDnsRecords(getDatabase(), req.auth!.account.id, zoneId);
+      return { records };
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
+  // Domains & DNS: Create DNS Record
+  const dnsRecordSchema = z.object({
+    recordType: z.enum(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'NS']),
+    name: z.string().trim().min(1).max(253),
+    content: z.string().trim().min(1).max(2048),
+    ttl: z.number().int().min(60).max(86400).optional(),
+    priority: z.number().int().min(0).max(65535).optional(),
+    weight: z.number().int().min(0).max(65535).optional(),
+    port: z.number().int().min(1).max(65535).optional(),
+  });
+
+  app.post('/api/v1/domains/zones/:zoneId/records', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { zoneId } = req.params as { zoneId: string };
+    const parse = dnsRecordSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    try {
+      const record = createDnsRecord(
+        getDatabase(),
+        req.auth!.account.id,
+        zoneId,
+        parse.data,
+        req.auth!.user.id,
+        req.ip
+      );
+      return reply.status(201).send({ record });
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      const status = msg.startsWith('NOT_FOUND') ? 404 : 400;
+      return reply.status(status).send({ error: msg });
+    }
+  });
+
+  // Domains & DNS: Update DNS Record
+  const updateDnsRecordSchema = dnsRecordSchema.partial();
+
+  app.put('/api/v1/domains/zones/:zoneId/records/:recordId', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { zoneId, recordId } = req.params as { zoneId: string; recordId: string };
+    const parse = updateDnsRecordSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    try {
+      const record = updateDnsRecord(
+        getDatabase(),
+        req.auth!.account.id,
+        zoneId,
+        recordId,
+        parse.data,
+        req.auth!.user.id,
+        req.ip
+      );
+      return { record };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      const status = msg.startsWith('NOT_FOUND') ? 404 : 400;
+      return reply.status(status).send({ error: msg });
+    }
+  });
+
+  // Domains & DNS: Delete DNS Record
+  app.delete('/api/v1/domains/zones/:zoneId/records/:recordId', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { zoneId, recordId } = req.params as { zoneId: string; recordId: string };
+    try {
+      deleteDnsRecord(getDatabase(), req.auth!.account.id, zoneId, recordId, req.auth!.user.id, req.ip);
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      const status = msg.startsWith('NOT_FOUND') ? 404 : 400;
+      return reply.status(status).send({ error: msg });
     }
   });
 

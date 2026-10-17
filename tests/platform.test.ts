@@ -118,6 +118,17 @@ import {
 } from '../src/modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission } from '../src/modules/admin/access.js';
 import { listTickets, createTicket, getTicketThread, addCustomerReply, addTicketAttachment, listTicketAttachments, getTicketAttachment, sanitizeFilename } from '../src/modules/support/tickets.js';
+import {
+  searchDomain,
+  createDomainZone,
+  listDomainZones,
+  getDomainZone,
+  listDnsRecords,
+  createDnsRecord,
+  updateDnsRecord,
+  deleteDnsRecord,
+  TLD_CATALOG,
+} from '../src/modules/domains/dns.js';
 
 describe('FORTLESS Comprehensive Production Test Suite', () => {
   let db: Database.Database;
@@ -2598,6 +2609,244 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       await expect(adapter.powerAction('cp_any_user', 'RESTART')).rejects.toThrow(
         expect.objectContaining({ code: 'UNSUPPORTED_OPERATION' })
       );
+    });
+  });
+
+  describe('Category P: Extended Infrastructure — Domains & Authoritative DNS Management', () => {
+    it('DOM-01: Domain search validates input, parses TLD, and returns availability and minor-unit pricing for catalog TLDs', () => {
+      // 1. Search generic label without TLD -> returns all supported catalog TLDs with EUR pricing
+      const res1 = searchDomain(db, 'myawesomegame');
+      expect(res1.query).toBe('myawesomegame');
+      expect(res1.results.length).toBeGreaterThanOrEqual(5);
+
+      const dotCom = res1.results.find((r) => r.tld === '.com');
+      expect(dotCom).toBeDefined();
+      expect(dotCom?.available).toBe(true);
+      expect(dotCom?.status).toBe('AVAILABLE');
+      expect(dotCom?.annualPriceMinorUnits).toBe(1250); // €12.50
+      expect(dotCom?.currency).toBe('EUR');
+
+      const dotIo = res1.results.find((r) => r.tld === '.io');
+      expect(dotIo?.annualPriceMinorUnits).toBe(3900); // €39.00
+
+      // 2. Specific domain provided
+      const res2 = searchDomain(db, 'myawesomegame.net');
+      expect(res2.results).toHaveLength(1);
+      expect(res2.results[0]!.available).toBe(true);
+      expect(res2.results[0]!.annualPriceMinorUnits).toBe(1400);
+
+      // 3. Already registered domain shows TAKEN
+      const userTaken = registerUser(
+        { email: 'taken.owner@example.com', password: 'Password123!', name: 'Taken Owner', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      createDomainZone(db, {
+        accountId: userTaken.account.id,
+        domainName: 'taken-domain.com',
+      });
+      const resTaken = searchDomain(db, 'taken-domain.com');
+      expect(resTaken.results[0]!.available).toBe(false);
+      expect(resTaken.results[0]!.status).toBe('TAKEN');
+      expect(TLD_CATALOG['.com']?.annualPriceMinorUnits).toBe(1250);
+
+      // 4. Invalid syntax checks
+      const resInvalid = searchDomain(db, 'invalid_label$$.com');
+      expect(resInvalid.results[0]!.status).toBe('INVALID_SYNTAX');
+      expect(resInvalid.results[0]!.available).toBe(false);
+
+      // 5. Unsupported TLD
+      const resUnsupported = searchDomain(db, 'mysite.unsupportedtld');
+      expect(resUnsupported.results[0]!.status).toBe('UNSUPPORTED_TLD');
+      expect(resUnsupported.results[0]!.available).toBe(false);
+    });
+
+    it('DOM-02: Multi-tenant zone isolation prevents Tenant B from viewing or mutating Tenant A\'s DNS records', () => {
+      const userA = registerUser(
+        { email: 'tenant.a@example.com', password: 'Password123!', name: 'Tenant A', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const userB = registerUser(
+        { email: 'tenant.b@example.com', password: 'Password123!', name: 'Tenant B', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      // Tenant A creates zone
+      const zoneA = createDomainZone(db, {
+        accountId: userA.account.id,
+        domainName: 'tenanta-infrastructure.com',
+        actorUserId: userA.user.id,
+      });
+
+      // Tenant A creates an A record
+      const recordA = createDnsRecord(db, userA.account.id, zoneA.id, {
+        recordType: 'A',
+        name: 'api',
+        content: '198.51.100.42',
+        ttl: 300,
+      }, userA.user.id);
+
+      // Tenant B lists zones -> zoneA is NOT present
+      const zonesB = listDomainZones(db, userB.account.id);
+      expect(zonesB.find((z) => z.id === zoneA.id)).toBeUndefined();
+
+      // Tenant B attempts to get zoneA -> null
+      const directGet = getDomainZone(db, userB.account.id, zoneA.id);
+      expect(directGet).toBeNull();
+
+      // Tenant B attempts to list DNS records in zoneA -> throws NOT_FOUND
+      expect(() => listDnsRecords(db, userB.account.id, zoneA.id)).toThrow(/NOT_FOUND/);
+
+      // Tenant B attempts to add record to zoneA -> throws NOT_FOUND
+      expect(() => createDnsRecord(db, userB.account.id, zoneA.id, {
+        recordType: 'A',
+        name: 'hacked',
+        content: '198.51.100.99',
+      })).toThrow(/NOT_FOUND/);
+
+      // Tenant B attempts to update recordA -> throws NOT_FOUND
+      expect(() => updateDnsRecord(db, userB.account.id, zoneA.id, recordA.id, {
+        content: '198.51.100.100',
+      })).toThrow(/NOT_FOUND/);
+
+      // Tenant B attempts to delete recordA -> throws NOT_FOUND
+      expect(() => deleteDnsRecord(db, userB.account.id, zoneA.id, recordA.id)).toThrow(/NOT_FOUND/);
+
+      // Tenant A's record remains unmodified
+      const recordsA = listDnsRecords(db, userA.account.id, zoneA.id);
+      const apiRec = recordsA.find((r) => r.id === recordA.id);
+      expect(apiRec?.content).toBe('198.51.100.42');
+    });
+
+    it('DOM-03: DNS record validation enforces RFC rules for A, AAAA, CNAME, MX, TXT, and SRV, rejecting invalid payloads', () => {
+      const user = registerUser(
+        { email: 'rfc.tester@example.com', password: 'Password123!', name: 'RFC Tester', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const zone = createDomainZone(db, {
+        accountId: user.account.id,
+        domainName: 'rfc-compliance.com',
+      });
+
+      // Valid A (IPv4)
+      const recA = createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'A',
+        name: 'node01',
+        content: '203.0.113.10',
+        ttl: 1800,
+      });
+      expect(recA.content).toBe('203.0.113.10');
+
+      // Invalid A (Invalid octet)
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'A',
+        name: 'node02',
+        content: '300.1.2.3',
+      })).toThrow(/Invalid IPv4 address/);
+
+      // Valid AAAA (IPv6)
+      const recAaaa = createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'AAAA',
+        name: 'ipv6node',
+        content: '2001:db8::1',
+      });
+      expect(recAaaa.content).toBe('2001:db8::1');
+
+      // Invalid AAAA
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'AAAA',
+        name: 'bad-ipv6',
+        content: '2001:xyz::invalid',
+      })).toThrow(/Invalid IPv6 address/);
+
+      // Valid MX (Mail)
+      const recMx = createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'MX',
+        name: '@',
+        content: 'mail.rfc-compliance.com',
+        priority: 10,
+      });
+      expect(recMx.priority).toBe(10);
+
+      // Invalid MX (missing priority)
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'MX',
+        name: '@',
+        content: 'mail2.rfc-compliance.com',
+      })).toThrow(/MX record requires an integer priority/);
+
+      // Valid SRV (Service)
+      const recSrv = createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'SRV',
+        name: '_minecraft._tcp',
+        content: 'play.rfc-compliance.com',
+        priority: 0,
+        weight: 5,
+        port: 25565,
+      });
+      expect(recSrv.port).toBe(25565);
+
+      // Invalid SRV (port > 65535)
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'SRV',
+        name: '_bad._tcp',
+        content: 'play.rfc-compliance.com',
+        priority: 0,
+        weight: 5,
+        port: 70000,
+      })).toThrow(/integer port/);
+
+      // Invalid TTL (< 60)
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'A',
+        name: 'ttl-bad',
+        content: '198.51.100.1',
+        ttl: 10,
+      })).toThrow(/TTL must be an integer between 60 and 86400/);
+    });
+
+    it('DOM-04: CNAME collision rule (RFC 1912 §2.4): CNAME cannot coexist with other records at the same node', () => {
+      const user = registerUser(
+        { email: 'cname.rule@example.com', password: 'Password123!', name: 'CNAME Tester', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const zone = createDomainZone(db, {
+        accountId: user.account.id,
+        domainName: 'cname-collision-test.com',
+      });
+
+      // 1. Create an A record at 'blog'
+      createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'A',
+        name: 'blog',
+        content: '198.51.100.50',
+      });
+
+      // 2. Attempting to add a CNAME record at 'blog' fails with CNAME_COLLISION
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'CNAME',
+        name: 'blog',
+        content: 'cdn.external-provider.com',
+      })).toThrow(/CNAME_COLLISION/);
+
+      // 3. Create a CNAME record at 'store'
+      createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'CNAME',
+        name: 'store',
+        content: 'shops.external-provider.com',
+      });
+
+      // 4. Attempting to add a TXT record or A record at 'store' fails with CNAME_COLLISION
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'TXT',
+        name: 'store',
+        content: 'v=spf1 include:shops.com ~all',
+      })).toThrow(/CNAME_COLLISION/);
+
+      expect(() => createDnsRecord(db, user.account.id, zone.id, {
+        recordType: 'A',
+        name: 'store',
+        content: '198.51.100.99',
+      })).toThrow(/CNAME_COLLISION/);
     });
   });
 });

@@ -430,6 +430,46 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 14,
+    name: 'domain_zones_and_dns_records',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS domain_zones (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          domain_name TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL DEFAULT 'ACTIVE',
+          auto_renew INTEGER NOT NULL DEFAULT 1,
+          nameservers TEXT NOT NULL DEFAULT '["ns1.fortless.net","ns2.fortless.net"]',
+          whois_privacy INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          expires_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_domain_zones_account ON domain_zones(account_id);
+        CREATE INDEX IF NOT EXISTS idx_domain_zones_name ON domain_zones(domain_name);
+
+        CREATE TABLE IF NOT EXISTS dns_records (
+          id TEXT PRIMARY KEY,
+          zone_id TEXT NOT NULL REFERENCES domain_zones(id) ON DELETE CASCADE,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          record_type TEXT NOT NULL,
+          name TEXT NOT NULL,
+          content TEXT NOT NULL,
+          ttl INTEGER NOT NULL DEFAULT 3600,
+          priority INTEGER,
+          weight INTEGER,
+          port INTEGER,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_dns_records_zone ON dns_records(zone_id);
+        CREATE INDEX IF NOT EXISTS idx_dns_records_account ON dns_records(account_id);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

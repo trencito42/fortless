@@ -13,6 +13,7 @@ import { AppShell } from './shell/app-shell.js';
 import { renderDashboard, powerService } from './pages/dashboard/index.js';
 import { renderServiceDetail } from './pages/services/index.js';
 import { renderDeploy, deployState, updateSummary, beginCheckout } from './pages/deploy/index.js';
+import { renderDomains } from './pages/domains/index.js';
 import { renderBilling, cancelSubscription } from './pages/billing/index.js';
 import {
   renderTickets,
@@ -46,6 +47,7 @@ function updateNavigationChrome(routeName: string) {
     servers: ['Services', 'Actual service records and provider-observed runtime state for this account.'],
     'service-detail': ['Service Detail', 'Detailed configuration, provider allocation, and operational logs.'],
     deploy: ['Configure a service', 'Catalog preview; ordering remains disabled until payment and infrastructure providers are verified.'],
+    domains: ['Domains & DNS', 'Authoritative domain zones, registrar search, and RFC compliant DNS records.'],
     billing: ['Billing', 'Draft and issued documents recorded for this account.'],
     tickets: ['Support', 'Open and review account-scoped support conversations.'],
     audit: ['Activity', 'Account-scoped audit events recorded by the current implementation.'],
@@ -64,7 +66,7 @@ function updateNavigationChrome(routeName: string) {
   }
 
   // Show only current section
-  const sectionKeys = ['servers', 'service-detail', 'deploy', 'billing', 'tickets', 'audit', 'settings'];
+  const sectionKeys = ['servers', 'service-detail', 'deploy', 'domains', 'billing', 'tickets', 'audit', 'settings'];
   sectionKeys.forEach((key) => {
     const section = document.getElementById(`section-${key}`);
     if (section) section.style.display = key === routeName ? 'block' : 'none';
@@ -88,6 +90,11 @@ router.register('service-detail', async (ctx: RouteMatch) => {
 router.register('deploy', async () => {
   updateNavigationChrome('deploy');
   await renderDeploy();
+});
+
+router.register('domains', async () => {
+  updateNavigationChrome('domains');
+  await renderDomains();
 });
 
 router.register('billing', async () => {

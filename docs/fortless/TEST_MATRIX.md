@@ -103,6 +103,12 @@ Every vertical slice must be validated across the testing pyramid before being m
 - [x] `CPANEL-03`: The Unknown Outcome Rule — Timeout during cPanel account creation recovers via correlation lookup without creating duplicates. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 - [x] `CPANEL-04`: Direct VM power actions on shared cPanel hosting fail closed with typed UNSUPPORTED_OPERATION error. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 
+### J. Domains & Authoritative DNS Management
+- [x] `DOM-01`: Domain search validates input, parses TLD, and returns availability and minor-unit pricing for catalog TLDs. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `DOM-02`: Multi-tenant zone isolation prevents Tenant B from viewing or mutating Tenant A's DNS records. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `DOM-03`: DNS record validation enforces RFC rules for A, AAAA, CNAME, MX, TXT, and SRV, rejecting invalid payloads. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `DOM-04`: CNAME collision rule (RFC 1912 §2.4): CNAME cannot coexist with other records at the same node. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+
 ---
 
 ## 3. Strict P0 Release Acceptance Gate Checklist

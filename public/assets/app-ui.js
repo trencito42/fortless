@@ -129,6 +129,12 @@
       title: "Deploy Service \xB7 FORTLESS",
       subtitle: "Select configuration, location, and billing cycle."
     },
+    domains: {
+      id: "domains",
+      path: "/app/domains",
+      title: "Domains & DNS \xB7 FORTLESS",
+      subtitle: "Domain registration, TLD pricing catalog, and authoritative DNS zones."
+    },
     billing: {
       id: "billing",
       path: "/app/billing",
@@ -1345,6 +1351,293 @@
     }
   }
 
+  // src/frontend/client/pages/domains/index.ts
+  var activeZoneId = null;
+  async function renderDomains() {
+    await Promise.all([loadZones(), loadTldPricing()]);
+    bindDomainEvents();
+  }
+  async function loadTldPricing() {
+    const host = document.getElementById("tldPricingChips");
+    if (!host) return;
+    try {
+      const { tlds } = await api("/api/v1/domains/tlds");
+      host.innerHTML = Object.values(tlds).map(
+        (t) => `
+        <span class="badge ${t.popular ? "accent" : ""} s" style="cursor:pointer" data-tld="${esc(t.tld)}">
+          <b>${esc(t.tld)}</b> ${money(t.annualPriceMinorUnits, t.currency)}/yr
+        </span>
+      `
+      ).join(" ");
+    } catch {
+    }
+  }
+  async function loadZones() {
+    const host = document.getElementById("domainZonesContainer");
+    if (!host) return;
+    host.innerHTML = '<div class="state-message">Loading domain zones\u2026</div>';
+    try {
+      const { zones } = await api("/api/v1/domains/zones");
+      if (!zones.length) {
+        host.innerHTML = renderEmptyState({
+          icon: "document",
+          title: "No domain zones active",
+          message: "Search and register a domain above or delegate DNS to Fortless authoritative nameservers."
+        });
+        return;
+      }
+      host.innerHTML = `
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Domain Name</th>
+            <th>Status</th>
+            <th>Nameservers</th>
+            <th>Auto-Renew</th>
+            <th>Expires</th>
+            <th class="r">DNS Records</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${zones.map((z) => {
+        const ns = JSON.parse(z.nameservers || "[]");
+        return `
+              <tr class="mobile-record">
+                <td data-label="Domain">
+                  <div class="row" style="gap:8px">
+                    <svg class="ic s" style="color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    <b>${esc(z.domain_name)}</b>
+                  </div>
+                </td>
+                <td data-label="Status"><span class="badge good s">${esc(z.status)}</span></td>
+                <td data-label="Nameservers" class="muted mono" style="font-size:12px">${esc(ns.join(", "))}</td>
+                <td data-label="Auto-Renew">${z.auto_renew ? '<span class="badge s accent">Active</span>' : '<span class="badge s">Disabled</span>'}</td>
+                <td data-label="Expires" class="muted">${esc(formatDate(z.expires_at))}</td>
+                <td data-label="DNS Records" class="r">
+                  <button type="button" class="btn sec s manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}">
+                    Manage DNS
+                  </button>
+                </td>
+              </tr>
+            `;
+      }).join("")}
+        </tbody>
+      </table>
+    `;
+      host.querySelectorAll(".manage-dns-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const zid = btn.dataset.zoneId;
+          const dom = btn.dataset.domain;
+          if (zid && dom) openDnsEditor(zid, dom);
+        });
+      });
+    } catch (err) {
+      host.innerHTML = `<div class="state-message" style="color:var(--bad)">Failed to load domains: ${esc(err.message)}</div>`;
+    }
+  }
+  async function searchDomains(query) {
+    const host = document.getElementById("domainSearchResults");
+    if (!host) return;
+    const clean = query.trim();
+    if (!clean) {
+      host.innerHTML = "";
+      return;
+    }
+    host.innerHTML = '<div class="state-message">Searching availability and catalog pricing\u2026</div>';
+    try {
+      const res = await api(`/api/v1/domains/search?query=${encodeURIComponent(clean)}`);
+      if (!res.results || !res.results.length) {
+        host.innerHTML = '<div class="state-message">No matching TLDs found.</div>';
+        return;
+      }
+      host.innerHTML = `
+      <div class="col" style="gap:8px;margin-top:14px">
+        ${res.results.map((item) => {
+        const isAvail = item.available && item.status === "AVAILABLE";
+        const badgeClass = isAvail ? "good" : "bad";
+        return `
+            <div class="card s2 row" style="padding:12px 16px;justify-content:space-between">
+              <div class="row" style="gap:12px">
+                <span class="badge ${badgeClass} s">${esc(item.status)}</span>
+                <b class="mono" style="font-size:15px">${esc(item.domain)}</b>
+              </div>
+              <div class="row" style="gap:12px">
+                ${item.annualPriceMinorUnits !== null ? `<span class="num" style="font-weight:700">${money(item.annualPriceMinorUnits, item.currency || "EUR")} <small class="muted">/yr</small></span>` : ""}
+                ${isAvail ? `<button type="button" class="btn accent s register-domain-btn" data-domain="${esc(item.domain)}">Register</button>` : `<span class="badge s">Unavailable</span>`}
+              </div>
+            </div>
+          `;
+      }).join("")}
+      </div>
+    `;
+      host.querySelectorAll(".register-domain-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const domain = btn.dataset.domain;
+          if (!domain) return;
+          btn.disabled = true;
+          btn.textContent = "Registering\u2026";
+          try {
+            await api("/api/v1/domains/zones", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ domainName: domain, autoRenew: true, whoisPrivacy: true, periodYears: 1 })
+            });
+            toast(`Domain "${domain}" zone created successfully.`, "good");
+            await loadZones();
+            await searchDomains(domain);
+          } catch (err) {
+            toast(err.message, "bad");
+            btn.disabled = false;
+            btn.textContent = "Register";
+          }
+        });
+      });
+    } catch (err) {
+      host.innerHTML = `<div class="state-message" style="color:var(--bad)">Search failed: ${esc(err.message)}</div>`;
+    }
+  }
+  async function openDnsEditor(zoneId, domainName) {
+    activeZoneId = zoneId;
+    const editorCard = document.getElementById("dnsEditorCard");
+    const title = document.getElementById("dnsEditorDomainTitle");
+    if (editorCard) editorCard.style.display = "block";
+    if (title) title.textContent = domainName;
+    await loadDnsRecords(zoneId);
+    editorCard?.scrollIntoView({ behavior: "smooth" });
+  }
+  async function loadDnsRecords(zoneId) {
+    const host = document.getElementById("dnsRecordsContainer");
+    if (!host) return;
+    host.innerHTML = '<div class="state-message">Loading DNS records\u2026</div>';
+    try {
+      const { records } = await api(`/api/v1/domains/zones/${encodeURIComponent(zoneId)}/records`);
+      if (!records.length) {
+        host.innerHTML = renderEmptyState({
+          icon: "document",
+          title: "No DNS records configured",
+          message: "Add an A, AAAA, CNAME, MX, or TXT record using the form below."
+        });
+        return;
+      }
+      host.innerHTML = `
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Content / Target</th>
+            <th>TTL</th>
+            <th>Priority</th>
+            <th class="r">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${records.map(
+        (r) => `
+            <tr class="mobile-record">
+              <td data-label="Type"><span class="badge accent s">${esc(r.record_type)}</span></td>
+              <td data-label="Name" class="mono"><b>${esc(r.name)}</b></td>
+              <td data-label="Content" class="mono muted" style="word-break:break-all">${esc(r.content)}</td>
+              <td data-label="TTL" class="num">${r.ttl}s</td>
+              <td data-label="Priority" class="num">${r.priority !== null ? r.priority : "\u2014"}</td>
+              <td data-label="Actions" class="r">
+                <button type="button" class="btn sec xs delete-dns-btn" data-record-id="${esc(r.id)}" style="color:var(--bad)">
+                  Delete
+                </button>
+              </td>
+            </tr>
+          `
+      ).join("")}
+        </tbody>
+      </table>
+    `;
+      host.querySelectorAll(".delete-dns-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const rid = btn.dataset.recordId;
+          if (!rid || !activeZoneId) return;
+          if (!confirm("Are you sure you want to delete this DNS record?")) return;
+          btn.disabled = true;
+          try {
+            await api(`/api/v1/domains/zones/${encodeURIComponent(activeZoneId)}/records/${encodeURIComponent(rid)}`, {
+              method: "DELETE"
+            });
+            toast("DNS record deleted successfully.", "good");
+            await loadDnsRecords(activeZoneId);
+          } catch (err) {
+            toast(err.message, "bad");
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (err) {
+      host.innerHTML = `<div class="state-message" style="color:var(--bad)">Failed to load DNS records: ${esc(err.message)}</div>`;
+    }
+  }
+  function bindDomainEvents() {
+    const searchInput = document.getElementById("domainSearchInput");
+    const searchBtn = document.getElementById("domainSearchBtn");
+    searchBtn?.addEventListener("click", () => {
+      if (searchInput) searchDomains(searchInput.value);
+    });
+    searchInput?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        searchDomains(searchInput.value);
+      }
+    });
+    document.getElementById("refreshZonesBtn")?.addEventListener("click", loadZones);
+    const addRecordForm = document.getElementById("addDnsRecordForm");
+    addRecordForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!activeZoneId) {
+        toast("Select a domain zone first.", "bad");
+        return;
+      }
+      const typeSelect = document.getElementById("dnsRecordType");
+      const nameInput = document.getElementById("dnsRecordName");
+      const contentInput = document.getElementById("dnsRecordContent");
+      const ttlInput = document.getElementById("dnsRecordTtl");
+      const prioInput = document.getElementById("dnsRecordPriority");
+      const submitBtn = document.getElementById("addDnsRecordBtn");
+      if (!typeSelect || !nameInput || !contentInput) return;
+      const payload = {
+        recordType: typeSelect.value,
+        name: nameInput.value.trim(),
+        content: contentInput.value.trim(),
+        ttl: ttlInput?.value ? parseInt(ttlInput.value, 10) : 3600,
+        priority: prioInput?.value ? parseInt(prioInput.value, 10) : void 0
+      };
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Saving\u2026";
+      }
+      try {
+        await api(`/api/v1/domains/zones/${encodeURIComponent(activeZoneId)}/records`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        toast("DNS record created.", "good");
+        nameInput.value = "";
+        contentInput.value = "";
+        if (prioInput) prioInput.value = "";
+        await loadDnsRecords(activeZoneId);
+      } catch (err) {
+        toast(err.message, "bad");
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Add Record";
+        }
+      }
+    });
+    document.getElementById("closeDnsEditorBtn")?.addEventListener("click", () => {
+      const editor = document.getElementById("dnsEditorCard");
+      if (editor) editor.style.display = "none";
+      activeZoneId = null;
+    });
+  }
+
   // src/frontend/client/pages/billing/index.ts
   async function renderBilling() {
     const host = document.getElementById("invoicesTableBody");
@@ -2101,6 +2394,7 @@
       servers: ["Services", "Actual service records and provider-observed runtime state for this account."],
       "service-detail": ["Service Detail", "Detailed configuration, provider allocation, and operational logs."],
       deploy: ["Configure a service", "Catalog preview; ordering remains disabled until payment and infrastructure providers are verified."],
+      domains: ["Domains & DNS", "Authoritative domain zones, registrar search, and RFC compliant DNS records."],
       billing: ["Billing", "Draft and issued documents recorded for this account."],
       tickets: ["Support", "Open and review account-scoped support conversations."],
       audit: ["Activity", "Account-scoped audit events recorded by the current implementation."],
@@ -2115,7 +2409,7 @@
     if (catalogAction) {
       catalogAction.hidden = routeName === "deploy" || routeName === "service-detail";
     }
-    const sectionKeys = ["servers", "service-detail", "deploy", "billing", "tickets", "audit", "settings"];
+    const sectionKeys = ["servers", "service-detail", "deploy", "domains", "billing", "tickets", "audit", "settings"];
     sectionKeys.forEach((key) => {
       const section = document.getElementById(`section-${key}`);
       if (section) section.style.display = key === routeName ? "block" : "none";
@@ -2134,6 +2428,10 @@
   router.register("deploy", async () => {
     updateNavigationChrome("deploy");
     await renderDeploy();
+  });
+  router.register("domains", async () => {
+    updateNavigationChrome("domains");
+    await renderDomains();
   });
   router.register("billing", async () => {
     updateNavigationChrome("billing");
