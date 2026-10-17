@@ -277,7 +277,7 @@ h1 {
   filter: brightness(1.08);
 }
 .btn:active {
-  transform: scale(0.985);
+  transform: scale(0.97);
 }
 .btn:disabled {
   opacity: 0.55;

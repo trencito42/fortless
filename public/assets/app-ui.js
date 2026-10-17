@@ -1309,6 +1309,10 @@ ${node.textContent || ""}
   }
 
   // src/frontend/client/pages/services/index.ts
+  function copyValue(value, label) {
+    if (!value) return '<code class="mono">Pending</code>';
+    return `<span class="row service-copy"><code class="cd2">${esc(value)}</code><button class="btn xs sq sec" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy", "xs")}</button></span>`;
+  }
   async function renderServiceDetail(serviceId) {
     if (!serviceId) return;
     try {
@@ -1354,23 +1358,11 @@ ${node.textContent || ""}
       }
       const specsList = document.getElementById("detailSpecsList");
       if (specsList) {
-        specsList.innerHTML = `
-        <div class="row"><span class="muted" style="width:140px">Service ID:</span><code class="mono">${esc(service.id)}</code></div>
-        <div class="row"><span class="muted" style="width:140px">Allocated RAM:</span><b>${Number(service.desiredConfig?.memoryLimitMb || 0) / 1024} GB</b></div>
-        <div class="row"><span class="muted" style="width:140px">CPU Limit:</span><b>${esc(service.desiredConfig?.cpuLimitPct || 0)}%</b></div>
-        <div class="row"><span class="muted" style="width:140px">Allocated Disk:</span><b>${Number(service.desiredConfig?.diskLimitMb || 0) / 1024} GB SSD</b></div>
-        <div class="row"><span class="muted" style="width:140px">Provider Type:</span><span class="badge s">${esc(service.providerType)}</span></div>
-      `;
+        specsList.innerHTML = `<dl class="kv service-kv"><dt>Service ID</dt><dd>${copyValue(service.id, "service ID")}</dd><dt>Allocated RAM</dt><dd>${Number(service.desiredConfig?.memoryLimitMb || 0) / 1024} GB</dd><dt>CPU limit</dt><dd>${esc(service.desiredConfig?.cpuLimitPct || 0)}%</dd><dt>Allocated disk</dt><dd>${Number(service.desiredConfig?.diskLimitMb || 0) / 1024} GB SSD</dd><dt>Provider type</dt><dd><span class="badge s">${esc(service.providerType)}</span></dd></dl>`;
       }
       const connList = document.getElementById("detailConnectionList");
       if (connList) {
-        connList.innerHTML = `
-        <div class="row"><span class="muted" style="width:140px">Node Hostname:</span><code class="mono">${esc(service.nodeFqdn)}</code></div>
-        <div class="row"><span class="muted" style="width:140px">Datacenter:</span><b>${esc(service.regionName)} (${esc(service.regionCode)})</b></div>
-        <div class="row"><span class="muted" style="width:140px">Remote ID:</span><code class="mono">${esc(service.externalId || "Pending")}</code></div>
-        <div class="row"><span class="muted" style="width:140px">Short Identifier:</span><code class="mono">${esc(service.identifier || "Pending")}</code></div>
-        <div class="row"><span class="muted" style="width:140px">Created At:</span><span>${formatDate(service.createdAt)}</span></div>
-      `;
+        connList.innerHTML = `<dl class="kv service-kv"><dt>Node hostname</dt><dd>${copyValue(service.nodeFqdn, "node hostname")}</dd><dt>Datacenter</dt><dd>${esc(service.regionName)} (${esc(service.regionCode)})</dd><dt>Remote ID</dt><dd>${copyValue(service.externalId, "remote ID")}</dd><dt>Short identifier</dt><dd>${copyValue(service.identifier, "short identifier")}</dd><dt>Created</dt><dd>${formatDate(service.createdAt)}</dd></dl>`;
       }
       const ramMb = Number(service.desiredConfig?.memoryLimitMb || 0);
       const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
@@ -1384,17 +1376,10 @@ ${node.textContent || ""}
       const timeline = document.getElementById("detailAuditTimeline");
       if (timeline) {
         if (!service.auditTrail || !service.auditTrail.length) {
-          timeline.innerHTML = '<div class="state-message">No recorded activity yet for this service.</div>';
+          timeline.innerHTML = renderEmptyState({ icon: "shield", title: "No recorded activity", message: "Provider and account events for this service will appear here." });
         } else {
-          timeline.innerHTML = service.auditTrail.map(
-            (ev) => `
-          <div class="row" style="padding:10px 0;border-bottom:1px solid var(--s2)">
-            <span class="badge s ${ev.action.includes("power") ? "info" : "accent"}">${esc(ev.action)}</span>
-            <span class="faint" style="font-size:12px">${formatDate(ev.createdAt)}</span>
-            <span class="muted" style="font-size:12px">${esc(ev.metadata || "")}</span>
-          </div>
-        `
-          ).join("");
+          timeline.className = "tl";
+          timeline.innerHTML = service.auditTrail.map((ev) => `<div class="tli"><span class="ico-b ${ev.action.includes("power") ? "info" : "accent"} round">${hero(ev.action.includes("power") ? "refresh" : "shield", "s")}</span><div class="tx"><b>${esc(String(ev.action || "").replaceAll(".", " \xB7 "))}</b><span>${formatDate(ev.createdAt)}${ev.metadata ? ` \xB7 ${esc(ev.metadata)}` : ""}</span></div></div>`).join("");
         }
       }
     } catch (error) {
@@ -2634,6 +2619,35 @@ ${node.textContent || ""}
 
   // src/frontend/client/index.ts
   var appShell = new AppShell();
+  function activateServiceDetailTab(tabKey, focus = false) {
+    const tabs = [...document.querySelectorAll("[data-detail-tab]")];
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.detailTab === tabKey;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      if (selected && focus) tab.focus();
+    });
+    document.querySelectorAll(".detail-pane").forEach((pane) => {
+      pane.hidden = pane.id !== `detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`;
+    });
+  }
+  async function copyText(value, label = "value") {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+      else {
+        const fallback = document.createElement("textarea");
+        fallback.value = value;
+        fallback.style.cssText = "position:fixed;opacity:0;pointer-events:none";
+        document.body.appendChild(fallback);
+        fallback.select();
+        if (!document.execCommand("copy")) throw new Error("Copy unavailable");
+        fallback.remove();
+      }
+      toast(`${label.charAt(0).toUpperCase()}${label.slice(1)} copied.`, "good");
+    } catch {
+      toast("Could not copy automatically.", "warn");
+    }
+  }
   function updateNavigationChrome(routeName) {
     const titles = {
       dashboard: ["Dashboard", "Workspace, infrastructure, billing and support at a glance."],
@@ -2674,6 +2688,7 @@ ${node.textContent || ""}
   });
   router.register("service-detail", async (ctx) => {
     updateNavigationChrome("service-detail");
+    activateServiceDetailTab("overview");
     const id = ctx.params.id;
     if (id) await renderServiceDetail(id);
   });
@@ -2758,15 +2773,7 @@ ${node.textContent || ""}
       }
       const detailTab = target.closest("[data-detail-tab]");
       if (detailTab) {
-        const tabKey = detailTab.dataset.detailTab || "";
-        document.querySelectorAll("[data-detail-tab]").forEach((btn) => {
-          const isCurrent = btn === detailTab;
-          btn.style.borderBottom = isCurrent ? "2px solid var(--accent)" : "2px solid transparent";
-          btn.style.color = isCurrent ? "var(--ink)" : "var(--ink2)";
-        });
-        document.querySelectorAll(".detail-pane").forEach((p) => p.style.display = "none");
-        const activePane = document.getElementById(`detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`);
-        if (activePane) activePane.style.display = "block";
+        activateServiceDetailTab(detailTab.dataset.detailTab || "overview");
         return;
       }
       const notifBell = target.closest("#notifBellBtn");
@@ -2856,11 +2863,18 @@ ${node.textContent || ""}
       if (target.closest("[data-mfa-cancel], [data-mfa-done]")) loadMfa();
       const copySecret = target.closest("[data-copy-secret]");
       if (copySecret) {
-        navigator.clipboard.writeText(copySecret.dataset.copySecret).then(() => toast("Setup key copied.", "good"));
+        copyText(copySecret.dataset.copySecret, "setup key");
+        return;
       }
       const copyRecovery = target.closest("[data-copy-recovery]");
       if (copyRecovery) {
-        navigator.clipboard.writeText(copyRecovery.dataset.copyRecovery).then(() => toast("Recovery codes copied.", "good"));
+        copyText(copyRecovery.dataset.copyRecovery, "recovery codes");
+        return;
+      }
+      const copy = target.closest("[data-copy]");
+      if (copy) {
+        copyText(copy.dataset.copy || "", copy.dataset.copyLabel || "value");
+        return;
       }
       if (target.closest("#openInviteModalBtn")) {
         const m = document.getElementById("inviteMemberModal");
@@ -2884,6 +2898,15 @@ ${node.textContent || ""}
           });
         }
       }
+    });
+    document.addEventListener("keydown", (event) => {
+      const current = event.target.closest("[data-detail-tab]");
+      if (!current || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      const tabs = [...document.querySelectorAll("[data-detail-tab]")];
+      const index = tabs.indexOf(current);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      event.preventDefault();
+      activateServiceDetailTab(tabs[next]?.dataset.detailTab || "overview", true);
     });
     document.addEventListener("submit", (event) => {
       const target = event.target;

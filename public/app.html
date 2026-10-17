@@ -61,19 +61,17 @@
 
     <div class="sidefoot">
       <div class="me">
-        <div id="userAvatar" class="av s" style="background:var(--accent);color:var(--on-accent);font-weight:700">FL</div>
-        <div style="min-width:0;flex:1">
-          <b id="userName" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">Loading...</b>
-          <span id="userRole" class="badge s accent" style="width:fit-content;margin-top:2px">AUTHENTICATING</span>
-        </div>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button id="themeToggleBtn" class="btn sec s" aria-label="Toggle theme">
-          <svg class="ic xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 14.0784C20.3003 14.7189 18.9301 15.0821 17.4751 15.0821C12.7491 15.0821 8.91792 11.251 8.91792 6.52496C8.91792 5.06992 9.28105 3.69968 9.92163 2.5C5.66765 3.49698 2.5 7.31513 2.5 11.8731C2.5 17.1899 6.8101 21.5 12.1269 21.5C16.6849 21.5 20.503 18.3324 21.5 14.0784Z"/></svg>
-          Theme
+        <div id="userAvatar" class="av s">FL</div>
+        <span class="tx" style="min-width:0;flex:1">
+          <b id="userName" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block">Loading…</b>
+          <small id="userRole">Authenticating</small>
+        </span>
+        <button id="themeToggleBtn" class="ib" style="width:34px;height:34px" aria-label="Toggle theme">
+          <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 14.0784C20.3003 14.7189 18.9301 15.0821 17.4751 15.0821C12.7491 15.0821 8.91792 11.251 8.91792 6.52496C8.91792 5.06992 9.28105 3.69968 9.92163 2.5C5.66765 3.49698 2.5 7.31513 2.5 11.8731C2.5 17.1899 6.8101 21.5 12.1269 21.5C16.6849 21.5 20.503 18.3324 21.5 14.0784Z"/></svg>
         </button>
-        <span class="sp"></span>
-        <button id="logoutBtn" class="btn ghost s" style="color:var(--bad)">Sign Out</button>
+        <button id="logoutBtn" class="ib" style="width:34px;height:34px;color:var(--bad)" aria-label="Sign out">
+          <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8M21 12H9M21 12l-3-3M21 12l-3 3"/></svg>
+        </button>
       </div>
     </div>
   </aside>
@@ -88,9 +86,8 @@
       <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 7h.01M6 17h.01"/></svg>
       Services
     </a>
-    <a href="/app/deploy" id="tab-deploy" data-app-route="deploy">
-      <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4V20M4 12H20"/></svg>
-      Deploy
+    <a href="/app/deploy" id="tab-deploy" class="mid" data-app-route="deploy" aria-label="Deploy">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4V20M4 12H20"/></svg>
     </a>
     <a href="/app/support" id="tab-tickets" data-app-route="tickets">
       <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h8M8 14h5"/></svg>
@@ -118,43 +115,37 @@
   <!-- MAIN VIEW CONTAINER -->
   <main class="main">
     <!-- Top Bar -->
-    <header class="top app-top">
-      <a class="brand" href="/" aria-label="Fortless home"><span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true" style="width:20px;height:20px;display:block"></span></a>
-      <div class="app-top-copy">
-        <h1 id="viewTitle" style="font:800 24px/1.2 var(--font);letter-spacing:-0.03em">Servers & Instances</h1>
-        <p id="viewSubtitle">Services visible to this account.</p>
-      </div>
-      <button class="search" type="button" data-cmd aria-label="Open command palette" style="margin:0 12px;max-width:320px;cursor:pointer">
-        <svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg>
+    <header class="top">
+      <!-- brand mark shown on mobile only -->
+      <a class="brand" href="/" aria-label="Fortless home" style="padding:0;display:none" id="topBrandMark"><span class="brand-mark"></span></a>
+      <h1 id="viewTitle" class="sr">Dashboard</h1>
+      <p id="viewSubtitle" class="sr">Your workspace overview.</p>
+      <button class="search" type="button" data-cmd aria-label="Open command palette">
+        <svg class="ic s" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.606 10.606Z"/></svg>
         <span>Search or jump to…</span>
-        <kbd class="kbd" style="font-size:11px">⌘K</kbd>
+        <kbd>⌘K</kbd>
       </button>
       <span class="grow"></span>
-      <div class="app-top-actions">
-        <div class="app-status">
-          <span class="dotc"></span>
-          <span>Commerce configuration required</span>
-        </div>
-        <!-- Notifications Bell -->
-        <div style="position:relative">
-          <button id="notifBellBtn" type="button" class="btn sec" style="width:42px;height:42px;padding:0;position:relative" aria-label="Notifications">
-            <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
-            <span id="notifBadge" class="cnt" style="position:absolute;top:-4px;right:-4px;font-size:10px;padding:2px 5px;display:none;background:var(--bad)">0</span>
-          </button>
-          <div id="notifPopover" class="card" style="display:none;position:absolute;right:0;top:50px;width:340px;z-index:100;box-shadow:0 12px 32px rgba(0,0,0,0.18);padding:16px">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-              <b>Notifications</b>
-              <button id="markAllNotifsReadBtn" type="button" class="btn text xs" style="font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer">Mark all read</button>
-            </div>
-            <div id="notifList" class="col" style="gap:8px;max-height:300px;overflow-y:auto">
-              <div class="state-message">No notifications</div>
-            </div>
+      <div class="app-status" id="platformStatus">
+        <span class="dotc pulse"></span>
+        <span>Commerce configuration required</span>
+      </div>
+      <!-- Notifications -->
+      <div style="position:relative">
+        <button id="notifBellBtn" type="button" class="ib" aria-label="Notifications">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0"/></svg>
+          <span id="notifBadge" class="dotn" style="display:none">0</span>
+        </button>
+        <div id="notifPopover" class="card" style="display:none;position:absolute;right:0;top:52px;width:340px;z-index:100;padding:16px">
+          <div class="row" style="margin-bottom:12px">
+            <b>Notifications</b>
+            <span class="sp"></span>
+            <button id="markAllNotifsReadBtn" type="button" class="link" style="font-size:12px">Mark all read</button>
+          </div>
+          <div id="notifList" class="col" style="gap:8px;max-height:300px;overflow-y:auto">
+            <div class="empty" style="padding:20px 12px"><p>No notifications</p></div>
           </div>
         </div>
-        <a href="/app/deploy" class="btn" data-app-route="deploy">
-          <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4V20M4 12H20"/></svg>
-          <span>View catalog</span>
-        </a>
       </div>
     </header>
 
@@ -216,15 +207,15 @@
         </div>
 
         <!-- Underline Tabs -->
-        <div class="underline-tabs" style="display:flex;gap:20px;border-bottom:1px solid var(--s3);margin-top:20px">
-          <button class="tab-btn active" data-detail-tab="overview" style="padding:10px 0;background:none;border:none;border-bottom:2px solid var(--accent);font-weight:600;color:var(--ink)">Overview</button>
-          <button class="tab-btn" data-detail-tab="resources" style="padding:10px 0;background:none;border:none;border-bottom:2px solid transparent;font-weight:600;color:var(--ink2)">Allocation</button>
-          <button class="tab-btn" data-detail-tab="activity" style="padding:10px 0;background:none;border:none;border-bottom:2px solid transparent;font-weight:600;color:var(--ink2)">Activity</button>
+        <div class="tabs under service-detail-tabs" role="tablist" aria-label="Service details">
+          <button class="tab" id="serviceTabOverview" type="button" role="tab" data-detail-tab="overview" aria-controls="detailTabOverview" aria-selected="true">Overview</button>
+          <button class="tab" id="serviceTabResources" type="button" role="tab" data-detail-tab="resources" aria-controls="detailTabResources" aria-selected="false" tabindex="-1">Allocation</button>
+          <button class="tab" id="serviceTabActivity" type="button" role="tab" data-detail-tab="activity" aria-controls="detailTabActivity" aria-selected="false" tabindex="-1">Activity</button>
         </div>
       </div>
 
       <!-- Tab Panes -->
-      <div id="detailTabOverview" class="detail-pane">
+      <div id="detailTabOverview" class="detail-pane" role="tabpanel" aria-labelledby="serviceTabOverview">
         <div class="grid g2" style="gap:20px">
           <div class="card">
             <h3 style="font:700 16px var(--font);margin-bottom:16px">Technical Specifications</h3>
@@ -241,7 +232,7 @@
         </div>
       </div>
 
-      <div id="detailTabResources" class="detail-pane" style="display:none">
+      <div id="detailTabResources" class="detail-pane" role="tabpanel" aria-labelledby="serviceTabResources" hidden>
         <div class="grid g3" style="gap:16px">
           <div class="card">
             <span class="muted" style="font-size:12px">Memory Allocation</span>
@@ -261,7 +252,7 @@
         </div>
       </div>
 
-      <div id="detailTabActivity" class="detail-pane" style="display:none">
+      <div id="detailTabActivity" class="detail-pane" role="tabpanel" aria-labelledby="serviceTabActivity" hidden>
         <div class="card flat" style="padding:20px">
           <h3 style="font:700 16px var(--font);margin-bottom:16px">Service Audit Events</h3>
           <div id="detailAuditTimeline" class="col" style="gap:10px">

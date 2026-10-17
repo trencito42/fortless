@@ -8,3 +8,7 @@ export * from './components/cmd.js';
 export * from './components/rich-text-editor.js';
 export * from './components/custom-select.js';
 export * from './components/skeleton.js';
+export * from './components/alert.js';
+export * from './components/tabs.js';
+export * from './components/otp.js';
+export * from './components/stepper.js';

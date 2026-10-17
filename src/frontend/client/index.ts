@@ -45,6 +45,37 @@ import { installCustomSelects, installRichTextEditors } from '../petal/index.js'
 
 const appShell = new AppShell();
 
+function activateServiceDetailTab(tabKey: string, focus = false): void {
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-detail-tab]')];
+  tabs.forEach((tab) => {
+    const selected = tab.dataset.detailTab === tabKey;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  });
+  document.querySelectorAll<HTMLElement>('.detail-pane').forEach((pane) => {
+    pane.hidden = pane.id !== `detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`;
+  });
+}
+
+async function copyText(value: string, label = 'value'): Promise<void> {
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+    else {
+      const fallback = document.createElement('textarea');
+      fallback.value = value;
+      fallback.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+      document.body.appendChild(fallback);
+      fallback.select();
+      if (!document.execCommand('copy')) throw new Error('Copy unavailable');
+      fallback.remove();
+    }
+    toast(`${label.charAt(0).toUpperCase()}${label.slice(1)} copied.`, 'good');
+  } catch {
+    toast('Could not copy automatically.', 'warn');
+  }
+}
+
 function updateNavigationChrome(routeName: string) {
   const titles: Record<string, [string, string]> = {
     dashboard: ['Dashboard', 'Workspace, infrastructure, billing and support at a glance.'],
@@ -94,6 +125,7 @@ router.register('services', async () => {
 
 router.register('service-detail', async (ctx: RouteMatch) => {
   updateNavigationChrome('service-detail');
+  activateServiceDetailTab('overview');
   const id = ctx.params.id;
   if (id) await renderServiceDetail(id);
 });
@@ -199,15 +231,7 @@ function bindDelegatedEvents() {
     // Service Detail Tabs
     const detailTab = target.closest<HTMLElement>('[data-detail-tab]');
     if (detailTab) {
-      const tabKey = detailTab.dataset.detailTab || '';
-      document.querySelectorAll<HTMLElement>('[data-detail-tab]').forEach((btn) => {
-        const isCurrent = btn === detailTab;
-        btn.style.borderBottom = isCurrent ? '2px solid var(--accent)' : '2px solid transparent';
-        btn.style.color = isCurrent ? 'var(--ink)' : 'var(--ink2)';
-      });
-      document.querySelectorAll<HTMLElement>('.detail-pane').forEach((p) => (p.style.display = 'none'));
-      const activePane = document.getElementById(`detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`);
-      if (activePane) activePane.style.display = 'block';
+      activateServiceDetailTab(detailTab.dataset.detailTab || 'overview');
       return;
     }
 
@@ -326,13 +350,18 @@ function bindDelegatedEvents() {
     // Clipboard copies
     const copySecret = target.closest<HTMLElement>('[data-copy-secret]');
     if (copySecret) {
-      navigator.clipboard.writeText(copySecret.dataset.copySecret!).then(() => toast('Setup key copied.', 'good'));
+      copyText(copySecret.dataset.copySecret!, 'setup key');
+      return;
     }
     const copyRecovery = target.closest<HTMLElement>('[data-copy-recovery]');
     if (copyRecovery) {
-      navigator.clipboard
-        .writeText(copyRecovery.dataset.copyRecovery!)
-        .then(() => toast('Recovery codes copied.', 'good'));
+      copyText(copyRecovery.dataset.copyRecovery!, 'recovery codes');
+      return;
+    }
+    const copy = target.closest<HTMLElement>('[data-copy]');
+    if (copy) {
+      copyText(copy.dataset.copy || '', copy.dataset.copyLabel || 'value');
+      return;
     }
 
     if (target.closest('#openInviteModalBtn')) {
@@ -361,6 +390,16 @@ function bindDelegatedEvents() {
           });
       }
     }
+  });
+
+  document.addEventListener('keydown', (event: KeyboardEvent) => {
+    const current = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-detail-tab]');
+    if (!current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-detail-tab]')];
+    const index = tabs.indexOf(current);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    activateServiceDetailTab(tabs[next]?.dataset.detailTab || 'overview', true);
   });
 
   // Global Submit Handler
