@@ -6,7 +6,7 @@
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { money } from '../../../core/utils/formatting.js';
-import { hero, renderSkeleton, toast } from '../../../petal/index.js';
+import { hero, toast } from '../../../petal/index.js';
 import { capabilitiesStore } from '../../../core/state/capabilities.js';
 
 export interface DeployState {
@@ -71,8 +71,7 @@ export async function renderDeploy(): Promise<void> {
 
   const host = document.getElementById('planSelector');
   if (host) {
-    host.className = 'deploy-catalog-loading';
-    host.innerHTML = renderSkeleton('list', 'Loading catalog');
+    host.innerHTML = `<div class="sk" role="status" aria-label="Loading catalog"><i></i><i></i><i></i><i></i></div>`;
   }
 
   try {
@@ -94,7 +93,7 @@ export async function renderDeploy(): Promise<void> {
     renderCatalog();
   } catch (error: any) {
     if (host) {
-      host.innerHTML = `<div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad">${hero('warning', 's')}<div><b>Failed to load catalog</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
 }
@@ -102,47 +101,35 @@ export async function renderDeploy(): Promise<void> {
 export function renderCatalog(): void {
   const host = document.getElementById('planSelector');
   if (host) {
-    host.className = 'z-pls';
-    host.innerHTML =
-      deployState.plans
-        .map((plan) => {
-          const price = plan.prices[0];
-          const selected = plan.planVersionId === deployState.selectedPlanId;
-          return `
-            <button type="button" class="z-plc" data-plan-id="${esc(plan.planVersionId)}" aria-pressed="${selected}">
-              <span class="badge ${plan.categorySlug === 'game-servers' ? 'accent' : 'violet'} s">${esc(plan.categoryName)}</span>
-              <b>${esc(plan.planName)}</b>
-              <span class="p">${price ? money(price.priceMinorUnits, price.currency) : 'Unavailable'} <small>/${esc((price?.interval || '').toLowerCase())}</small></span>
-              <small class="f">${esc(plan.productName)} · ${plan.resources.memoryMb / 1024} GB RAM · ${plan.resources.cpuPct}% CPU · ${plan.resources.diskMb / 1024} GB disk</small>
-            </button>
-          `;
-        })
-        .join('') ||
-      `<div class="state-message warn">${hero('warning')}<span>No published plans are available.</span></div>`;
+    const planHtml = deployState.plans
+      .map((plan) => {
+        const price = plan.prices[0];
+        const selected = plan.planVersionId === deployState.selectedPlanId;
+        const tone = plan.categorySlug === 'game-servers' ? 'acc' : 'violet';
+        return `<button type="button" class="sel" data-plan-id="${esc(plan.planVersionId)}" aria-pressed="${selected}"><span class="pill ${tone}">${esc(plan.categoryName)}</span><b>${esc(plan.planName)}</b><span class="p">${price ? money(price.priceMinorUnits, price.currency) : 'Unavailable'} <small>/${esc((price?.interval || '').toLowerCase())}</small></span><small class="f">${esc(plan.productName)} · ${plan.resources.memoryMb / 1024} GB RAM · ${plan.resources.cpuPct}% CPU · ${plan.resources.diskMb / 1024} GB disk</small></button>`;
+      })
+      .join('');
+    host.innerHTML = planHtml
+      ? `<div class="g g2">${planHtml}</div>`
+      : `<div class="alert warn">${hero('warning', 's')}<div><b>No published plans available</b></div></div>`;
   }
 
   const regHost = document.getElementById('regionSelector');
   if (regHost && deployState.regions.length) {
-    regHost.innerHTML = deployState.regions
+    const regHtml = deployState.regions
       .map((reg) => {
         const flag = reg.country === 'DE' ? '🇩🇪' : reg.country === 'GB' ? '🇬🇧' : '🌐';
         const selected = reg.id === deployState.selectedRegionId;
         const statusText = reg.isSoldOut
           ? 'Sold out in this region'
           : `${Math.floor(reg.memoryAvailableMb / 1024)} GB RAM available`;
-        const badge = reg.isSoldOut
-          ? '<span class="badge red s" style="margin-left:auto">Sold Out</span>'
-          : '<span class="badge green s" style="margin-left:auto">Available</span>';
-        return `
-          <button type="button" class="z-plc reg-card region-choice" data-region-id="${esc(reg.id)}" aria-pressed="${selected}" ${reg.isSoldOut ? 'disabled style="opacity:0.6"' : ''}>
-            <div style="display:flex;align-items:center;width:100%">
-              <b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${badge}
-            </div>
-            <small class="f">${esc(statusText)}</small>
-          </button>
-        `;
+        const avail = reg.isSoldOut
+          ? `<span class="pill bad" style="margin-left:auto">Sold out</span>`
+          : `<span class="pill good" style="margin-left:auto">Available</span>`;
+        return `<button type="button" class="sel" data-region-id="${esc(reg.id)}" aria-pressed="${selected}"${reg.isSoldOut ? ' disabled' : ''}><span class="row nw"><b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${avail}</span><small class="f">${esc(statusText)}</small></button>`;
       })
       .join('');
+    regHost.innerHTML = `<div class="g g2">${regHtml}</div>`;
   }
 
   updateSummary();
