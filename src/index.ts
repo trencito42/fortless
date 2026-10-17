@@ -1,5 +1,7 @@
 import { config } from './config/index.js';
 import { getDatabase } from './database/index.js';
+import { SCHEMA_SQL } from './database/schema.js';
+import { runMigrations } from './database/migrations.js';
 import { seedInitialCatalog } from './modules/catalog/catalog.js';
 import { buildServer } from './server.js';
 
@@ -8,7 +10,9 @@ async function bootstrap() {
 
   // 1. Initialize SQLite Database & Schema
   const db = getDatabase();
-  console.log('📦 Database initialized & WAL mode active at:', config.DATABASE_PATH);
+  db.exec(SCHEMA_SQL);
+  const applied = runMigrations(db);
+  console.log(`📦 Database initialized & WAL mode active at: ${config.DATABASE_PATH} (${applied} migration(s) applied)`);
 
   // 2. Seed initial catalog if empty
   seedInitialCatalog(db);

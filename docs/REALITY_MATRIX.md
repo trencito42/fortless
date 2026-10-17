@@ -65,6 +65,12 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/api/v1/auth/sessions/:id` | DELETE | `LOCAL_VERIFIED` | Revokes specific session; tenant-scoped. |
 | `/api/v1/auth/sessions/revoke-others` | POST | `LOCAL_VERIFIED` | Revokes all other sessions except current. |
 | `/api/v1/auth/logout` | POST | `LOCAL_VERIFIED` | Destroys current session token and clears cookie. |
+| `/api/v1/auth/passkeys/register-options` | POST | `LOCAL_VERIFIED` | Generates single-use WebAuthn registration challenge with anti-replay. |
+| `/api/v1/auth/passkeys/register-verify` | POST | `LOCAL_VERIFIED` | Verifies origin, clientData, stores ES256/RS256 credential and writes audit log. |
+| `/api/v1/auth/passkeys/login-options` | POST | `LOCAL_VERIFIED` | Generates single-use authentication challenge. |
+| `/api/v1/auth/passkeys/login-verify` | POST | `LOCAL_VERIFIED` | Verifies signature, advances counter (anti-replay check), issues session with mfaVerified=true. |
+| `/api/v1/auth/passkeys` | GET | `LOCAL_VERIFIED` | Lists registered passkeys for caller. |
+| `/api/v1/auth/passkeys/:id` | DELETE | `LOCAL_VERIFIED` | Revokes specific passkey credential. |
 | `/api/v1/account/members` | GET | `LOCAL_VERIFIED` | Lists workspace team members and pending invitations. |
 | `/api/v1/account/members/invite` | POST | `LOCAL_VERIFIED` | Sends workspace invitation; queues signed email atomically. |
 | `/api/v1/account/members/:membershipId` | DELETE | `LOCAL_VERIFIED` | Removes workspace member with strict last-owner protection. |
@@ -118,7 +124,7 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 
 | Integration | Verification Tier | Blockers / Next Steps |
 |---|---|---|
-| **Transactional Email** | `BLOCKED` | Provider (Postmark/SES/Resend) not configured; emails currently log or return tokens in tests. |
+| **Transactional Email** | `LOCAL_VERIFIED` | Transactional outbox with exponential backoff, dead-lettering, atomic leasing, and disk-verified sandbox receipts in `data/sandbox_mail`. Production provider adapter fails closed until live API credentials configured. |
 | **Stripe Payments** | `MOCKED` |authoritative HMAC validation implemented & tested with test fixtures; real Stripe sandbox keys needed. |
 | **Pterodactyl Panel** | `MOCKED` | Outbox worker & timeout recovery saga verified with `MockPterodactylAdapter`; live sandbox instance needed. |
 | **Database Engine** | `LOCAL_VERIFIED` | SQLite with WAL mode & foreign keys active; PostgreSQL migration tooling required before production. |

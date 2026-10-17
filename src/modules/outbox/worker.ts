@@ -13,38 +13,89 @@ export function getProviderAdapter(): ProviderAdapter {
   return defaultAdapter;
 }
 
+export interface OutboxWorkerOptions {
+  workerId?: string;
+  leaseDurationMs?: number;
+  batchSize?: number;
+  maxRetries?: number;
+}
+
 export async function processOutboxQueue(
   adapter: ProviderAdapter = defaultAdapter,
-  db: Database.Database = getDatabase()
+  db: Database.Database = getDatabase(),
+  options: OutboxWorkerOptions = {}
 ): Promise<number> {
-  // 0. Recover stale PROCESSING events whose lease expired (> 5 minutes old)
+  const workerId = options.workerId || `worker_${crypto.randomBytes(8).toString('hex')}`;
+  const leaseDurationMs = options.leaseDurationMs || 60_000;
+  const batchSize = options.batchSize || 10;
+  const maxRetries = options.maxRetries || 5;
+
+  const leaseExpiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
+
+  // 0. Recover stale/crashed PROCESSING events whose lease expired
   db.prepare(`
     UPDATE outbox_events
     SET status = 'PENDING',
+        lease_token = NULL,
+        lease_expires_at = NULL,
         retry_count = retry_count + 1,
         scheduled_at = datetime('now', 'utc')
     WHERE status = 'PROCESSING'
-      AND scheduled_at <= datetime('now', '-5 minutes', 'utc')
+      AND (
+        (lease_expires_at IS NOT NULL AND lease_expires_at <= datetime('now', 'utc'))
+        OR
+        (lease_expires_at IS NULL AND scheduled_at <= datetime('now', '-5 minutes', 'utc'))
+      )
   `).run();
 
-  const pendingEvents = db.prepare(`
-    SELECT * FROM outbox_events
-    WHERE status = 'PENDING' AND scheduled_at <= datetime('now', 'utc')
-    ORDER BY created_at ASC
-    LIMIT 10
-  `).all() as ({
-    id: string;
-    event_type: string;
-    aggregate_id: string;
-    payload: string;
-    retry_count: number;
-  })[];
+  // 1. Atomically claim a batch of pending events in an exclusive transaction
+  const claimedEvents = db.transaction(() => {
+    const candidates = db.prepare(`
+      SELECT id FROM outbox_events
+      WHERE (
+        status = 'PENDING' AND scheduled_at <= datetime('now', 'utc')
+      ) OR (
+        status = 'PROCESSING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= datetime('now', 'utc')
+      )
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(batchSize) as { id: string }[];
+
+    if (candidates.length === 0) return [];
+
+    const ids = candidates.map((c) => c.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    db.prepare(`
+      UPDATE outbox_events
+      SET status = 'PROCESSING',
+          lease_token = ?,
+          lease_expires_at = ?,
+          scheduled_at = datetime('now', 'utc')
+      WHERE id IN (${placeholders})
+        AND (
+          status = 'PENDING'
+          OR (status = 'PROCESSING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= datetime('now', 'utc'))
+        )
+    `).run(workerId, leaseExpiresAt, ...ids);
+
+    return db.prepare(`
+      SELECT * FROM outbox_events
+      WHERE lease_token = ? AND status = 'PROCESSING'
+      ORDER BY created_at ASC
+    `).all(workerId) as ({
+      id: string;
+      event_type: string;
+      aggregate_id: string;
+      payload: string;
+      retry_count: number;
+      lease_token: string;
+    })[];
+  })();
 
   let processedCount = 0;
 
-  for (const event of pendingEvents) {
-    db.prepare("UPDATE outbox_events SET status = 'PROCESSING', scheduled_at = datetime('now', 'utc') WHERE id = ?").run(event.id);
-
+  for (const event of claimedEvents) {
     try {
       if (event.event_type === 'service.provision.v1') {
         await executeProvisioningSaga(event.aggregate_id, JSON.parse(event.payload), adapter, db);
@@ -60,18 +111,29 @@ export async function processOutboxQueue(
         }
       }
 
-      db.prepare("UPDATE outbox_events SET status = 'COMPLETED' WHERE id = ?").run(event.id);
+      db.prepare(`
+        UPDATE outbox_events
+        SET status = 'COMPLETED',
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE id = ? AND lease_token = ?
+      `).run(event.id, workerId);
       processedCount++;
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const newRetries = event.retry_count + 1;
+      const isDeadLetter = newRetries >= maxRetries || errMsg.includes('Insufficient capacity') || errMsg.includes('maintenance mode');
 
-      if (newRetries >= 3 || errMsg.includes('Insufficient capacity') || errMsg.includes('maintenance mode')) {
+      if (isDeadLetter) {
         db.prepare(`
           UPDATE outbox_events
-          SET status = 'DEAD_LETTER', retry_count = ?
-          WHERE id = ?
-        `).run(newRetries, event.id);
+          SET status = 'DEAD_LETTER',
+              retry_count = ?,
+              last_error = ?,
+              lease_token = NULL,
+              lease_expires_at = NULL
+          WHERE id = ? AND lease_token = ?
+        `).run(newRetries, errMsg, event.id, workerId);
 
         db.prepare(`
           UPDATE services
@@ -91,13 +153,17 @@ export async function processOutboxQueue(
           WHERE service_id = ?
         `).run(errMsg, event.aggregate_id);
       } else {
+        const backoffSeconds = Math.min(300, 5 * Math.pow(2, Math.max(0, newRetries - 1)));
         db.prepare(`
           UPDATE outbox_events
           SET status = 'PENDING',
               retry_count = ?,
-              scheduled_at = datetime('now', '+5 seconds')
-          WHERE id = ?
-        `).run(newRetries, event.id);
+              last_error = ?,
+              lease_token = NULL,
+              lease_expires_at = NULL,
+              scheduled_at = datetime('now', '+' || ? || ' seconds')
+          WHERE id = ? AND lease_token = ?
+        `).run(newRetries, errMsg, backoffSeconds, event.id, workerId);
       }
     }
   }

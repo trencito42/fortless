@@ -125,68 +125,216 @@ export function queueEmail(
   return id;
 }
 
+export interface EmailTransportMessage {
+  id: string;
+  recipient: string;
+  subject: string;
+  text: string;
+  html: string;
+  template: EmailTemplate;
+}
+
+export interface EmailTransportAdapter {
+  readonly mode: 'sandbox' | 'live' | 'disabled';
+  send(message: EmailTransportMessage): Promise<{ messageId: string }>;
+}
+
+export class SandboxEmailTransportAdapter implements EmailTransportAdapter {
+  readonly mode = 'sandbox' as const;
+
+  async send(message: EmailTransportMessage): Promise<{ messageId: string }> {
+    ensureSandboxDir();
+    const receipt: EmailReceipt = {
+      id: message.id,
+      recipient: message.recipient,
+      subject: message.subject,
+      template: message.template,
+      text: message.text,
+      html: message.html,
+      deliveredAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(
+      path.join(SANDBOX_DIR, `${message.id}.json`),
+      JSON.stringify(receipt, null, 2),
+      'utf8'
+    );
+    return { messageId: `sbx_${message.id}` };
+  }
+}
+
+export class ProductionEmailTransportAdapter implements EmailTransportAdapter {
+  readonly mode = 'live' as const;
+
+  constructor(
+    private readonly apiKey: string = process.env['EMAIL_PROVIDER_API_KEY'] || '',
+    private readonly provider: string = process.env['EMAIL_PROVIDER'] || 'unconfigured'
+  ) {}
+
+  async send(_message: EmailTransportMessage): Promise<{ messageId: string }> {
+    if (!this.apiKey || this.provider === 'unconfigured') {
+      throw new Error(
+        `ProductionEmailTransportAdapter: Live email delivery is unconfigured. ` +
+        `Environment variable EMAIL_PROVIDER_API_KEY is not set or provider is unsupported.`
+      );
+    }
+    throw new Error(
+      `ProductionEmailTransportAdapter: Provider "${this.provider}" configured but network egress requires manual operator verification.`
+    );
+  }
+}
+
+let defaultEmailTransport: EmailTransportAdapter =
+  config.EMAIL_MODE === 'live'
+    ? new ProductionEmailTransportAdapter()
+    : new SandboxEmailTransportAdapter();
+
+export function setEmailTransport(transport: EmailTransportAdapter): void {
+  defaultEmailTransport = transport;
+}
+
+export function getEmailTransport(): EmailTransportAdapter {
+  return defaultEmailTransport;
+}
+
+export interface ProcessEmailOptions {
+  workerId?: string;
+  leaseDurationMs?: number;
+  batchSize?: number;
+  maxAttempts?: number;
+}
+
 export async function processEmailOutbox(
-  db: Database.Database = getDatabase()
-): Promise<{ processed: number; sent: number; failed: number }> {
-  // If email mode is disabled, we do NOT fake success. We leave items pending with note or report 0 sent.
-  if (config.EMAIL_MODE === 'disabled') {
-    return { processed: 0, sent: 0, failed: 0 };
+  db: Database.Database = getDatabase(),
+  transport: EmailTransportAdapter = getEmailTransport(),
+  options: ProcessEmailOptions = {}
+): Promise<{ processed: number; sent: number; failed: number; deadLettered: number }> {
+  if (transport.mode === 'disabled' || (transport === defaultEmailTransport && config.EMAIL_MODE === 'disabled')) {
+    return { processed: 0, sent: 0, failed: 0, deadLettered: 0 };
   }
 
-  const pendingEmails = db.prepare(`
-    SELECT * FROM email_outbox
-    WHERE status = 'PENDING' AND scheduled_at <= datetime('now', 'utc')
-    ORDER BY created_at ASC
-    LIMIT 25
-  `).all() as EmailRecord[];
+  const workerId = options.workerId || `eml_wkr_${crypto.randomBytes(8).toString('hex')}`;
+  const leaseDurationMs = options.leaseDurationMs || 60_000;
+  const batchSize = options.batchSize || 25;
+  const maxAttempts = options.maxAttempts || 5;
+
+  const leaseExpiresAt = new Date(Date.now() + leaseDurationMs).toISOString();
+
+  // 1. Recover expired leases
+  db.prepare(`
+    UPDATE email_outbox
+    SET status = 'PENDING',
+        lease_token = NULL,
+        lease_expires_at = NULL,
+        attempts = attempts + 1,
+        scheduled_at = datetime('now', 'utc')
+    WHERE status = 'PROCESSING'
+      AND (
+        (lease_expires_at IS NOT NULL AND lease_expires_at <= datetime('now', 'utc'))
+        OR
+        (lease_expires_at IS NULL AND scheduled_at <= datetime('now', '-5 minutes', 'utc'))
+      )
+  `).run();
+
+  // 2. Concurrency-safe atomic claim inside transaction
+  const claimedEmails = db.transaction(() => {
+    const candidates = db.prepare(`
+      SELECT id FROM email_outbox
+      WHERE (
+        status = 'PENDING' AND scheduled_at <= datetime('now', 'utc')
+      ) OR (
+        status = 'PROCESSING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= datetime('now', 'utc')
+      )
+      ORDER BY created_at ASC
+      LIMIT ?
+    `).all(batchSize) as { id: string }[];
+
+    if (candidates.length === 0) return [];
+
+    const ids = candidates.map((c) => c.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    db.prepare(`
+      UPDATE email_outbox
+      SET status = 'PROCESSING',
+          lease_token = ?,
+          lease_expires_at = ?,
+          scheduled_at = datetime('now', 'utc')
+      WHERE id IN (${placeholders})
+        AND (
+          status = 'PENDING'
+          OR (status = 'PROCESSING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= datetime('now', 'utc'))
+        )
+    `).run(workerId, leaseExpiresAt, ...ids);
+
+    return db.prepare(`
+      SELECT * FROM email_outbox
+      WHERE lease_token = ? AND status = 'PROCESSING'
+      ORDER BY created_at ASC
+    `).all(workerId) as EmailRecord[];
+  })();
 
   let sent = 0;
   let failed = 0;
+  let deadLettered = 0;
 
-  for (const email of pendingEmails) {
+  for (const email of claimedEmails) {
     try {
       const payload = JSON.parse(email.payload_json);
       const rendered = renderEmail(email.template, payload);
 
-      if (config.EMAIL_MODE === 'sandbox') {
-        ensureSandboxDir();
-        const receipt: EmailReceipt = {
-          id: email.id,
-          recipient: email.recipient,
-          subject: rendered.subject,
-          template: email.template,
-          text: rendered.text,
-          html: rendered.html,
-          deliveredAt: new Date().toISOString(),
-        };
-        fs.writeFileSync(
-          path.join(SANDBOX_DIR, `${email.id}.json`),
-          JSON.stringify(receipt, null, 2),
-          'utf8'
-        );
-      } else if (config.EMAIL_MODE === 'live') {
-        // Live transport would invoke authorized vendor SDK (e.g. Postmark / Resend / SES)
-        throw new Error('Live email transport is not configured with validated production API credentials.');
-      }
+      await transport.send({
+        id: email.id,
+        recipient: email.recipient,
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+        template: email.template,
+      });
 
       db.prepare(`
         UPDATE email_outbox
-        SET status = 'SENT', sent_at = datetime('now', 'utc')
-        WHERE id = ?
-      `).run(email.id);
+        SET status = 'SENT',
+            sent_at = datetime('now', 'utc'),
+            lease_token = NULL,
+            lease_expires_at = NULL
+        WHERE id = ? AND lease_token = ?
+      `).run(email.id, workerId);
       sent++;
     } catch (err: unknown) {
       const errorMsg = (err as Error).message || 'Unknown email delivery failure';
-      db.prepare(`
-        UPDATE email_outbox
-        SET status = 'FAILED', attempts = attempts + 1, last_error = ?
-        WHERE id = ?
-      `).run(errorMsg, email.id);
+      const newAttempts = email.attempts + 1;
+      const isDeadLetter = newAttempts >= maxAttempts;
+
+      if (isDeadLetter) {
+        db.prepare(`
+          UPDATE email_outbox
+          SET status = 'DEAD_LETTER',
+              attempts = ?,
+              last_error = ?,
+              dead_lettered_at = datetime('now', 'utc'),
+              lease_token = NULL,
+              lease_expires_at = NULL
+          WHERE id = ? AND lease_token = ?
+        `).run(newAttempts, errorMsg, email.id, workerId);
+        deadLettered++;
+      } else {
+        const backoffSec = Math.min(600, 30 * Math.pow(2, Math.max(0, newAttempts - 1)));
+        db.prepare(`
+          UPDATE email_outbox
+          SET status = 'PENDING',
+              attempts = ?,
+              last_error = ?,
+              lease_token = NULL,
+              lease_expires_at = NULL,
+              scheduled_at = datetime('now', '+' || ? || ' seconds')
+          WHERE id = ? AND lease_token = ?
+        `).run(newAttempts, errorMsg, backoffSec, email.id, workerId);
+      }
       failed++;
     }
   }
 
-  return { processed: pendingEmails.length, sent, failed };
+  return { processed: claimedEmails.length, sent, failed, deadLettered };
 }
 
 export function getSandboxReceipts(): EmailReceipt[] {
@@ -202,3 +350,4 @@ export function clearSandboxReceipts(): void {
     fs.unlinkSync(path.join(SANDBOX_DIR, file));
   }
 }
+

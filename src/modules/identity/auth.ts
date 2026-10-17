@@ -142,17 +142,27 @@ function safeUser(row: User & { password_hash?: string }): User {
   const { password_hash: _passwordHash, ...user } = row;
   return user;
 }
-function getPrimaryAccount(userId: string, db: Database.Database): Account {
+export function getPrimaryAccount(userId: string, db: Database.Database): Account {
   const account = db.prepare(`SELECT a.* FROM accounts a JOIN memberships m ON m.account_id = a.id
     WHERE m.user_id = ? AND a.status = 'ACTIVE' ORDER BY a.created_at ASC LIMIT 1`).get(userId) as Account | undefined;
   if (!account) throw new Error('No active account is associated with this identity.');
   return account;
 }
-function createSession(userId: string, ipAddress: string, userAgent: string, db: Database.Database): string {
+export function createSessionForUser(
+  userId: string,
+  ipAddress: string,
+  userAgent: string,
+  mfaVerified: boolean = false,
+  db: Database.Database = getDatabase()
+): string {
   const rawToken = generateOpaqueToken();
-  db.prepare(`INSERT INTO sessions (id, user_id, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, ?)`)
-    .run(tokenDigest(rawToken), userId, ipAddress, userAgent.slice(0, 512), new Date(Date.now() + SESSION_TTL_MS).toISOString());
+  const mfaVerifiedAt = mfaVerified ? new Date().toISOString() : null;
+  db.prepare(`INSERT INTO sessions (id, user_id, ip_address, user_agent, mfa_verified_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(tokenDigest(rawToken), userId, ipAddress, userAgent.slice(0, 512), mfaVerifiedAt, new Date(Date.now() + SESSION_TTL_MS).toISOString());
   return rawToken;
+}
+function createSession(userId: string, ipAddress: string, userAgent: string, db: Database.Database): string {
+  return createSessionForUser(userId, ipAddress, userAgent, false, db);
 }
 function createPurposeToken(
   table: 'email_verification_tokens' | 'password_reset_tokens', userId: string, ttlMs: number, db: Database.Database

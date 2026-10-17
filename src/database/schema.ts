@@ -444,6 +444,9 @@ CREATE TABLE IF NOT EXISTS outbox_events (
   status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'DEAD_LETTER')),
   retry_count INTEGER NOT NULL DEFAULT 0,
   scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  lease_token TEXT,
+  lease_expires_at TEXT,
+  last_error TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
@@ -465,11 +468,38 @@ CREATE TABLE IF NOT EXISTS email_outbox (
   template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'security_alert')),
   subject TEXT NOT NULL,
   payload_json TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SENT', 'FAILED')),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER')),
   attempts INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
+  lease_token TEXT,
+  lease_expires_at TEXT,
+  dead_lettered_at TEXT,
   scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
   sent_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id TEXT UNIQUE NOT NULL,
+  public_key TEXT NOT NULL,
+  counter INTEGER NOT NULL DEFAULT 0,
+  device_label TEXT NOT NULL,
+  aaguid TEXT,
+  transports TEXT,
+  backup_eligible INTEGER NOT NULL DEFAULT 0,
+  backup_state INTEGER NOT NULL DEFAULT 0,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS webauthn_challenges (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  challenge TEXT UNIQUE NOT NULL,
+  purpose TEXT NOT NULL CHECK(purpose IN ('REGISTRATION', 'AUTHENTICATION', 'STEP_UP')),
+  expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
@@ -513,4 +543,7 @@ CREATE INDEX IF NOT EXISTS idx_outbox_events_status ON outbox_events(status, sch
 CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_account_invitations_account ON account_invitations(account_id, email);
 CREATE INDEX IF NOT EXISTS idx_notifications_account_user ON notifications(account_id, user_id, read_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id);
+CREATE INDEX IF NOT EXISTS idx_passkey_cred_id ON passkey_credentials(credential_id);
+CREATE INDEX IF NOT EXISTS idx_webauthn_challenge ON webauthn_challenges(challenge, expires_at);
 `;

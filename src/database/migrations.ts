@@ -208,6 +208,79 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 8,
+    name: 'outbox leasing, worker concurrency and crash recovery',
+    up(db) {
+      if (!hasColumn(db, 'outbox_events', 'lease_token')) {
+        db.exec('ALTER TABLE outbox_events ADD COLUMN lease_token TEXT');
+      }
+      if (!hasColumn(db, 'outbox_events', 'lease_expires_at')) {
+        db.exec('ALTER TABLE outbox_events ADD COLUMN lease_expires_at TEXT');
+      }
+      if (!hasColumn(db, 'outbox_events', 'last_error')) {
+        db.exec('ALTER TABLE outbox_events ADD COLUMN last_error TEXT');
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_outbox_events_lease 
+        ON outbox_events(status, scheduled_at, lease_expires_at);
+      `);
+    },
+  },
+  {
+    version: 9,
+    name: 'email outbox leasing, exponential backoff and dead-lettering',
+    up(db) {
+      if (!hasColumn(db, 'email_outbox', 'lease_token')) {
+        db.exec('ALTER TABLE email_outbox ADD COLUMN lease_token TEXT');
+      }
+      if (!hasColumn(db, 'email_outbox', 'lease_expires_at')) {
+        db.exec('ALTER TABLE email_outbox ADD COLUMN lease_expires_at TEXT');
+      }
+      if (!hasColumn(db, 'email_outbox', 'dead_lettered_at')) {
+        db.exec('ALTER TABLE email_outbox ADD COLUMN dead_lettered_at TEXT');
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_lease 
+        ON email_outbox(status, scheduled_at, lease_expires_at);
+      `);
+    },
+  },
+  {
+    version: 10,
+    name: 'webauthn passkey credentials and challenge tracking',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS passkey_credentials (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          credential_id TEXT UNIQUE NOT NULL,
+          public_key TEXT NOT NULL,
+          counter INTEGER NOT NULL DEFAULT 0,
+          device_label TEXT NOT NULL,
+          aaguid TEXT,
+          transports TEXT,
+          backup_eligible INTEGER NOT NULL DEFAULT 0,
+          backup_state INTEGER NOT NULL DEFAULT 0,
+          last_used_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        CREATE TABLE IF NOT EXISTS webauthn_challenges (
+          id TEXT PRIMARY KEY,
+          user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+          challenge TEXT UNIQUE NOT NULL,
+          purpose TEXT NOT NULL CHECK(purpose IN ('REGISTRATION', 'AUTHENTICATION', 'STEP_UP')),
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id);
+        CREATE INDEX IF NOT EXISTS idx_passkey_cred_id ON passkey_credentials(credential_id);
+        CREATE INDEX IF NOT EXISTS idx_webauthn_challenge ON webauthn_challenges(challenge, expires_at);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {
@@ -233,4 +306,8 @@ export function runMigrations(db: Database.Database): number {
     newCount++;
   }
   return newCount;
+}
+
+export function migrateDatabase(db: Database.Database): number {
+  return runMigrations(db);
 }

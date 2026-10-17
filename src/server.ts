@@ -40,6 +40,13 @@ import {
   acceptAccountInvitation,
 } from './modules/identity/teams.js';
 import {
+  generateWebAuthnChallenge,
+  verifyAndRegisterPasskey,
+  verifyAndAuthenticatePasskey,
+  listPasskeysForUser,
+  revokePasskey,
+} from './modules/identity/passkeys.js';
+import {
   getPublishedPlans,
   listCategories,
   listProducts,
@@ -646,6 +653,101 @@ export function buildServer(): FastifyInstance {
       return reply.send({ success: true, message: 'Password updated. Other sessions have been revoked.' });
     } catch (err: unknown) {
       return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  // --- WebAuthn Passkeys ---
+  app.post('/api/v1/auth/passkeys/register-options', { preHandler: [requireAuth] }, async (req) => {
+    const { challenge, expiresAt } = generateWebAuthnChallenge('REGISTRATION', req.auth!.user.id, getDatabase());
+    return {
+      challenge,
+      rp: { name: 'FORTLESS', id: 'fortless.net' },
+      user: { id: req.auth!.user.id, name: req.auth!.user.email, displayName: req.auth!.user.name },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      timeout: 60000,
+      expiresAt,
+    };
+  });
+
+  app.post('/api/v1/auth/passkeys/register-verify', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = z.object({
+      deviceLabel: z.string().min(1).max(64),
+      challenge: z.string().min(16),
+      clientDataJSON: z.string(),
+      credentialId: z.string().min(16),
+      publicKey: z.string().min(16),
+      aaguid: z.string().optional(),
+      transports: z.array(z.string()).optional(),
+    }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Invalid passkey registration parameters.' });
+
+    try {
+      const passkey = verifyAndRegisterPasskey({
+        ...parse.data,
+        userId: req.auth!.user.id,
+        ipAddress: req.ip,
+      }, getDatabase());
+      return reply.send({ passkey });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/v1/auth/passkeys/login-options', async () => {
+    const { challenge, expiresAt } = generateWebAuthnChallenge('AUTHENTICATION', null, getDatabase());
+    return {
+      challenge,
+      rpId: 'fortless.net',
+      timeout: 60000,
+      userVerification: 'preferred',
+      expiresAt,
+    };
+  });
+
+  app.post('/api/v1/auth/passkeys/login-verify', async (req, reply) => {
+    const parse = z.object({
+      credentialId: z.string().min(16),
+      challenge: z.string().min(16),
+      clientDataJSON: z.string(),
+      authenticatorData: z.string(),
+      signature: z.string(),
+      clientCounter: z.number().optional(),
+    }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Invalid passkey authentication payload.' });
+
+    try {
+      const result = verifyAndAuthenticatePasskey({
+        ...parse.data,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] || '',
+      }, getDatabase());
+
+      reply.setCookie('fortless_session', result.token, {
+        path: '/',
+        httpOnly: true,
+        secure: config.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 14 * 24 * 60 * 60,
+      });
+
+      return reply.send({ user: result.user, account: result.account });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/v1/auth/passkeys', { preHandler: [requireAuth] }, async (req) => {
+    return { passkeys: listPasskeysForUser(req.auth!.user.id, getDatabase()) };
+  });
+
+  app.delete('/api/v1/auth/passkeys/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parsed = z.object({ id: z.string().min(1) }).safeParse(req.params);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid passkey ID.' });
+    try {
+      revokePasskey(req.auth!.user.id, parsed.data.id, getDatabase());
+      return { revoked: true };
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
     }
   });
 

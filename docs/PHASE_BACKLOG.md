@@ -13,20 +13,20 @@ Ordering Principle: Hard Dependencies & Security Risk First
 
 ---
 
-## Phase 2 — Production Infrastructure, Reliable Jobs & Hardening (Current Priority)
-- [ ] **Slice 2.1**: Fix host binding in `src/index.ts` to `config.HOST` (default `127.0.0.1`) to prevent direct public HTTP bypass.
-- [ ] **Slice 2.2**: Include `customOptions` in checkout idempotency request hash calculation in `src/modules/checkout/checkout.ts`.
-- [ ] **Slice 2.3**: Implement durable lease recovery for stalled `PROCESSING` outbox worker events in `src/modules/outbox/worker.ts`.
-- [ ] **Slice 2.4**: Standalone database migration runner CLI (`npm run migrate`) decoupled from public API startup.
-- [ ] **Slice 2.5**: Automated negative test suite for host bind, idempotency options divergence, and worker lease recovery.
+## Phase 2 — Production Infrastructure, Reliable Jobs & Hardening
+- [x] **Slice 2.1**: Fix host binding in `src/index.ts` to `config.HOST` (default `127.0.0.1`) to prevent direct public HTTP bypass.
+- [x] **Slice 2.2**: Include `customOptions` in checkout idempotency request hash calculation in `src/modules/checkout/checkout.ts`.
+- [x] **Slice 2.3**: Implement durable lease recovery for stalled `PROCESSING` outbox worker events, atomic claiming with lease tokens, and exponential backoff in `src/modules/outbox/worker.ts`.
+- [x] **Slice 2.4**: Standalone database migration runner CLI (`npm run migrate`) decoupled from runtime database connection acquisition (`getDatabase()`).
+- [x] **Slice 2.5**: Automated negative test suite for host bind, idempotency options divergence, and concurrent worker lease recovery.
 
 ---
 
 ## Phase 3 — Identity, Authorization, Email & User Settings
 - [x] **Slice 3.1**: Transactional email outbox table (`email_outbox`) and sandbox adapter with retry logic, fail-closed reporting, and templating.
-- [x] **Slice 3.2**: Audited initial staff `OWNER` bootstrap CLI (`npm run staff:bootstrap-owner`) enforcing verified email and MFA.
+- [x] **Slice 3.2**: Audited initial staff `OWNER` bootstrap CLI (`npm run staff:bootstrap-owner`) enforcing verified email, confirmed MFA, and hardened `--force --reason` protection.
 - [x] **Slice 3.3**: Organization team member invitation flow (`/api/v1/account/members`), last-owner protection, and change password flow.
-- [ ] **Slice 3.4**: WebAuthn / Passkeys exploration and step-up enrollment.
+- [x] **Slice 3.4**: WebAuthn / Passkeys secure enrollment, challenge lifecycle anti-replay, cryptographic signature authentication (ES256), counter verification, and credential management.
 
 ---
 

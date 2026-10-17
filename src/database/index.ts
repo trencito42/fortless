@@ -2,8 +2,6 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
-import { SCHEMA_SQL } from './schema.js';
-import { runMigrations } from './migrations.js';
 
 let dbInstance: Database.Database | null = null;
 
@@ -26,10 +24,6 @@ export function getDatabase(customPath?: string): Database.Database {
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
   db.pragma('synchronous = NORMAL');
-
-  // Initialize schema
-  db.exec(SCHEMA_SQL);
-  runMigrations(db);
 
   if (!customPath) {
     dbInstance = db;

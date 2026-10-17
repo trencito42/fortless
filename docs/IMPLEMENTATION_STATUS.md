@@ -48,26 +48,17 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 
 ## Verification executed
 
-- `npm run build` — passed.
-- `npm test` — 20/20 passed, including verification/reset/session-at-rest, legacy identity migration, cross-user device-revocation denial, TOTP gating, recent step-up evidence, one-time recovery-code consumption, secret-minimized staff read models, deny-by-default staff RBAC and immediate revocation.
-- `node --check public/assets/auth-ui.js` and `node --check public/assets/app-ui.js` — passed before the final fail-closed patch; repeated in handoff validation.
-- Isolated Fastify injection smoke: missing CSRF `403`; registration `201`; unverified login `401`; hashed asset emitted with `Cache-Control: public, max-age=31536000, immutable`.
-- Migration rehearsal against a SQLite backup retained both users, added identity tables/columns, and rotated legacy sessions. The watch process applied migrations v1–v2 to the served development database; both legacy ACTIVE identities now have an audited verification timestamp.
-- Live smoke on 2026-10-17 confirmed `/forgot-password` serves the same Inter Tight font declaration as login and anonymous `/app` still redirects to `/login?next=/app`.
-- Isolated HTTP smoke confirmed anonymous/authenticated homepage states and authenticated `/login` → `/app`; the shared password control swaps between Heroicons-style eye and eye-slash states on login, register and reset.
-- Isolated HTTP device smoke confirmed two active sessions, CSRF-protected revoke-others, one surviving current session and valid `/app` document ordering.
-- Authentication dark mode now keeps the logo legible, suppresses browser autofill color leakage and uses Fortless brand-mark artwork; app timestamps parse SQLite values consistently as UTC, and the loopback-only reverse proxy is explicitly trusted for forwarded client IPs.
-- Customer app visual sweep on 2026-10-17 replaced parallel route-specific cards with supplied Petal components across `/app`, `/app/deploy`, `/app/billing`, `/app/support`, `/app/activity` and `/app/settings`; authenticated browser/device visual regression remains open.
-- MFA restart regression on 2026-10-17 confirmed the development cryptographic key remains identical across process replacement; recovery codes are checked before TOTP decryption and corrupt legacy ciphertext now returns explicit `503 MFA_CONFIGURATION_UNAVAILABLE` rather than a misleading authentication `401`.
-- Admin foundation verification on 2026-10-17 compiled the guarded deep-link routes and bounded read APIs, syntax-checked the client bundle, and exercised account search, global counts, empty operational queues and audit retrieval against isolated SQLite databases. No staff flag or privilege was assigned to a real user as part of implementation.
-- Isolated admin HTTP permission smoke on 2026-10-17 confirmed anonymous `401`, staff without MFA `403`, permitted support route `200`, non-permitted audit route `403`, and same-session revocation `403`. Migration v4 preserved the single pre-existing staff identity as `ADMINISTRATOR`; it created no new privileged identity. Fingerprinted admin JavaScript serves live with immutable caching.
-- Isolated step-up/staff-management HTTP smoke on 2026-10-17 confirmed password + TOTP step-up `200`, owner-authorized staff grant `201`, persisted `SUPPORT` role and one immutable audit event. Migration v5 stores only step-up timestamps, never credentials or TOTP codes.
-- Homepage mobile development notice was recomposed from the existing Petal status/action primitives into a readable two-row card with a 44px action target; the screenshot's compressed 8–10px presentation is no longer used.
-
-## Remaining Phase 1 work
-
-1. Select/configure sandbox transactional email and add delivery retry/outbox evidence.
-2. Add WebAuthn/passkeys and apply the implemented recent step-up guard to each future destructive account/financial/provider action; validate TOTP on a browser/device matrix.
-3. Explicitly assign the initial staff `OWNER` through an approved bootstrap procedure, then expose the already-protected staff mutation APIs through a Petal owner workflow.
-4. Add API-level two-tenant, CSRF/CORS, rate-limit, mobile browser, and accessibility E2E suites.
-5. Split migrations from public API startup and establish PostgreSQL/Redis test infrastructure before production.
+- `npm run build` — passed with 0 TypeScript compiler errors.
+- `npm test` — 67/67 passed across Categories A through L:
+  - Identity, auth, sessions, Argon2id, single-use tokens, step-up, and TOTP.
+  - Catalog, dynamic pricing, EU VAT calculations, coupons, and capacity reservations.
+  - Checkout idempotency, Stripe webhooks, refunds, disputes, and credit notes.
+  - Multi-tenant support tickets and staff responses.
+  - Pterodactyl provisioning adapter, power actions, anti-SSRF validation, and timeout recovery sagas.
+  - Staff RBAC, read models, audit logs, and account lock mutations.
+  - Category I: Outbox Concurrency, Crash Recovery, and Resilient Worker Leasing (atomic claiming with worker lease tokens, expired lease recovery, exponential backoff, and dead-lettering).
+  - Category J: Transactional Email Outbox & Transport Isolation (concurrency-safe claiming, bounded retries, dead-lettering, sandbox receipts, and fail-closed live adapter).
+  - Category K: Staff Owner Bootstrap Hardening & Recovery (rejection of unverified/no-MFA users, existing owner protection, and mandatory `--force --reason` audit log).
+  - Category L: WebAuthn / Passkeys Phishing-Resistant MFA (single-use anti-replay challenges, origin mismatch rejection, ES256 cryptographic signature verification, authenticator counter anti-replay, and session issuance with `mfaVerified = true`).
+- Decoupled `getDatabase()` connection acquisition from automatic schema migration runs.
+- Fixed Admin UI modal clipping on mobile and invisibility on desktop by correcting unclosed `<nav class="tabbar">` and adding Petal `.scrim` / `.modal` CSS.

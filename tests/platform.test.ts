@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/database/schema.js';
 import { runMigrations } from '../src/database/migrations.js';
+import { runInTransaction } from '../src/database/index.js';
 import {
   registerUser,
   loginUser,
@@ -32,7 +33,21 @@ import {
   processEmailOutbox,
   getSandboxReceipts,
   clearSandboxReceipts,
+  queueEmail,
+  ProductionEmailTransportAdapter,
+  SandboxEmailTransportAdapter,
 } from '../src/modules/email/outbox.js';
+import { bootstrapOwner } from '../src/scripts/bootstrap-owner.js';
+import {
+  generateWebAuthnChallenge,
+  consumeWebAuthnChallenge,
+  verifyAndRegisterPasskey,
+  verifyAndAuthenticatePasskey,
+  listPasskeysForUser,
+  revokePasskey,
+  base64urlEncode,
+} from '../src/modules/identity/passkeys.js';
+import crypto from 'node:crypto';
 import { config } from '../src/config/index.js';
 import {
   seedInitialCatalog,
@@ -1804,4 +1819,320 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(rendered).toContain('14.28 EUR');
     });
   });
+
+  describe('Category I: Outbox Concurrency, Crash Recovery, and Resilient Worker Leasing', () => {
+    it('OUTBOX-01: Two concurrent workers claim disjoint events atomically with mutual exclusion', async () => {
+      // Insert two pending outbox events
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES 
+          ('evt_test_1', 'service.suspend.v1', 'service', 'svc_test_1', '{}', 'PENDING'),
+          ('evt_test_2', 'service.suspend.v1', 'service', 'svc_test_2', '{}', 'PENDING')
+      `).run();
+
+      const adapter = new MockPterodactylAdapter();
+
+      // Worker 1 claims batchSize 1
+      const p1 = processOutboxQueue(adapter, db, { workerId: 'worker_alpha', batchSize: 1 });
+      // Worker 2 claims batchSize 1
+      const p2 = processOutboxQueue(adapter, db, { workerId: 'worker_beta', batchSize: 1 });
+
+      const [c1, c2] = await Promise.all([p1, p2]);
+      expect(c1 + c2).toBe(2);
+
+      // Verify both events completed
+      const events = db.prepare('SELECT id, status, lease_token FROM outbox_events').all() as any[];
+      expect(events.every((e) => e.status === 'COMPLETED')).toBe(true);
+      expect(events.every((e) => e.lease_token === null)).toBe(true);
+    });
+
+    it('OUTBOX-02: Crash recovery resets expired PROCESSING lease back to PENDING and retries', async () => {
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status, lease_token, lease_expires_at)
+        VALUES ('evt_crashed', 'service.suspend.v1', 'service', 'svc_test_crashed', '{}', 'PROCESSING', 'crashed_worker', datetime('now', '-10 minutes'))
+      `).run();
+
+      const adapter = new MockPterodactylAdapter();
+      const processed = await processOutboxQueue(adapter, db, { workerId: 'recovery_worker' });
+
+      expect(processed).toBe(1);
+      const ev = db.prepare("SELECT status, retry_count FROM outbox_events WHERE id = 'evt_crashed'").get() as any;
+      expect(ev.status).toBe('COMPLETED');
+    });
+
+    it('OUTBOX-03: Bounded retries and poison message transition to DEAD_LETTER with last_error', async () => {
+      const failingAdapter = {
+        async provision() { throw new Error('Persistent external failure'); },
+        async suspend() { throw new Error('Persistent external failure'); },
+        async unsuspend() { throw new Error('Persistent external failure'); },
+        async terminate() { throw new Error('Persistent external failure'); },
+        async getPowerState() { return 'running' as const; },
+        async setPowerState() { throw new Error('Persistent external failure'); },
+        async lookupByCorrelationTag() { return null; },
+      };
+
+      const user = registerUser({ email: 'fail_outbox@example.com', password: 'P@ssword123!', name: 'Fail User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_outbox_fail', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_outbox_fail',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+
+      db.prepare("UPDATE outbox_events SET retry_count = 4").run();
+
+      await processOutboxQueue(failingAdapter as any, db, { workerId: 'worker_retry_test', maxRetries: 5 });
+
+      const ev = db.prepare("SELECT status, retry_count, last_error FROM outbox_events WHERE aggregate_id = ?").get(checkout.orderId) as any
+        || db.prepare("SELECT status, retry_count, last_error FROM outbox_events LIMIT 1").get() as any;
+      expect(ev.status).toBe('DEAD_LETTER');
+      expect(ev.retry_count).toBe(5);
+      expect(ev.last_error).toContain('Persistent external failure');
+    });
+  });
+
+  describe('Category J: Transactional Email Outbox & Transport Isolation', () => {
+    it('EMAIL-01: Concurrent email workers atomically claim and deliver without duplication', async () => {
+      clearSandboxReceipts();
+
+      runInTransaction((trx) => {
+        queueEmail(trx, { recipient: 'user1@example.com', template: 'email_verification', payload: { name: 'User 1', verifyUrl: 'https://test/1' } });
+        queueEmail(trx, { recipient: 'user2@example.com', template: 'email_verification', payload: { name: 'User 2', verifyUrl: 'https://test/2' } });
+      }, db);
+
+      const t1 = processEmailOutbox(db, new SandboxEmailTransportAdapter(), { workerId: 'eml_w1', batchSize: 1 });
+      const t2 = processEmailOutbox(db, new SandboxEmailTransportAdapter(), { workerId: 'eml_w2', batchSize: 1 });
+
+      const [r1, r2] = await Promise.all([t1, t2]);
+      expect(r1.sent + r2.sent).toBe(2);
+
+      const receipts = getSandboxReceipts();
+      expect(receipts).toHaveLength(2);
+    });
+
+    it('EMAIL-02: Email outbox retry backoff and dead-letter transition after bounded attempts', async () => {
+      runInTransaction((trx) => {
+        queueEmail(trx, { recipient: 'failing@example.com', template: 'security_alert', payload: { title: 'Test Alert', details: 'Details' } });
+      }, db);
+
+      // Set attempts to 4
+      db.prepare("UPDATE email_outbox SET attempts = 4 WHERE recipient = 'failing@example.com'").run();
+
+      const failingTransport = {
+        mode: 'live' as const,
+        async send() { throw new Error('SMTP connection refused'); },
+      };
+
+      const res = await processEmailOutbox(db, failingTransport as any, { maxAttempts: 5 });
+      expect(res.deadLettered).toBe(1);
+
+      const row = db.prepare("SELECT status, attempts, last_error, dead_lettered_at FROM email_outbox WHERE recipient = 'failing@example.com'").get() as any;
+      expect(row.status).toBe('DEAD_LETTER');
+      expect(row.attempts).toBe(5);
+      expect(row.last_error).toContain('SMTP connection refused');
+      expect(row.dead_lettered_at).toBeDefined();
+    });
+
+    it('EMAIL-03: ProductionEmailTransportAdapter fails closed when unconfigured without inventing fake credentials', async () => {
+      const liveTransport = new ProductionEmailTransportAdapter('', 'unconfigured');
+      await expect(liveTransport.send({
+        id: 'eml_test',
+        recipient: 'test@example.com',
+        subject: 'Test',
+        text: 'Text',
+        html: '<p>HTML</p>',
+        template: 'security_alert',
+      })).rejects.toThrow('Live email delivery is unconfigured');
+    });
+  });
+
+  describe('Category K: Staff Owner Bootstrap Hardening & Recovery', () => {
+    it('STAFF-01: Rejects bootstrap for non-existent or unverified user', () => {
+      expect(() => bootstrapOwner({ email: 'nonexistent@example.com', db })).toThrow('No user account found');
+
+      const user = registerUser({ email: 'unverified_staff@example.com', password: 'P@ssword123!', name: 'Unverified Staff', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      expect(() => bootstrapOwner({ email: user.user.email, db })).toThrow('is not verified');
+    });
+
+    it('STAFF-02: Rejects bootstrap if user has not enrolled and confirmed TOTP MFA', () => {
+      const user = registerUser({ email: 'nomfa_staff@example.com', password: 'P@ssword123!', name: 'No MFA Staff', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      expect(() => bootstrapOwner({ email: user.user.email, db })).toThrow('Two-Factor Authentication (TOTP)');
+    });
+
+    it('STAFF-03: Initial owner bootstrap succeeds; second owner without --force is rejected', () => {
+      const user1 = registerUser({ email: 'owner1@example.com', password: 'P@ssword123!', name: 'Owner One', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const v1 = verifyEmail(user1.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx1 = authenticateSession(v1.token, db)!;
+      const enrollment1 = beginTotpEnrollment(user1.user.id, 'P@ssword123!', user1.user.email, db);
+      confirmTotpEnrollment({ userId: user1.user.id, accountId: user1.account.id, sessionId: ctx1.session.id, code: generateTotpCode(enrollment1.secret), ipAddress: '127.0.0.1' }, db);
+
+      const res1 = bootstrapOwner({ email: 'owner1@example.com', db });
+      expect(res1.isInitialOwner).toBe(true);
+      expect(res1.forced).toBe(false);
+
+      // Attempt second owner without force
+      const user2 = registerUser({ email: 'owner2@example.com', password: 'P@ssword123!', name: 'Owner Two', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const v2 = verifyEmail(user2.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx2 = authenticateSession(v2.token, db)!;
+      const enrollment2 = beginTotpEnrollment(user2.user.id, 'P@ssword123!', user2.user.email, db);
+      confirmTotpEnrollment({ userId: user2.user.id, accountId: user2.account.id, sessionId: ctx2.session.id, code: generateTotpCode(enrollment2.secret), ipAddress: '127.0.0.1' }, db);
+
+      expect(() => bootstrapOwner({ email: 'owner2@example.com', db })).toThrow('An active staff OWNER already exists');
+    });
+
+    it('STAFF-04: Forced owner bootstrap strictly requires explicit audit reason and logs action', () => {
+      const user1 = registerUser({ email: 'owner1@example.com', password: 'P@ssword123!', name: 'Owner One', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const v1 = verifyEmail(user1.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx1 = authenticateSession(v1.token, db)!;
+      const enrollment1 = beginTotpEnrollment(user1.user.id, 'P@ssword123!', user1.user.email, db);
+      confirmTotpEnrollment({ userId: user1.user.id, accountId: user1.account.id, sessionId: ctx1.session.id, code: generateTotpCode(enrollment1.secret), ipAddress: '127.0.0.1' }, db);
+      bootstrapOwner({ email: 'owner1@example.com', db });
+
+      const user2 = registerUser({ email: 'owner2@example.com', password: 'P@ssword123!', name: 'Owner Two', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const v2 = verifyEmail(user2.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx2 = authenticateSession(v2.token, db)!;
+      const enrollment2 = beginTotpEnrollment(user2.user.id, 'P@ssword123!', user2.user.email, db);
+      confirmTotpEnrollment({ userId: user2.user.id, accountId: user2.account.id, sessionId: ctx2.session.id, code: generateTotpCode(enrollment2.secret), ipAddress: '127.0.0.1' }, db);
+
+      // Without reason or short reason
+      expect(() => bootstrapOwner({ email: 'owner2@example.com', force: true, reason: 'too short', db })).toThrow('at least 10 characters');
+
+      const resForced = bootstrapOwner({
+        email: 'owner2@example.com',
+        force: true,
+        reason: 'Emergency secondary owner promotion authorized by security team',
+        db,
+      });
+
+      expect(resForced.forced).toBe(true);
+      const audit = db.prepare("SELECT * FROM audit_events WHERE action = 'staff.owner_bootstrapped_force'").get() as any;
+      expect(audit).toBeDefined();
+    });
+  });
+
+  describe('Category L: WebAuthn / Passkeys Phishing-Resistant MFA', () => {
+    it('PASSKEY-01: Challenge lifecycle: single-use anti-replay and expiration', () => {
+      const ch = generateWebAuthnChallenge('REGISTRATION', null, db);
+      expect(ch.challenge).toBeDefined();
+
+      // Consumed challenge
+      const firstUse = consumeWebAuthnChallenge(ch.challenge, 'REGISTRATION', null, db);
+      expect(firstUse).toBe(true);
+
+      // Second use must fail (anti-replay)
+      const secondUse = consumeWebAuthnChallenge(ch.challenge, 'REGISTRATION', null, db);
+      expect(secondUse).toBe(false);
+    });
+
+    it('PASSKEY-02: Registration rejects unauthorized origin and clientData type mismatch', () => {
+      const user = registerUser({ email: 'passkey_user@example.com', password: 'P@ssword123!', name: 'Passkey User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const ch1 = generateWebAuthnChallenge('REGISTRATION', user.user.id, db);
+      const fakeKey = '-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7p9v3Q==\n-----END PUBLIC KEY-----';
+
+      // Origin mismatch
+      const evilClientData = JSON.stringify({ type: 'webauthn.create', challenge: ch1.challenge, origin: 'https://evil-hacker.com' });
+      expect(() => verifyAndRegisterPasskey({
+        userId: user.user.id,
+        deviceLabel: 'YubiKey',
+        challenge: ch1.challenge,
+        clientDataJSON: evilClientData,
+        credentialId: 'cred_evil_origin',
+        publicKey: fakeKey,
+      }, db)).toThrow('origin');
+
+      // Type mismatch (webauthn.get instead of create)
+      const ch2 = generateWebAuthnChallenge('REGISTRATION', user.user.id, db);
+      const wrongTypeData = JSON.stringify({ type: 'webauthn.get', challenge: ch2.challenge, origin: 'https://fortless.net' });
+      expect(() => verifyAndRegisterPasskey({
+        userId: user.user.id,
+        deviceLabel: 'YubiKey',
+        challenge: ch2.challenge,
+        clientDataJSON: wrongTypeData,
+        credentialId: 'cred_wrong_type',
+        publicKey: fakeKey,
+      }, db)).toThrow('Invalid WebAuthn clientData type');
+    });
+
+    it('PASSKEY-03: Real cryptographic registration, signature authentication, anti-replay, and revocation', () => {
+      const user = registerUser({ email: 'passkey_crypto@example.com', password: 'P@ssword123!', name: 'Crypto User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      // Generate real EC P-256 key pair
+      const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+      const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
+      const credentialId = base64urlEncode(crypto.randomBytes(32));
+
+      // 1. Register Passkey
+      const regCh = generateWebAuthnChallenge('REGISTRATION', user.user.id, db);
+      const regClientData = JSON.stringify({ type: 'webauthn.create', challenge: regCh.challenge, origin: 'https://fortless.net' });
+
+      const registered = verifyAndRegisterPasskey({
+        userId: user.user.id,
+        deviceLabel: 'MacBook TouchID',
+        challenge: regCh.challenge,
+        clientDataJSON: regClientData,
+        credentialId,
+        publicKey: publicKeyPem,
+      }, db);
+
+      expect(registered.credentialId).toBe(credentialId);
+      expect(listPasskeysForUser(user.user.id, db)).toHaveLength(1);
+
+      // 2. Authenticate with Passkey
+      const authCh = generateWebAuthnChallenge('AUTHENTICATION', user.user.id, db);
+      const authClientData = JSON.stringify({ type: 'webauthn.get', challenge: authCh.challenge, origin: 'https://fortless.net' });
+      const clientDataHash = crypto.createHash('sha256').update(authClientData).digest();
+
+      // Construct authenticatorData: 32 bytes rpIdHash + 1 byte flags (0x05 = UP | UV) + 4 bytes counter (e.g. 1)
+      const rpIdHash = crypto.createHash('sha256').update('fortless.net').digest();
+      const authData = Buffer.alloc(37);
+      rpIdHash.copy(authData, 0);
+      authData[32] = 0x05; // User Present + User Verified
+      authData.writeUInt32BE(1, 33); // Counter = 1
+
+      const signedData = Buffer.concat([authData, clientDataHash]);
+      const signature = crypto.sign('sha256', signedData, privateKey);
+
+      const authResult = verifyAndAuthenticatePasskey({
+        credentialId,
+        challenge: authCh.challenge,
+        clientDataJSON: authClientData,
+        authenticatorData: base64urlEncode(authData),
+        signature: base64urlEncode(signature),
+      }, db);
+
+      expect(authResult.user.id).toBe(user.user.id);
+      expect(authResult.token).toBeDefined();
+
+      const session = authenticateSession(authResult.token, db);
+      expect(session?.session.mfaVerifiedAt).not.toBeNull();
+
+      // 3. Anti-replay counter check: replaying with same or lower counter fails
+      const replayCh = generateWebAuthnChallenge('AUTHENTICATION', user.user.id, db);
+      const replayClientData = JSON.stringify({ type: 'webauthn.get', challenge: replayCh.challenge, origin: 'https://fortless.net' });
+      const replayDataHash = crypto.createHash('sha256').update(replayClientData).digest();
+      const replaySignedData = Buffer.concat([authData, replayDataHash]);
+      const replaySig = crypto.sign('sha256', replaySignedData, privateKey);
+
+      expect(() => verifyAndAuthenticatePasskey({
+        credentialId,
+        challenge: replayCh.challenge,
+        clientDataJSON: replayClientData,
+        authenticatorData: base64urlEncode(authData), // counter still 1, but credential was already advanced to 1!
+        signature: base64urlEncode(replaySig),
+      }, db)).toThrow('anti-replay');
+
+      // 4. Revocation
+      revokePasskey(user.user.id, registered.id, db);
+      expect(listPasskeysForUser(user.user.id, db)).toHaveLength(0);
+    });
+  });
 });
+
