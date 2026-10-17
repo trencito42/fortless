@@ -154,6 +154,6 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
   - Typed `CpanelProviderAdapter` and `MockCpanelAdapter` with automated account creation, package synchronization, Unknown Outcome recovery, and anti-SSRF protections (`CPANEL-01` to `CPANEL-04`).
 - [x] **Slice 5.3: Domain Search, Registration & DNS Management Layer**
   - Migration 14 applied (`domain_zones` & `dns_records`); TLD catalog pricing; public search API (`/api/v1/domains/search`); multi-tenant authoritative DNS zone manager and RFC format validator (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`) with CNAME collision prevention; Petal UI panel (`DOM-01` to `DOM-04`).
-- [ ] **Slice 5.4: Cloud VPS Compute Instances (Proxmox / KVM Adapter Interface)**
-  - Cloud compute plan definitions (vCPU, RAM, NVMe disk, dedicated IPv4/IPv6) and lifecycle sagas (reboot, reinstall, VNC ticket).
+- [x] **Slice 5.4: Cloud VPS Compute Instances (Proxmox / KVM Adapter Interface)**
+  - Migration 15 applied; Cloud VPS catalog seeded with Micro (€8.00/mo), Standard (€16.00/mo), and Pro (€32.00/mo) KVM plans; RFC 1123 hostname, guest OS, and SSH key validation; `ProxmoxHttpAdapter` with anti-SSRF protection, cloud-init provisioning, power lifecycle, and VNC console ticket generation; `MockProxmoxAdapter` with Unknown Outcome correlation lookup (`VPS-01` to `VPS-06`).
 

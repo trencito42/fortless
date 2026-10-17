@@ -187,6 +187,9 @@ async function executeProvisioningSaga(
       startCommand?: string;
       appPort?: number;
       nodeVersion?: string;
+      hostname?: string;
+      osImage?: string;
+      sshKey?: string;
     };
   },
   adapter: ProviderAdapter,
@@ -266,6 +269,9 @@ async function executeProvisioningSaga(
       if (payload.customOptions?.startCommand) envVars.START_CMD = payload.customOptions.startCommand;
       if (payload.customOptions?.appPort) envVars.SERVER_PORT = String(payload.customOptions.appPort);
       if (payload.customOptions?.nodeVersion) envVars.NODE_VERSION = String(payload.customOptions.nodeVersion);
+      if (payload.customOptions?.hostname) envVars.HOSTNAME = payload.customOptions.hostname;
+      if (payload.customOptions?.osImage) envVars.OS_IMAGE = payload.customOptions.osImage;
+      if (payload.customOptions?.sshKey) envVars.SSH_KEY = payload.customOptions.sshKey;
 
       const provisionRes = await adapter.provision({
         serviceId,

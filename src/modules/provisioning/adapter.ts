@@ -605,3 +605,352 @@ export class MockCpanelAdapter implements ProviderAdapter {
   }
 }
 
+export interface ProxmoxAdapterOptions {
+  pveUrl: string;
+  apiTokenId: string;
+  apiTokenSecret: string;
+  nodeName?: string;
+  templateVmid?: number;
+  storage?: string;
+  bridge?: string;
+  timeoutMs?: number;
+}
+
+/**
+ * Production Proxmox VE 8.x / KVM Cloud VPS Adapter.
+ * Dispatches authenticated REST requests to Proxmox API with SSRF protection.
+ */
+export class ProxmoxHttpAdapter implements ProviderAdapter {
+  readonly providerType = 'VPS' as const;
+  readonly version = 'PVE-8.x';
+
+  private baseUrl: string;
+  private apiTokenId: string;
+  private apiTokenSecret: string;
+  private nodeName: string;
+  private templateVmid: number;
+  private storage: string;
+  private bridge: string;
+  private timeoutMs: number;
+
+  constructor(options: ProxmoxAdapterOptions) {
+    if (!options.pveUrl || !options.apiTokenId || !options.apiTokenSecret) {
+      throw new ProviderAuthenticationError('Proxmox cluster URL, API token ID, and secret are required.');
+    }
+    this.baseUrl = options.pveUrl.replace(/\/$/, '');
+    this.apiTokenId = options.apiTokenId;
+    this.apiTokenSecret = options.apiTokenSecret;
+    this.nodeName = options.nodeName || 'pve-node-01';
+    this.templateVmid = options.templateVmid || 9000;
+    this.storage = options.storage || 'local-zfs';
+    this.bridge = options.bridge || 'vmbr0';
+    this.timeoutMs = options.timeoutMs || 15000;
+  }
+
+  private async request(method: string, endpoint: string, body?: Record<string, any>): Promise<any> {
+    const url = `${this.baseUrl}/api2/json${endpoint}`;
+    await validateSafeOutboundUrl(url);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const headers: Record<string, string> = {
+        'Authorization': `PVEAPIToken=${this.apiTokenId}=${this.apiTokenSecret}`,
+        'Accept': 'application/json',
+      };
+      let requestBody: string | undefined;
+      if (body) {
+        headers['Content-Type'] = 'application/json';
+        requestBody = JSON.stringify(body);
+      }
+
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: requestBody,
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new ProviderAuthenticationError(`Proxmox authorization failed (${res.status}).`, res.status);
+        }
+        throw new ProviderError(`Proxmox API request failed with status ${res.status}`, 'PROXMOX_HTTP_ERROR', res.status);
+      }
+
+      const json = (await res.json()) as any;
+      return json.data;
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new ProviderNetworkError('Connection to Proxmox VE cluster timed out.');
+      }
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(err.message || 'Proxmox request failed', 'PROXMOX_REQUEST_FAILED');
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async provision(spec: ProvisioningSpec): Promise<{ externalId: string; identifier: string }> {
+    const existing = await this.lookupByCorrelationTag(spec.correlationTag);
+    if (existing) {
+      return { externalId: existing.externalId, identifier: existing.identifier };
+    }
+
+    try {
+      const vmidData = await this.request('GET', '/cluster/nextid');
+      const newVmid = String(vmidData);
+
+      // Clone from template VM with cloud-init
+      await this.request('POST', `/nodes/${this.nodeName}/qemu/${this.templateVmid}/clone`, {
+        newid: parseInt(newVmid, 10),
+        name: spec.name.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 32).toLowerCase() || `vps-${newVmid}`,
+        description: `fortless_tag:${spec.correlationTag};service:${spec.serviceId}`,
+        full: 1,
+        storage: this.storage,
+      });
+
+      // Configure vCPU, RAM, and Cloud-Init
+      const cores = Math.max(1, Math.round(spec.cpuPct / 100));
+      await this.request('POST', `/nodes/${this.nodeName}/qemu/${newVmid}/config`, {
+        cores,
+        memory: spec.memoryMb,
+        net0: `virtio,bridge=${this.bridge}`,
+        ciuser: 'debian',
+        cipassword: spec.environmentVariables?.ROOT_PASSWORD || undefined,
+        sshkeys: spec.environmentVariables?.SSH_KEY ? encodeURIComponent(spec.environmentVariables.SSH_KEY) : undefined,
+      });
+
+      // Start VM
+      await this.request('POST', `/nodes/${this.nodeName}/qemu/${newVmid}/status/start`);
+
+      return { externalId: newVmid, identifier: newVmid };
+    } catch (err: any) {
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(err.message || 'Proxmox VM provisioning failed', 'PROXMOX_PROVISION_FAILED');
+    }
+  }
+
+  async lookupByCorrelationTag(tag: string): Promise<ObservedResource | null> {
+    try {
+      const vms = (await this.request('GET', `/nodes/${this.nodeName}/qemu`)) as any[];
+      if (!Array.isArray(vms)) return null;
+
+      for (const vm of vms) {
+        const vmid = String(vm.vmid);
+        try {
+          const config = await this.request('GET', `/nodes/${this.nodeName}/qemu/${vmid}/config`);
+          const desc = config?.description || '';
+          if (desc.includes(`fortless_tag:${tag}`) || desc.includes(tag)) {
+            return {
+              externalId: vmid,
+              identifier: vmid,
+              name: vm.name || `vps-${vmid}`,
+              status: vm.status === 'running' ? 'RUNNING' : 'STOPPED',
+              nodeId: this.nodeName,
+              limits: {
+                memoryMb: Math.round((vm.maxmem || 0) / (1024 * 1024)),
+                cpuPct: (vm.cpus || 1) * 100,
+                diskMb: Math.round((vm.maxdisk || 0) / (1024 * 1024)),
+              },
+            };
+          }
+        } catch {
+          // Continue scanning
+        }
+      }
+      return null;
+    } catch (err: any) {
+      if (err instanceof ProviderError) throw err;
+      return null;
+    }
+  }
+
+  async lookupByExternalId(externalId: string): Promise<ObservedResource | null> {
+    try {
+      const vm = await this.request('GET', `/nodes/${this.nodeName}/qemu/${externalId}/status/current`);
+      if (!vm) return null;
+      return {
+        externalId,
+        identifier: externalId,
+        name: vm.name || `vps-${externalId}`,
+        status: vm.status === 'running' ? 'RUNNING' : 'STOPPED',
+        nodeId: this.nodeName,
+        limits: {
+          memoryMb: Math.round((vm.maxmem || 0) / (1024 * 1024)),
+          cpuPct: (vm.cpus || 1) * 100,
+          diskMb: Math.round((vm.maxdisk || 0) / (1024 * 1024)),
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async powerAction(externalId: string, action: 'START' | 'STOP' | 'RESTART' | 'KILL'): Promise<void> {
+    const actionMap: Record<string, string> = {
+      START: 'start',
+      STOP: 'shutdown',
+      RESTART: 'reboot',
+      KILL: 'stop',
+    };
+    const pveAction = actionMap[action] || 'start';
+    await this.request('POST', `/nodes/${this.nodeName}/qemu/${externalId}/status/${pveAction}`);
+  }
+
+  async createVncTicket(externalId: string): Promise<{ ticket: string; port: number }> {
+    const data = await this.request('POST', `/nodes/${this.nodeName}/qemu/${externalId}/vncproxy`, { websocket: 1 });
+    return {
+      ticket: data.ticket,
+      port: data.port,
+    };
+  }
+
+  async suspend(externalId: string): Promise<void> {
+    await this.request('POST', `/nodes/${this.nodeName}/qemu/${externalId}/status/suspend`);
+  }
+
+  async unsuspend(externalId: string): Promise<void> {
+    await this.request('POST', `/nodes/${this.nodeName}/qemu/${externalId}/status/resume`);
+  }
+
+  async terminate(externalId: string): Promise<void> {
+    try {
+      await this.request('POST', `/nodes/${this.nodeName}/qemu/${externalId}/status/stop`);
+    } catch {
+      // Ignore if already stopped
+    }
+    await this.request('DELETE', `/nodes/${this.nodeName}/qemu/${externalId}`, { purge: 1 });
+  }
+}
+
+/**
+ * Deterministic in-memory Mock Proxmox / KVM Adapter for automated testing.
+ */
+export class MockProxmoxAdapter implements ProviderAdapter {
+  readonly providerType = 'VPS' as const;
+  readonly version = 'MOCK-PVE-8.0';
+
+  private vms = new Map<
+    string,
+    {
+      vmid: string;
+      name: string;
+      status: 'RUNNING' | 'STOPPED' | 'PAUSED';
+      cores: number;
+      memoryMb: number;
+      diskMb: number;
+      ipAddress: string;
+      correlationTag: string;
+      suspended: boolean;
+    }
+  >();
+
+  private nextVmid = 100;
+  public simulateTimeoutOnNextProvision = false;
+
+  async provision(spec: ProvisioningSpec): Promise<{ externalId: string; identifier: string }> {
+    const existing = await this.lookupByCorrelationTag(spec.correlationTag);
+    if (existing) {
+      return { externalId: existing.externalId, identifier: existing.identifier };
+    }
+
+    const vmid = String(this.nextVmid++);
+    const cores = Math.max(1, Math.round(spec.cpuPct / 100));
+
+    this.vms.set(vmid, {
+      vmid,
+      name: spec.name,
+      status: 'RUNNING',
+      cores,
+      memoryMb: spec.memoryMb,
+      diskMb: spec.diskMb,
+      ipAddress: `198.51.100.${vmid}`,
+      correlationTag: spec.correlationTag,
+      suspended: false,
+    });
+
+    if (this.simulateTimeoutOnNextProvision) {
+      this.simulateTimeoutOnNextProvision = false;
+      throw new ProviderNetworkError('ETIMEDOUT: Connection to Proxmox VE timed out after VM clone');
+    }
+
+    return { externalId: vmid, identifier: vmid };
+  }
+
+  async lookupByCorrelationTag(tag: string): Promise<ObservedResource | null> {
+    for (const vm of this.vms.values()) {
+      if (vm.correlationTag === tag || vm.vmid === tag) {
+        return {
+          externalId: vm.vmid,
+          identifier: vm.vmid,
+          name: vm.name,
+          status: vm.status === 'RUNNING' ? 'RUNNING' : 'STOPPED',
+          nodeId: 'pve_mock_node_01',
+          limits: { memoryMb: vm.memoryMb, cpuPct: vm.cores * 100, diskMb: vm.diskMb },
+        };
+      }
+    }
+    return null;
+  }
+
+  async lookupByExternalId(externalId: string): Promise<ObservedResource | null> {
+    const vm = this.vms.get(externalId);
+    if (!vm) return null;
+    return {
+      externalId: vm.vmid,
+      identifier: vm.vmid,
+      name: vm.name,
+      status: vm.status === 'RUNNING' ? 'RUNNING' : 'STOPPED',
+      nodeId: 'pve_mock_node_01',
+      limits: { memoryMb: vm.memoryMb, cpuPct: vm.cores * 100, diskMb: vm.diskMb },
+    };
+  }
+
+  async powerAction(externalId: string, action: 'START' | 'STOP' | 'RESTART' | 'KILL'): Promise<void> {
+    const vm = this.vms.get(externalId);
+    if (!vm) throw new Error(`VM ${externalId} not found`);
+
+    if (action === 'START') {
+      vm.status = 'RUNNING';
+    } else if (action === 'STOP' || action === 'KILL') {
+      vm.status = 'STOPPED';
+    } else if (action === 'RESTART') {
+      vm.status = 'RUNNING';
+    }
+  }
+
+  async createVncTicket(externalId: string): Promise<{ ticket: string; port: number }> {
+    const vm = this.vms.get(externalId);
+    if (!vm) throw new Error(`VM ${externalId} not found`);
+    return {
+      ticket: `PVEVNC:test_ticket_token_${vm.vmid}`,
+      port: 5900 + parseInt(vm.vmid, 10),
+    };
+  }
+
+  async suspend(externalId: string): Promise<void> {
+    const vm = this.vms.get(externalId);
+    if (!vm) throw new Error(`VM ${externalId} not found`);
+    vm.status = 'PAUSED';
+    vm.suspended = true;
+  }
+
+  async unsuspend(externalId: string): Promise<void> {
+    const vm = this.vms.get(externalId);
+    if (!vm) throw new Error(`VM ${externalId} not found`);
+    vm.status = 'RUNNING';
+    vm.suspended = false;
+  }
+
+  async terminate(externalId: string): Promise<void> {
+    if (!this.vms.has(externalId)) throw new Error(`VM ${externalId} not found`);
+    this.vms.delete(externalId);
+  }
+
+  getVmCount(): number {
+    return this.vms.size;
+  }
+}
+

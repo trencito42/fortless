@@ -109,6 +109,14 @@ Every vertical slice must be validated across the testing pyramid before being m
 - [x] `DOM-03`: DNS record validation enforces RFC rules for A, AAAA, CNAME, MX, TXT, and SRV, rejecting invalid payloads. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 - [x] `DOM-04`: CNAME collision rule (RFC 1912 §2.4): CNAME cannot coexist with other records at the same node. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 
+### K. Cloud VPS Compute Instances (Proxmox / KVM)
+- [x] `VPS-01`: Seeded catalog includes Cloud VPS category and tiered plans with valid specs and EUR pricing. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `VPS-02`: VPS configuration validation validates hostnames, guest OS images, and SSH public keys. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `VPS-03`: ProxmoxHttpAdapter blocks SSRF when configured with private/loopback metadata URLs. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `VPS-04`: MockProxmoxAdapter provisions KVM instance, handles power lifecycle, and issues VNC console tickets. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `VPS-05`: The Unknown Outcome Rule — Timeout during VM provisioning recovers via correlation lookup without creating duplicate VMs. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `VPS-06`: Outbox worker maps VPS provisioning spec to hypervisor adapter and marks service ACTIVE. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+
 ---
 
 ## 3. Strict P0 Release Acceptance Gate Checklist

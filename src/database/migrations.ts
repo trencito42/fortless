@@ -470,6 +470,90 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 15,
+    name: 'seed_cloud_vps_catalog',
+    up(db) {
+      const existingCat = db.prepare("SELECT id FROM categories WHERE slug = 'vps'").get();
+      if (!existingCat) {
+        db.prepare(`
+          INSERT INTO categories (id, slug, name, description, sort_order, is_active)
+          VALUES ('cat_cloud_vps', 'vps', 'Cloud VPS Compute', 'High-performance KVM virtual machines with dedicated vCPU, NVMe storage, and cloud-init guest OS automation.', 4, 1)
+        `).run();
+      }
+
+      const existingProd = db.prepare("SELECT id FROM products WHERE slug = 'kvm-vps'").get();
+      if (!existingProd) {
+        db.prepare(`
+          INSERT INTO products (id, category_id, slug, name, provider_type, is_published)
+          VALUES ('prod_kvm_vps', 'cat_cloud_vps', 'kvm-vps', 'KVM Cloud VPS', 'VPS', 1)
+        `).run();
+
+        // 1. VPS Micro (1 vCPU, 2GB RAM, 40GB NVMe) - €8.00/mo
+        const plvMicro = 'plv_vps_micro';
+        db.prepare(`
+          INSERT INTO plan_versions (id, product_id, version, name, resource_specs, status)
+          VALUES (?, 'prod_kvm_vps', 1, 'VPS Micro (1 vCPU, 2GB RAM, 40GB NVMe)', ?, 'ACTIVE')
+        `).run(plvMicro, JSON.stringify({
+          memoryMb: 2048,
+          cpuPct: 100,
+          diskMb: 40960,
+          databases: 1,
+          backups: 1,
+          vcpu: 1,
+          cores: 1,
+          osImage: 'debian-12-cloudinit',
+          dedicatedIp: true,
+        }));
+        db.prepare(`
+          INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+          VALUES ('prc_vps_micro_m', ?, 'EUR', 'MONTHLY', 800, 0)
+        `).run(plvMicro);
+
+        // 2. VPS Standard (2 vCPU, 4GB RAM, 80GB NVMe) - €16.00/mo
+        const plvStandard = 'plv_vps_standard';
+        db.prepare(`
+          INSERT INTO plan_versions (id, product_id, version, name, resource_specs, status)
+          VALUES (?, 'prod_kvm_vps', 2, 'VPS Standard (2 vCPU, 4GB RAM, 80GB NVMe)', ?, 'ACTIVE')
+        `).run(plvStandard, JSON.stringify({
+          memoryMb: 4096,
+          cpuPct: 200,
+          diskMb: 81920,
+          databases: 2,
+          backups: 2,
+          vcpu: 2,
+          cores: 2,
+          osImage: 'debian-12-cloudinit',
+          dedicatedIp: true,
+        }));
+        db.prepare(`
+          INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+          VALUES ('prc_vps_standard_m', ?, 'EUR', 'MONTHLY', 1600, 0)
+        `).run(plvStandard);
+
+        // 3. VPS Pro (4 vCPU, 8GB RAM, 160GB NVMe) - €32.00/mo
+        const plvPro = 'plv_vps_pro';
+        db.prepare(`
+          INSERT INTO plan_versions (id, product_id, version, name, resource_specs, status)
+          VALUES (?, 'prod_kvm_vps', 3, 'VPS Pro (4 vCPU, 8GB RAM, 160GB NVMe)', ?, 'ACTIVE')
+        `).run(plvPro, JSON.stringify({
+          memoryMb: 8192,
+          cpuPct: 400,
+          diskMb: 163840,
+          databases: 4,
+          backups: 4,
+          vcpu: 4,
+          cores: 4,
+          osImage: 'debian-12-cloudinit',
+          dedicatedIp: true,
+        }));
+        db.prepare(`
+          INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+          VALUES ('prc_vps_pro_m', ?, 'EUR', 'MONTHLY', 3200, 0)
+        `).run(plvPro);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

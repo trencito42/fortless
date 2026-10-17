@@ -68,10 +68,13 @@ import {
   createPlanVersion,
   updatePlanStatus,
   validateWebAppOptions,
+  validateVpsOptions,
 } from '../src/modules/catalog/catalog.js';
 import {
   CpanelHttpAdapter,
   MockCpanelAdapter,
+  ProxmoxHttpAdapter,
+  MockProxmoxAdapter,
   ProviderError,
   type ProviderAdapter,
   type ProvisioningSpec,
@@ -2847,6 +2850,243 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         name: 'store',
         content: '198.51.100.99',
       })).toThrow(/CNAME_COLLISION/);
+    });
+  });
+
+  describe('Category Q: Extended Infrastructure — Cloud VPS Compute Instances', () => {
+    it('VPS-01: Seeded catalog includes Cloud VPS category and tiered plans with valid specs and EUR pricing', () => {
+      const plans = getPublishedPlans(db);
+      const vpsPlans = plans.filter((p) => p.categorySlug === 'vps');
+
+      expect(vpsPlans.length).toBeGreaterThanOrEqual(3);
+
+      const micro = vpsPlans.find((p) => p.planVersionId === 'plv_vps_micro');
+      expect(micro).toBeDefined();
+      expect(micro?.productSlug).toBe('kvm-vps');
+      expect(micro?.resources.memoryMb).toBe(2048);
+      expect((micro?.resources as any).vcpu).toBe(1);
+      expect(micro?.prices[0]?.priceMinorUnits).toBe(800); // €8.00/mo
+
+      const standard = vpsPlans.find((p) => p.planVersionId === 'plv_vps_standard');
+      expect(standard).toBeDefined();
+      expect(standard?.resources.memoryMb).toBe(4096);
+      expect((standard?.resources as any).vcpu).toBe(2);
+      expect(standard?.prices[0]?.priceMinorUnits).toBe(1600); // €16.00/mo
+
+      const pro = vpsPlans.find((p) => p.planVersionId === 'plv_vps_pro');
+      expect(pro).toBeDefined();
+      expect(pro?.resources.memoryMb).toBe(8192);
+      expect((pro?.resources as any).vcpu).toBe(4);
+      expect(pro?.prices[0]?.priceMinorUnits).toBe(3200); // €32.00/mo
+    });
+
+    it('VPS-02: VPS configuration validation validates hostnames, guest OS images, and SSH public keys', () => {
+      // 1. Valid config
+      const validRes = validateVpsOptions({
+        hostname: 'vps01.production.net',
+        osImage: 'ubuntu-24.04',
+        sshKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleValidKey user@workstation',
+      });
+      expect(validRes.valid).toBe(true);
+      expect(validRes.options?.hostname).toBe('vps01.production.net');
+      expect(validRes.options?.osImage).toBe('ubuntu-24.04');
+
+      // 2. Empty hostname fails
+      const emptyHost = validateVpsOptions({ hostname: '' });
+      expect(emptyHost.valid).toBe(false);
+      expect(emptyHost.error).toContain('hostname is required');
+
+      // 3. Illegal hostname characters fail
+      const badHost = validateVpsOptions({ hostname: 'bad_host$$name!' });
+      expect(badHost.valid).toBe(false);
+      expect(badHost.error).toContain('RFC 1123');
+
+      // 4. Invalid SSH key type fails
+      const badKey = validateVpsOptions({
+        hostname: 'valid-host',
+        sshKey: 'not-a-valid-ssh-key-prefix AAA...',
+      });
+      expect(badKey.valid).toBe(false);
+      expect(badKey.error).toContain('SSH public key must begin with valid key type');
+    });
+
+    it('VPS-03: ProxmoxHttpAdapter blocks SSRF when configured with private/loopback metadata URLs', async () => {
+      const adapter = new ProxmoxHttpAdapter({
+        pveUrl: 'http://169.254.169.254/api2/json',
+        apiTokenId: 'root@pam!fortless',
+        apiTokenSecret: 'secret-token-uuid',
+      });
+
+      const spec: ProvisioningSpec = {
+        serviceId: 'svc_vps_ssrf',
+        name: 'ssrf-test',
+        memoryMb: 2048,
+        cpuPct: 100,
+        diskMb: 40960,
+        databases: 1,
+        backups: 1,
+        eggId: 0,
+        environmentVariables: {},
+        correlationTag: 'vps_ssrf_test',
+      };
+
+      await expect(adapter.provision(spec)).rejects.toThrow();
+    });
+
+    it('VPS-04: MockProxmoxAdapter provisions KVM instance, handles power lifecycle, and issues VNC console tickets', async () => {
+      const adapter = new MockProxmoxAdapter();
+
+      const spec: ProvisioningSpec = {
+        serviceId: 'svc_vps_lifecycle',
+        name: 'prod-vm-01',
+        memoryMb: 4096,
+        cpuPct: 200,
+        diskMb: 81920,
+        databases: 2,
+        backups: 2,
+        eggId: 0,
+        environmentVariables: {
+          HOSTNAME: 'prod-vm-01.fortless.cloud',
+          OS_IMAGE: 'debian-12',
+          SSH_KEY: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... test@fortless',
+        },
+        correlationTag: 'vps_lifecycle_tag',
+      };
+
+      // 1. Provision
+      const result = await adapter.provision(spec);
+      expect(result.externalId).toBeDefined();
+      expect(adapter.getVmCount()).toBe(1);
+
+      // 2. Observe initial status
+      const observed = await adapter.lookupByExternalId(result.externalId);
+      expect(observed?.status).toBe('RUNNING');
+      expect(observed?.limits.memoryMb).toBe(4096);
+      expect(observed?.limits.cpuPct).toBe(200);
+
+      // 3. Power Actions
+      await adapter.powerAction(result.externalId, 'STOP');
+      const stopped = await adapter.lookupByExternalId(result.externalId);
+      expect(stopped?.status).toBe('STOPPED');
+
+      await adapter.powerAction(result.externalId, 'START');
+      const restarted = await adapter.lookupByExternalId(result.externalId);
+      expect(restarted?.status).toBe('RUNNING');
+
+      // 4. Ephemeral VNC Ticket
+      const vnc = await adapter.createVncTicket(result.externalId);
+      expect(vnc.ticket).toContain('PVEVNC:test_ticket_token_');
+      expect(vnc.port).toBeGreaterThanOrEqual(5900);
+
+      // 5. Suspend / Unsuspend
+      await adapter.suspend(result.externalId);
+      const suspended = await adapter.lookupByExternalId(result.externalId);
+      expect(suspended?.status).toBe('STOPPED');
+
+      await adapter.unsuspend(result.externalId);
+      const unsuspended = await adapter.lookupByExternalId(result.externalId);
+      expect(unsuspended?.status).toBe('RUNNING');
+
+      // 6. Terminate
+      await adapter.terminate(result.externalId);
+      expect(adapter.getVmCount()).toBe(0);
+      const terminated = await adapter.lookupByExternalId(result.externalId);
+      expect(terminated).toBeNull();
+    });
+
+    it('VPS-05: The Unknown Outcome Rule — Timeout during VM provisioning recovers via correlation lookup without creating duplicate VMs', async () => {
+      const adapter = new MockProxmoxAdapter();
+      adapter.simulateTimeoutOnNextProvision = true;
+
+      const spec: ProvisioningSpec = {
+        serviceId: 'svc_vps_timeout',
+        name: 'vps-timeout-recovery',
+        memoryMb: 2048,
+        cpuPct: 100,
+        diskMb: 40960,
+        databases: 1,
+        backups: 1,
+        eggId: 0,
+        environmentVariables: {},
+        correlationTag: 'vps_timeout_correlation_tag',
+      };
+
+      // Provision fails with simulated timeout
+      await expect(adapter.provision(spec)).rejects.toThrow('ETIMEDOUT');
+
+      // But VM was cloned on hypervisor before timeout! Recovery lookup finds it
+      const recovered = await adapter.lookupByCorrelationTag('vps_timeout_correlation_tag');
+      expect(recovered).not.toBeNull();
+      expect(recovered?.externalId).toBeDefined();
+
+      // Retry provision with identical correlation tag recovers existing VM ID
+      const retryResult = await adapter.provision(spec);
+      expect(retryResult.externalId).toBe(recovered!.externalId);
+      expect(adapter.getVmCount()).toBe(1); // Zero duplicate VMs created
+    });
+
+    it('VPS-06: Outbox worker maps VPS provisioning spec to hypervisor adapter and marks service ACTIVE', async () => {
+      const adapter = new MockProxmoxAdapter();
+
+      // 1. Setup user, quote, checkout, and webhook to generate order and outbox event
+      const user = registerUser(
+        { email: 'vps.customer@example.com', password: 'Password123!', name: 'VPS Customer', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      const customOptions = {
+        serverName: 'Cloud VM 01',
+        hostname: 'cloudvm01.company.internal',
+        osImage: 'debian-12',
+        sshKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... test@key',
+      };
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_vps_micro', quantity: 1 }], 'DE', false, undefined, db);
+
+      const checkout = processCheckout(
+        {
+          accountId: user.account.id,
+          quoteId: quote.id,
+          idempotencyKey: 'idem_vps_checkout_01',
+          regionId: 'reg_fra_1',
+          customOptions,
+        },
+        db
+      );
+
+      const payload: StripeWebhookPayload = {
+        id: 'evt_vps_paid_01',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 952,
+            currency: 'eur',
+            status: 'succeeded',
+            metadata: { orderId: checkout.orderId },
+          },
+        },
+      };
+
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+
+      // 2. Process outbox queue with MockProxmoxAdapter
+      const processed = await processOutboxQueue(adapter, db, { batchSize: 10 });
+      expect(processed).toBe(1);
+
+      // 3. Verify service and observed state
+      const service = db.prepare('SELECT id, contract_status, external_id FROM services WHERE account_id = ?').get(user.account.id) as {
+        id: string;
+        contract_status: string;
+        external_id: string;
+      };
+      expect(service.contract_status).toBe('ACTIVE');
+      expect(service.external_id).toBeDefined();
+
+      const observed = await adapter.lookupByExternalId(service.external_id);
+      expect(observed?.status).toBe('RUNNING');
+      expect(observed?.limits.memoryMb).toBe(2048);
     });
   });
 });

@@ -171,7 +171,121 @@ export function seedInitialCatalog(db: Database.Database = getDatabase()): void 
       INSERT OR IGNORE INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
       VALUES (?, ?, 'EUR', 'MONTHLY', 1000, 0)
     `).run(generateId('prc'), plvPro);
+
+    // 6. Cloud VPS Compute
+    const catVps = 'cat_cloud_vps';
+    trx.prepare(`
+      INSERT OR IGNORE INTO categories (id, slug, name, description, sort_order)
+      VALUES (?, 'vps', 'Cloud VPS Compute', 'High-performance KVM virtual machines with dedicated vCPU, NVMe storage, and cloud-init guest OS automation.', 4)
+    `).run(catVps);
+
+    const prodVps = 'prod_kvm_vps';
+    trx.prepare(`
+      INSERT OR IGNORE INTO products (id, category_id, slug, name, provider_type, is_published)
+      VALUES (?, ?, 'kvm-vps', 'KVM Cloud VPS', 'VPS', 1)
+    `).run(prodVps, catVps);
+
+    const plvMicro = 'plv_vps_micro';
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_versions (id, product_id, version, name, resource_specs, status)
+      VALUES (?, ?, 1, 'VPS Micro (1 vCPU, 2GB RAM, 40GB NVMe)', ?, 'ACTIVE')
+    `).run(plvMicro, prodVps, JSON.stringify({
+      memoryMb: 2048,
+      cpuPct: 100,
+      diskMb: 40960,
+      databases: 1,
+      backups: 1,
+      vcpu: 1,
+      cores: 1,
+      osImage: 'debian-12-cloudinit',
+      dedicatedIp: true,
+    }));
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+      VALUES (?, ?, 'EUR', 'MONTHLY', 800, 0)
+    `).run(generateId('prc'), plvMicro);
+
+    const plvStandard = 'plv_vps_standard';
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_versions (id, product_id, version, name, resource_specs, status)
+      VALUES (?, ?, 2, 'VPS Standard (2 vCPU, 4GB RAM, 80GB NVMe)', ?, 'ACTIVE')
+    `).run(plvStandard, prodVps, JSON.stringify({
+      memoryMb: 4096,
+      cpuPct: 200,
+      diskMb: 81920,
+      databases: 2,
+      backups: 2,
+      vcpu: 2,
+      cores: 2,
+      osImage: 'debian-12-cloudinit',
+      dedicatedIp: true,
+    }));
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+      VALUES (?, ?, 'EUR', 'MONTHLY', 1600, 0)
+    `).run(generateId('prc'), plvStandard);
+
+    const plvVpsPro = 'plv_vps_pro';
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_versions (id, product_id, version, name, resource_specs, status)
+      VALUES (?, ?, 3, 'VPS Pro (4 vCPU, 8GB RAM, 160GB NVMe)', ?, 'ACTIVE')
+    `).run(plvVpsPro, prodVps, JSON.stringify({
+      memoryMb: 8192,
+      cpuPct: 400,
+      diskMb: 163840,
+      databases: 4,
+      backups: 4,
+      vcpu: 4,
+      cores: 4,
+      osImage: 'debian-12-cloudinit',
+      dedicatedIp: true,
+    }));
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+      VALUES (?, ?, 'EUR', 'MONTHLY', 3200, 0)
+    `).run(generateId('prc'), plvVpsPro);
   }, db);
+}
+
+export interface VpsOptions {
+  hostname: string;
+  osImage?: 'debian-12' | 'ubuntu-22.04' | 'ubuntu-24.04' | 'almalinux-9';
+  sshKey?: string;
+  rootPassword?: string;
+}
+
+export function validateVpsOptions(options: unknown): { valid: boolean; error?: string; options?: VpsOptions } {
+  if (!options || typeof options !== 'object') {
+    return { valid: false, error: 'VPS options are required.' };
+  }
+  const opt = options as Record<string, unknown>;
+  const hostname = typeof opt.hostname === 'string' ? opt.hostname.trim().toLowerCase() : '';
+  if (!hostname) {
+    return { valid: false, error: 'VPS hostname is required.' };
+  }
+
+  if (hostname.length > 63 || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(hostname)) {
+    return { valid: false, error: 'Invalid hostname format. Must conform to RFC 1123.' };
+  }
+
+  const validOs = ['debian-12', 'ubuntu-22.04', 'ubuntu-24.04', 'almalinux-9'];
+  const osImage = typeof opt.osImage === 'string' && validOs.includes(opt.osImage)
+    ? (opt.osImage as VpsOptions['osImage'])
+    : 'debian-12';
+
+  const sshKey = typeof opt.sshKey === 'string' ? opt.sshKey.trim() : undefined;
+  if (sshKey && !sshKey.startsWith('ssh-') && !sshKey.startsWith('ecdsa-')) {
+    return { valid: false, error: 'SSH public key must begin with valid key type (e.g. ssh-ed25519 or ssh-rsa).' };
+  }
+
+  return {
+    valid: true,
+    options: {
+      hostname,
+      osImage,
+      sshKey,
+    },
+  };
 }
 
 export interface WebAppOptions {
