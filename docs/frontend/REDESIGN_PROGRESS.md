@@ -5,7 +5,7 @@
 - Audited modular frontend, shell, routes, APIs and generated bundle boundary.
 - Inventoried canonical `out.html`, `panel.html`, `z4`, `z5`, `z6`, `z7`, `z8`, and `z8b` component sources.
 - Created route and component maps.
-- Commit SHA: pending reviewable commit.
+- Implementation commit: `314839a`.
 
 ## M2 — Shell and navigation (in progress)
 
