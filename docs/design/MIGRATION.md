@@ -13,9 +13,9 @@ Status values: TODO, IN PROGRESS, DONE (only after `scripts/verify-views.py` pas
 | 4 | forgot | public/forgot-password.html | 1 | TODO | |
 | 5 | reset | public/reset-password.html | 1 | TODO | |
 | 6 | verify | public/verify-email.html | 1 | TODO | |
-| 7 | home | public/app.html, src/frontend/client/pages/home | 2 | TODO | |
-| 8 | services | src/frontend/client/pages/dashboard, pages/services | 2 | TODO | |
-| 9 | service | src/frontend/client/pages/services (detail) | 2 | TODO | |
+| 7 | home | public/app.html, src/frontend/client/pages/home | 2 | DONE | commit Wave 1 (home) |
+| 8 | services | src/frontend/client/pages/dashboard, pages/services | 2 | DONE | commit 2af538a |
+| 9 | service | src/frontend/client/pages/services (detail) | 2 | DONE | commit 2af538a |
 | 10 | deploy | src/frontend/client/pages/deploy | 3 | TODO | |
 | 11 | domains | src/frontend/client/pages/domains | 3 | TODO | |
 | 12 | billing | src/frontend/client/pages/billing | 3 | TODO | |
