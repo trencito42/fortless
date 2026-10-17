@@ -47,7 +47,7 @@ export class AppShell {
       ['#nav-audit .ic', 'shield'],
       ['#nav-settings .ic, #tab-settings .ic', 'settings'],
       ['#refreshServersBtn svg, #refreshInvoicesBtn svg, #refreshAuditBtn svg', 'refresh'],
-      ['.app-top-actions .btn svg', 'plus'],
+      ['.app-top-actions > a.btn svg', 'plus'],
       ['#doDeployBtn svg', 'cube'],
     ];
 
