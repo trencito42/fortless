@@ -188,6 +188,26 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: 'notifications and activity export support',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+          type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          message TEXT NOT NULL,
+          link_url TEXT,
+          read_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_account_user ON notifications(account_id, user_id, read_at, created_at);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

@@ -56,7 +56,21 @@ import {
 import { createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
 import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund } from './modules/payments/webhooks.js';
-import { getProviderAdapter } from './modules/outbox/worker.js';
+import {
+  getServiceDetail,
+  executeServicePowerAction,
+  suspendService,
+  unsuspendService,
+  terminateService,
+} from './modules/provisioning/services.js';
+import { renderInvoiceText } from './modules/invoicing/invoicing.js';
+import { listSubscriptionsForAccount, cancelSubscription } from './modules/billing/subscriptions.js';
+import {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  getUnreadNotificationCount,
+} from './modules/notifications/notifications.js';
 import {
   getAdminOverview,
   listAdminAccounts,
@@ -258,6 +272,17 @@ export function buildServer(): FastifyInstance {
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/');
+  });
+
+  app.get('/app/services/:id', async (req, reply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    const { id } = req.params as { id: string };
+    const db = getDatabase();
+    const service = db.prepare('SELECT id FROM services WHERE id = ? AND account_id = ?').get(id, req.auth.account.id);
+    if (!service) return reply.redirect('/app');
+    const appPath = path.join(publicDir, 'app.html');
+    if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
+    return reply.redirect('/app');
   });
 
   app.get('/login', async (req, reply) => {
@@ -995,6 +1020,17 @@ export function buildServer(): FastifyInstance {
     return { services };
   });
 
+  // Services: Get Detail (Tenant Isolated!)
+  app.get('/api/v1/services/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      const detail = getServiceDetail(id, req.auth!.account.id);
+      return { service: detail };
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
   // Services: Power Action (Tenant Isolated & Role Protected)
   const powerSchema = z.object({
     action: z.enum(['START', 'STOP', 'RESTART', 'KILL']),
@@ -1008,34 +1044,23 @@ export function buildServer(): FastifyInstance {
       return reply.status(400).send({ error: 'Invalid power action' });
     }
 
-    const db = getDatabase();
-    const service = db.prepare('SELECT * FROM services WHERE id = ? AND account_id = ?').get(id, req.auth!.account.id) as ({
-      id: string;
-      external_id: string | null;
-      contract_status: string;
-    }) | undefined;
-
-    if (!service) {
-      return reply.status(404).send({ error: 'Service not found' });
+    try {
+      const result = await executeServicePowerAction({
+        serviceId: id,
+        accountId: req.auth!.account.id,
+        userId: req.auth!.user.id,
+        action: parse.data.action,
+        ipAddress: req.ip,
+      });
+      return { success: true, serviceId: id, action: parse.data.action, runtimeState: result.runtimeState };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg.includes('not found')) return reply.status(404).send({ error: msg });
+      if (msg.includes('cannot receive power commands') || msg.includes('still provisioning')) {
+        return reply.status(403).send({ error: msg });
+      }
+      return reply.status(500).send({ error: msg });
     }
-
-    if (service.contract_status !== 'ACTIVE') {
-      return reply.status(403).send({ error: 'Service is not active (suspended or cancelled)' });
-    }
-
-    if (!service.external_id) {
-      return reply.status(409).send({ error: 'Service is still provisioning' });
-    }
-
-    const adapter = getProviderAdapter();
-    await adapter.powerAction(service.external_id, parse.data.action);
-
-    // Update observed state
-    const newRuntime = parse.data.action === 'STOP' || parse.data.action === 'KILL' ? 'STOPPED' : 'RUNNING';
-    db.prepare("UPDATE service_observed_states SET runtime_state = ?, last_checked_at = datetime('now', 'utc') WHERE service_id = ?")
-      .run(newRuntime, id);
-
-    return { success: true, serviceId: id, action: parse.data.action, runtimeState: newRuntime };
   });
 
   // Invoices: Get by ID with lines (Tenant Isolated!)
@@ -1048,6 +1073,101 @@ export function buildServer(): FastifyInstance {
     }
     const lines = db.prepare('SELECT * FROM invoice_lines WHERE invoice_id = ?').all(id);
     return { invoice, lines };
+  });
+
+  // Invoices: Download Plaintext Receipt
+  app.get('/api/v1/invoices/:id/download', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      const text = renderInvoiceText(id, req.auth!.account.id);
+      return reply
+        .header('Content-Type', 'text/plain; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="invoice-${id}.txt"`)
+        .send(text);
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
+  // Subscriptions: List
+  app.get('/api/v1/subscriptions', { preHandler: [requireAuth] }, async (req) => {
+    return { subscriptions: listSubscriptionsForAccount(req.auth!.account.id) };
+  });
+
+  // Subscriptions: Cancel
+  const cancelSubSchema = z.object({
+    immediate: z.boolean().default(false),
+    reason: z.string().trim().min(3).max(300).optional(),
+  });
+
+  app.post('/api/v1/subscriptions/:id/cancel', { preHandler: [requireAuth, requireRole('OWNER', 'BILLING_MANAGER')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parse = cancelSubSchema.safeParse(req.body || {});
+    if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    try {
+      const result = cancelSubscription({
+        subscriptionId: id,
+        accountId: req.auth!.account.id,
+        userId: req.auth!.user.id,
+        immediate: parse.data.immediate,
+        reason: parse.data.reason,
+      });
+      return { success: true, ...result };
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
+  // Notifications: List & Unread Count
+  app.get('/api/v1/notifications', { preHandler: [requireAuth] }, async (req) => {
+    const notifications = listNotifications(req.auth!.account.id, req.auth!.user.id);
+    const unreadCount = getUnreadNotificationCount(req.auth!.account.id, req.auth!.user.id);
+    return { notifications, unreadCount };
+  });
+
+  // Notifications: Mark Single Read
+  app.post('/api/v1/notifications/:id/read', { preHandler: [requireAuth] }, async (req) => {
+    const { id } = req.params as { id: string };
+    const updated = markNotificationRead(id, req.auth!.account.id);
+    return { success: true, updated };
+  });
+
+  // Notifications: Mark All Read
+  app.post('/api/v1/notifications/read-all', { preHandler: [requireAuth] }, async (req) => {
+    const count = markAllNotificationsRead(req.auth!.account.id, req.auth!.user.id);
+    return { success: true, count };
+  });
+
+  // Activity: CSV Export
+  app.get('/api/v1/activity/export', { preHandler: [requireAuth] }, async (req, reply) => {
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT id, action, actor_type, resource_type, resource_id, correlation_id, created_at, metadata
+      FROM audit_events
+      WHERE account_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1000
+    `).all(req.auth!.account.id) as Array<{
+      id: string;
+      action: string;
+      actor_type: string;
+      resource_type: string;
+      resource_id: string;
+      correlation_id: string;
+      created_at: string;
+      metadata: string;
+    }>;
+
+    const escapeCsv = (str: string) => `"${String(str || '').replace(/"/g, '""')}"`;
+    let csv = 'id,action,actor_type,resource_type,resource_id,correlation_id,created_at,metadata\n';
+    for (const r of rows) {
+      csv += `${escapeCsv(r.id)},${escapeCsv(r.action)},${escapeCsv(r.actor_type)},${escapeCsv(r.resource_type)},${escapeCsv(r.resource_id)},${escapeCsv(r.correlation_id)},${escapeCsv(r.created_at)},${escapeCsv(r.metadata)}\n`;
+    }
+
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="activity-${req.auth!.account.id}.csv"`)
+      .send(csv);
   });
 
   // Admin Invoices: Refund
@@ -1219,6 +1339,61 @@ export function buildServer(): FastifyInstance {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
     return listAdminServices(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  // Admin Services: Suspend
+  const adminServiceActionSchema = z.object({
+    reason: z.string().trim().min(3).max(300),
+  });
+
+  app.post('/api/v1/admin/services/:id/suspend', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parse = adminServiceActionSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    try {
+      await suspendService({
+        serviceId: id,
+        reason: parse.data.reason,
+        actorUserId: req.auth!.user.id,
+        actorType: 'STAFF',
+      });
+      return { success: true };
+    } catch (err: unknown) {
+      return reply.status(422).send({ error: (err as Error).message });
+    }
+  });
+
+  // Admin Services: Unsuspend
+  app.post('/api/v1/admin/services/:id/unsuspend', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      await unsuspendService({
+        serviceId: id,
+        actorUserId: req.auth!.user.id,
+        actorType: 'STAFF',
+      });
+      return { success: true };
+    } catch (err: unknown) {
+      return reply.status(422).send({ error: (err as Error).message });
+    }
+  });
+
+  // Admin Services: Terminate
+  app.post('/api/v1/admin/services/:id/terminate', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parse = adminServiceActionSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    try {
+      await terminateService({
+        serviceId: id,
+        reason: parse.data.reason,
+        actorUserId: req.auth!.user.id,
+        actorType: 'STAFF',
+      });
+      return { success: true };
+    } catch (err: unknown) {
+      return reply.status(422).send({ error: (err as Error).message });
+    }
   });
 
   app.get('/api/v1/admin/tickets', { preHandler: [requireAuth, requireStaffPermission('tickets:read')] }, async (req, reply) => {

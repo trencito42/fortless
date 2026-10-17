@@ -63,6 +63,22 @@ import {
   type StripeWebhookPayload,
 } from '../src/modules/payments/webhooks.js';
 import { MockPterodactylAdapter } from '../src/modules/provisioning/adapter.js';
+import {
+  getServiceDetail,
+  executeServicePowerAction,
+  suspendService,
+  unsuspendService,
+  terminateService,
+} from '../src/modules/provisioning/services.js';
+import { renderInvoiceText } from '../src/modules/invoicing/invoicing.js';
+import { listSubscriptionsForAccount, cancelSubscription } from '../src/modules/billing/subscriptions.js';
+import {
+  createNotification,
+  listNotifications,
+  markNotificationRead,
+  getUnreadNotificationCount,
+} from '../src/modules/notifications/notifications.js';
+import { validateSafeOutboundUrl } from '../src/utils/ssrf.js';
 import { processOutboxQueue } from '../src/modules/outbox/worker.js';
 import {
   getAdminOverview,
@@ -1077,6 +1093,202 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(postCheck.status).toBe('COMPLETED');
       expect(postCheck.retry_count).toBeGreaterThanOrEqual(1); // incremented during recovery
     });
+
+    it('PROV-06: Tenant-isolated service detail returns full specs and rejects cross-tenant access', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const userA = registerUser({ email: 'userA_svc@example.com', password: 'P@ssword123!', name: 'User A', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const userB = registerUser({ email: 'userB_svc@example.com', password: 'P@ssword123!', name: 'User B', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const quote = createQuote(userA.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: userA.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_06', regionId: 'reg_fra_1' }, db);
+
+      const payload: StripeWebhookPayload = {
+        id: 'evt_prov_06',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      await processOutboxQueue(adapter, db);
+
+      const serviceRow = db.prepare('SELECT id FROM services WHERE account_id = ?').get(userA.account.id) as { id: string };
+
+      // User A can access their service
+      const detail = getServiceDetail(serviceRow.id, userA.account.id, db);
+      expect(detail.id).toBe(serviceRow.id);
+      expect(detail.planName).toBe('Minecraft Standard (4GB RAM)');
+      expect(detail.desiredConfig?.memoryLimitMb).toBe(4096);
+      expect(detail.observedState?.runtimeState).toBe('RUNNING');
+
+      // User B cannot access User A's service (IDOR protection)
+      expect(() => getServiceDetail(serviceRow.id, userB.account.id, db)).toThrow('Service not found');
+    });
+
+    it('PROV-07: Safe power actions update provider and observed state with persistent audit event', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser({ email: 'user_pwr@example.com', password: 'P@ssword123!', name: 'Power User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_07', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_prov_07',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      await processOutboxQueue(adapter, db);
+
+      const service = db.prepare('SELECT id FROM services WHERE account_id = ?').get(user.account.id) as { id: string };
+
+      // Execute STOP
+      const stopResult = await executeServicePowerAction({
+        serviceId: service.id,
+        accountId: user.account.id,
+        userId: user.user.id,
+        action: 'STOP',
+      }, adapter, db);
+      expect(stopResult.runtimeState).toBe('STOPPED');
+
+      const observedStop = db.prepare('SELECT runtime_state FROM service_observed_states WHERE service_id = ?').get(service.id) as { runtime_state: string };
+      expect(observedStop.runtime_state).toBe('STOPPED');
+
+      // Execute START
+      const startResult = await executeServicePowerAction({
+        serviceId: service.id,
+        accountId: user.account.id,
+        userId: user.user.id,
+        action: 'START',
+      }, adapter, db);
+      expect(startResult.runtimeState).toBe('RUNNING');
+
+      // Check audit event
+      const audit = db.prepare("SELECT * FROM audit_events WHERE resource_type = 'service' AND resource_id = ? AND action = 'service.power' ORDER BY rowid DESC LIMIT 1").get(service.id) as any;
+      expect(audit).toBeDefined();
+      expect(JSON.parse(audit.metadata).action).toBe('START');
+    });
+
+    it('PROV-08: Power action on non-active service fails closed', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser({ email: 'user_susp@example.com', password: 'P@ssword123!', name: 'Susp User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_08', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_prov_08',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      await processOutboxQueue(adapter, db);
+
+      const service = db.prepare('SELECT id FROM services WHERE account_id = ?').get(user.account.id) as { id: string };
+
+      // Suspend service
+      await suspendService({ serviceId: service.id, reason: 'Payment overdue' }, adapter, db);
+
+      // Attempting power action must fail
+      await expect(executeServicePowerAction({
+        serviceId: service.id,
+        accountId: user.account.id,
+        userId: user.user.id,
+        action: 'START',
+      }, adapter, db)).rejects.toThrow('Service cannot receive power commands in SUSPENDED status');
+    });
+
+    it('PROV-09: Suspension and termination release node allocation and update status safely', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser({ email: 'user_term@example.com', password: 'P@ssword123!', name: 'Term User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_09', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_prov_09',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      await processOutboxQueue(adapter, db);
+
+      const service = db.prepare('SELECT id, node_id FROM services WHERE account_id = ?').get(user.account.id) as { id: string; node_id: string };
+
+      const nodeAllocatedBefore = (db.prepare('SELECT allocated_memory_mb FROM nodes WHERE id = ?').get(service.node_id) as any).allocated_memory_mb;
+      expect(nodeAllocatedBefore).toBeGreaterThan(0);
+
+      // Suspend
+      await suspendService({ serviceId: service.id, reason: 'Abuse report' }, adapter, db);
+      const svcSusp = db.prepare('SELECT contract_status FROM services WHERE id = ?').get(service.id) as any;
+      expect(svcSusp.contract_status).toBe('SUSPENDED');
+
+      // Unsuspend
+      await unsuspendService({ serviceId: service.id }, adapter, db);
+      const svcActive = db.prepare('SELECT contract_status FROM services WHERE id = ?').get(service.id) as any;
+      expect(svcActive.contract_status).toBe('ACTIVE');
+
+      // Terminate
+      await terminateService({ serviceId: service.id, reason: 'Customer requested cancellation' }, adapter, db);
+      const svcTerm = db.prepare('SELECT contract_status FROM services WHERE id = ?').get(service.id) as any;
+      expect(svcTerm.contract_status).toBe('TERMINATED');
+
+      // Provider removed
+      expect(adapter.getServerCount()).toBe(0);
+
+      // Node capacity released
+      const nodeAllocatedAfter = (db.prepare('SELECT allocated_memory_mb FROM nodes WHERE id = ?').get(service.node_id) as any).allocated_memory_mb;
+      expect(nodeAllocatedAfter).toBe(nodeAllocatedBefore - 4096);
+    });
+
+    it('PROV-10: Insufficient node capacity flags provision_operations as NEEDS_MANUAL_REVIEW without fabricating ACTIVE', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser({ email: 'user_cap@example.com', password: 'P@ssword123!', name: 'Cap User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      // Artificial node capacity exhaustion: fill up node allocation to max
+      db.prepare("UPDATE nodes SET allocated_memory_mb = max_memory_mb WHERE id = 'node_fra_01'").run();
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_10', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_prov_10',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+
+      // Process outbox queue
+      await processOutboxQueue(adapter, db);
+
+      // Ensure provider was NEVER called
+      expect(adapter.getServerCount()).toBe(0);
+
+      // Ensure service is NOT marked ACTIVE
+      const service = db.prepare('SELECT contract_status FROM services WHERE account_id = ?').get(user.account.id) as any;
+      expect(service.contract_status).not.toBe('ACTIVE');
+
+      // Verify provision_operations flagged for staff review
+      const provOp = db.prepare('SELECT status FROM provision_operations WHERE service_id = (SELECT id FROM services WHERE account_id = ?)').get(user.account.id) as any;
+      expect(provOp.status).toBe('NEEDS_MANUAL_REVIEW');
+    });
+
+    it('SSRF-01: Safe outbound URL validator blocks loopback, private subnets, metadata, and non-HTTP', async () => {
+      // Loopback
+      await expect(validateSafeOutboundUrl('http://127.0.0.1/admin')).rejects.toThrow('SSRF blocked');
+      await expect(validateSafeOutboundUrl('http://127.0.0.2:8080/')).rejects.toThrow('SSRF blocked');
+
+      // RFC1918 Private
+      await expect(validateSafeOutboundUrl('http://10.0.0.1/')).rejects.toThrow('SSRF blocked');
+      await expect(validateSafeOutboundUrl('http://192.168.1.1/')).rejects.toThrow('SSRF blocked');
+      await expect(validateSafeOutboundUrl('http://172.16.0.1/')).rejects.toThrow('SSRF blocked');
+
+      // Cloud Metadata
+      await expect(validateSafeOutboundUrl('http://169.254.169.254/latest/meta-data')).rejects.toThrow('SSRF blocked');
+
+      // Non-HTTP
+      await expect(validateSafeOutboundUrl('ftp://example.com/')).rejects.toThrow('Forbidden protocol');
+      await expect(validateSafeOutboundUrl('file:///etc/passwd')).rejects.toThrow('Forbidden protocol');
+    });
   });
 
   describe('Category F: Staff Read Models', () => {
@@ -1505,6 +1717,91 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         config.EMAIL_MODE = previousMode;
         clearSandboxReceipts();
       }
+    });
+  });
+
+  describe('Category H: Subscriptions, Notifications & Customer Observability', () => {
+    it('SUB-01: Customer can list subscriptions and schedule or immediately cancel them', () => {
+      const user = registerUser({ email: 'sub_user@example.com', password: 'P@ssword123!', name: 'Sub Owner', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      // Create an active subscription
+      const subId = 'sub_test_01';
+      db.prepare(`
+        INSERT INTO subscriptions (
+          id, account_id, service_id, status, billing_interval, current_period_start,
+          current_period_end, next_renewal_date, renewal_price_minor_units, currency, auto_renew
+        ) VALUES (?, ?, 'svc_dummy_01', 'ACTIVE', 'MONTHLY', datetime('now', 'utc'), datetime('now', '+30 days', 'utc'), datetime('now', '+30 days', 'utc'), 1428, 'EUR', 1)
+      `).run(subId, user.account.id);
+
+      const subs = listSubscriptionsForAccount(user.account.id, db);
+      expect(subs).toHaveLength(1);
+      expect(subs[0]?.status).toBe('ACTIVE');
+      expect(subs[0]?.autoRenew).toBe(true);
+
+      // Schedule cancellation
+      const sched = cancelSubscription({ subscriptionId: subId, accountId: user.account.id, userId: user.user.id, immediate: false }, db);
+      expect(sched.status).toBe('CANCEL_SCHEDULED');
+
+      const updated = listSubscriptionsForAccount(user.account.id, db);
+      expect(updated[0]?.status).toBe('CANCEL_SCHEDULED');
+      expect(updated[0]?.autoRenew).toBe(false);
+
+      // Verify audit event logged
+      const audit = db.prepare("SELECT * FROM audit_events WHERE resource_type = 'subscription' AND resource_id = ? AND action = 'subscription.cancel'").get(subId) as any;
+      expect(audit).toBeDefined();
+    });
+
+    it('NOTIF-01: Notifications persist, track read status, and count unread per tenant', () => {
+      const user = registerUser({ email: 'notif_user@example.com', password: 'P@ssword123!', name: 'Notif User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      // Initially zero
+      expect(getUnreadNotificationCount(user.account.id, user.user.id, db)).toBe(0);
+
+      // Create notification
+      const nId = createNotification({
+        accountId: user.account.id,
+        userId: user.user.id,
+        type: 'service.provisioned',
+        title: 'Server Ready',
+        message: 'Your Minecraft server has been provisioned.',
+        linkUrl: '/app/services/svc_123',
+      }, db);
+
+      expect(getUnreadNotificationCount(user.account.id, user.user.id, db)).toBe(1);
+
+      const items = listNotifications(user.account.id, user.user.id, 10, db);
+      expect(items).toHaveLength(1);
+      expect(items[0]?.title).toBe('Server Ready');
+      expect(items[0]?.readAt).toBeNull();
+
+      // Mark read
+      markNotificationRead(nId, user.account.id, db);
+      expect(getUnreadNotificationCount(user.account.id, user.user.id, db)).toBe(0);
+
+      const itemsAfter = listNotifications(user.account.id, user.user.id, 10, db);
+      expect(itemsAfter[0]?.readAt).not.toBeNull();
+    });
+
+    it('INV-03: Plaintext invoice receipt renders exact items, fiscal details, and VAT', () => {
+      const user = registerUser({ email: 'receipt_user@example.com', password: 'P@ssword123!', name: 'Receipt User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_inv_03', regionId: 'reg_fra_1' }, db);
+
+      const payload: StripeWebhookPayload = {
+        id: 'evt_inv_03',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+
+      const rendered = renderInvoiceText(checkout.invoiceId, user.account.id, db);
+      expect(rendered).toContain('FORTLESS HOSTING PLATFORM');
+      expect(rendered).toContain('Fiscal Invoice & Entitlement Statement');
+      expect(rendered).toContain(checkout.invoiceId);
+      expect(rendered).toContain('PAID');
+      expect(rendered).toContain('14.28 EUR');
     });
   });
 });

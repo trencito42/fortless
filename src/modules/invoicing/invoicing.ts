@@ -151,3 +151,52 @@ export function getInvoiceDetail(invoiceId: string, accountId?: string, db: Data
 
   return { invoice, lines, payments };
 }
+
+export function renderInvoiceText(invoiceId: string, accountId: string, db: Database.Database = getDatabase()): string {
+  const detail = getInvoiceDetail(invoiceId, accountId, db);
+  if (!detail || !detail.invoice) {
+    throw new Error('Invoice not found');
+  }
+
+  const inv = detail.invoice as any;
+  const lines = detail.lines as any[];
+  const currency = inv.currency || 'EUR';
+  const formatMinor = (minor: number) => (Number(minor || 0) / 100).toFixed(2);
+
+  const separator = '='.repeat(64);
+  const thinSep = '-'.repeat(64);
+
+  let out = `${separator}\n`;
+  out += `                      FORTLESS HOSTING PLATFORM\n`;
+  out += `              Fiscal Invoice & Entitlement Statement\n`;
+  out += `${separator}\n\n`;
+  out += `Invoice Number:  ${inv.invoice_number || 'DRAFT'}\n`;
+  out += `Invoice ID:      ${inv.id}\n`;
+  out += `Status:          ${inv.status}\n`;
+  out += `Created At:      ${inv.created_at}\n`;
+  out += `Paid At:         ${inv.paid_at || 'Unpaid / Pending'}\n`;
+  out += `Account ID:      ${inv.account_id}\n\n`;
+  out += `${thinSep}\n`;
+  out += `Item Description                     Qty    Unit Price     Total\n`;
+  out += `${thinSep}\n`;
+
+  for (const line of lines) {
+    const desc = (line.description || 'Service Entitlement').padEnd(35).slice(0, 35);
+    const qty = String(line.quantity || 1).padStart(4);
+    const unit = `${formatMinor(line.unit_price_minor_units)} ${currency}`.padStart(13);
+    const tot = `${formatMinor(line.total_minor_units)} ${currency}`.padStart(10);
+    out += `${desc} ${qty} ${unit} ${tot}\n`;
+  }
+
+  out += `${thinSep}\n`;
+  out += `Subtotal:                              ${formatMinor(inv.subtotal_minor_units)} ${currency}\n`;
+  out += `Tax / VAT:                             ${formatMinor(inv.tax_minor_units)} ${currency}\n`;
+  out += `Total Amount:                          ${formatMinor(inv.total_minor_units)} ${currency}\n`;
+  out += `Amount Paid:                           ${formatMinor(inv.amount_paid_minor_units)} ${currency}\n`;
+  out += `${separator}\n`;
+  out += `Thank you for your business. For support, visit https://fortless.net/app/support\n`;
+  out += `${separator}\n`;
+
+  return out;
+}
+

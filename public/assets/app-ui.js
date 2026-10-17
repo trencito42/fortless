@@ -111,6 +111,7 @@
 
   const pages = {
     servers: ['Services', 'Actual service records and provider-observed runtime state for this account.'],
+    'service-detail': ['Service Detail', 'Detailed configuration, provider allocation, and operational logs.'],
     deploy: ['Configure a service', 'Catalog preview; ordering remains disabled until payment and infrastructure providers are verified.'],
     billing: ['Billing', 'Draft and issued documents recorded for this account.'],
     tickets: ['Support', 'Open and review account-scoped support conversations.'],
@@ -130,7 +131,9 @@
   const pathRoutes = Object.fromEntries(Object.entries(routePaths).map(([route, pathname]) => [pathname, route]));
 
   function currentRoute() {
-    return pathRoutes[window.location.pathname.replace(/\/$/, '') || '/app'] || 'servers';
+    const p = window.location.pathname.replace(/\/$/, '') || '/app';
+    if (p.startsWith('/app/services/')) return 'service-detail';
+    return pathRoutes[p] || 'servers';
   }
 
   function navigate() {
@@ -146,8 +149,13 @@
     document.getElementById('viewTitle').textContent = pages[route][0];
     document.getElementById('viewSubtitle').textContent = pages[route][1];
     const catalogAction = document.querySelector('.app-top-actions .btn');
-    if (catalogAction) catalogAction.hidden = route === 'deploy';
+    if (catalogAction) catalogAction.hidden = route === 'deploy' || route === 'service-detail';
     if (route === 'servers') loadServers();
+    if (route === 'service-detail') {
+      const parts = window.location.pathname.split('/');
+      const serviceId = parts[parts.length - 1];
+      loadServiceDetail(serviceId);
+    }
     if (route === 'deploy') loadCatalog();
     if (route === 'billing') loadInvoices();
     if (route === 'tickets') loadTickets();
@@ -185,10 +193,91 @@
           <div class="tx"><div class="title-row"><b>${esc(service.plan_name || 'Hosting service')}</b><span class="badge ${badge} s">${esc(runtime)}</span><span class="badge s">${esc(service.contract_status)}</span></div>
           <div class="meta">${esc(service.node_name || service.node_id)} · ${Number(service.memory_limit_mb || 0) / 1024} GB RAM · ${esc(service.cpu_limit_pct || 0)}% CPU · ${Number(service.disk_limit_mb || 0) / 1024} GB disk</div></div>
           <code class="endpoint">${esc(endpoint)}</code>
-          <div class="actions"><button class="btn s sec" data-power="RESTART" data-service="${esc(service.id)}" ${runningNow ? '' : 'disabled'}>${hero('refresh', 'xs')}Restart</button><button class="btn s badt" data-power="STOP" data-service="${esc(service.id)}" ${runningNow ? '' : 'disabled'}>${hero('stop', 'xs')}Stop</button><button class="btn s goodt" data-power="START" data-service="${esc(service.id)}" ${runningNow ? 'disabled' : ''}>${hero('play', 'xs')}Start</button></div>
+          <div class="actions">
+            <button class="btn s sec" data-power="RESTART" data-service="${esc(service.id)}" ${runningNow ? '' : 'disabled'}>${hero('refresh', 'xs')}Restart</button>
+            <button class="btn s badt" data-power="STOP" data-service="${esc(service.id)}" ${runningNow ? '' : 'disabled'}>${hero('stop', 'xs')}Stop</button>
+            <button class="btn s goodt" data-power="START" data-service="${esc(service.id)}" ${runningNow ? 'disabled' : ''}>${hero('play', 'xs')}Start</button>
+            <a href="/app/services/${esc(service.id)}" class="btn s tint" data-app-route="service-detail" data-service-id="${esc(service.id)}">${hero('chevron', 'xs')}Manage</a>
+          </div>
         </article>`;
       }).join('')}</div>`;
     } catch (error) { message(host, error.message, 'bad'); }
+  }
+
+  async function loadServiceDetail(serviceId) {
+    if (!serviceId) return;
+    try {
+      const { service } = await api(`/api/v1/services/${encodeURIComponent(serviceId)}`);
+      state.currentService = service;
+      document.getElementById('detailBreadcrumbName').textContent = service.planName || service.id;
+      document.getElementById('detailHeadingName').textContent = service.planName || 'Service Detail';
+      document.getElementById('detailSubtitle').textContent = `${service.nodeName} (${service.regionName}) · ${service.identifier ? 'Provider ID ' + service.identifier : 'Provisioning'}`;
+
+      const runtimeBadge = document.getElementById('detailRuntimeBadge');
+      const contractBadge = document.getElementById('detailContractBadge');
+      const runtime = service.observedState?.runtimeState || 'UNKNOWN';
+      runtimeBadge.textContent = runtime;
+      runtimeBadge.className = `badge s ${runtime === 'RUNNING' ? 'good' : runtime === 'INSTALLING' ? 'warn' : runtime === 'ERROR' ? 'bad' : 'info'}`;
+      contractBadge.textContent = service.contractStatus;
+      contractBadge.className = `badge s ${service.contractStatus === 'ACTIVE' ? 'good' : 'warn'}`;
+
+      const runningNow = runtime === 'RUNNING';
+      const restartBtn = document.getElementById('detailRestartBtn');
+      const stopBtn = document.getElementById('detailStopBtn');
+      const startBtn = document.getElementById('detailStartBtn');
+      if (restartBtn) { restartBtn.disabled = !runningNow; restartBtn.onclick = () => powerService(service.id, 'RESTART', restartBtn); }
+      if (stopBtn) { stopBtn.disabled = !runningNow; stopBtn.onclick = () => powerService(service.id, 'STOP', stopBtn); }
+      if (startBtn) { startBtn.disabled = runningNow; startBtn.onclick = () => powerService(service.id, 'START', startBtn); }
+
+      const specsList = document.getElementById('detailSpecsList');
+      if (specsList) {
+        specsList.innerHTML = `
+          <div class="row"><span class="muted" style="width:140px">Service ID:</span><code class="mono">${esc(service.id)}</code></div>
+          <div class="row"><span class="muted" style="width:140px">Allocated RAM:</span><b>${Number(service.desiredConfig?.memoryLimitMb || 0) / 1024} GB</b></div>
+          <div class="row"><span class="muted" style="width:140px">CPU Limit:</span><b>${esc(service.desiredConfig?.cpuLimitPct || 0)}%</b></div>
+          <div class="row"><span class="muted" style="width:140px">Allocated Disk:</span><b>${Number(service.desiredConfig?.diskLimitMb || 0) / 1024} GB SSD</b></div>
+          <div class="row"><span class="muted" style="width:140px">Provider Type:</span><span class="badge s">${esc(service.providerType)}</span></div>
+        `;
+      }
+
+      const connList = document.getElementById('detailConnectionList');
+      if (connList) {
+        connList.innerHTML = `
+          <div class="row"><span class="muted" style="width:140px">Node Hostname:</span><code class="mono">${esc(service.nodeFqdn)}</code></div>
+          <div class="row"><span class="muted" style="width:140px">Datacenter:</span><b>${esc(service.regionName)} (${esc(service.regionCode)})</b></div>
+          <div class="row"><span class="muted" style="width:140px">Remote ID:</span><code class="mono">${esc(service.externalId || 'Pending')}</code></div>
+          <div class="row"><span class="muted" style="width:140px">Short Identifier:</span><code class="mono">${esc(service.identifier || 'Pending')}</code></div>
+          <div class="row"><span class="muted" style="width:140px">Created At:</span><span>${date(service.createdAt)}</span></div>
+        `;
+      }
+
+      const ramMb = Number(service.desiredConfig?.memoryLimitMb || 0);
+      const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
+      const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
+      document.getElementById('gaugeRamValue').textContent = `${(ramMb / 1024).toFixed(1)} GB`;
+      document.getElementById('gaugeRamBar').style.width = '100%';
+      document.getElementById('gaugeCpuValue').textContent = `${cpuPct}%`;
+      document.getElementById('gaugeCpuBar').style.width = `${Math.min(100, cpuPct / 2)}%`;
+      document.getElementById('gaugeDiskValue').textContent = `${(diskMb / 1024).toFixed(0)} GB`;
+      document.getElementById('gaugeDiskBar').style.width = '100%';
+
+      const timeline = document.getElementById('detailAuditTimeline');
+      if (timeline) {
+        if (!service.auditTrail || !service.auditTrail.length) {
+          timeline.innerHTML = '<div class="state-message">No recorded activity yet for this service.</div>';
+        } else {
+          timeline.innerHTML = service.auditTrail.map((ev) => `
+            <div class="row" style="padding:10px 0;border-bottom:1px solid var(--s2)">
+              <span class="badge s ${ev.action.includes('power') ? 'info' : 'accent'}">${esc(ev.action)}</span>
+              <span class="faint" style="font-size:12px">${date(ev.createdAt)}</span>
+              <span class="muted" style="font-size:12px">${esc(ev.metadata || '')}</span>
+            </div>
+          `).join('');
+        }
+      }
+    } catch (error) {
+      toast(error.message, 'bad');
+    }
   }
 
   async function powerService(id, action, button) {
@@ -326,8 +415,69 @@
       const currency = invoices[0]?.currency || 'EUR';
       const summary = document.getElementById('invoiceSummary');
       if (summary) summary.innerHTML = `<div><small>Paid</small><b>${money(paid, currency)}</b></div><div><small>Pending</small><b>${money(pending, currency)}</b></div><div><small>Invoices</small><b>${invoices.length}</b></div>`;
-      host.innerHTML = invoices.length ? invoices.map((invoice) => `<tr class="mobile-record"><td data-label="Invoice"><b>${esc(invoice.invoice_number || 'Draft')}</b></td><td data-label="Issued" class="muted">${esc(date(invoice.created_at))}</td><td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td><td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td><td data-label="Status"><span class="badge ${invoice.status === 'PAID' ? 'good' : invoice.status === 'DRAFT' ? '' : 'info'} s">${esc(invoice.status)}</span></td><td data-label="Record" class="r"><span class="badge s">${hero('document', 'xs')}Recorded</span></td></tr>`).join('') : '<tr><td colspan="6"><div class="z-es"><div class="z-art"><i class="a"></i><i class="b"></i><i class="c"></i>'+hero('document', 'l')+'</div><h4>No invoices</h4><p>Issued billing records will appear here.</p></div></td></tr>';
+      host.innerHTML = invoices.length ? invoices.map((invoice) => `<tr class="mobile-record"><td data-label="Invoice"><b>${esc(invoice.invoice_number || 'Draft')}</b></td><td data-label="Issued" class="muted">${esc(date(invoice.created_at))}</td><td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td><td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td><td data-label="Status"><span class="badge ${invoice.status === 'PAID' ? 'good' : invoice.status === 'DRAFT' ? '' : 'info'} s">${esc(invoice.status)}</span></td><td data-label="Record" class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download style="font-size:11px;padding:4px 8px;height:28px">${hero('document', 'xs')}Receipt</a></td></tr>`).join('') : '<tr><td colspan="6"><div class="z-es"><div class="z-art"><i class="a"></i><i class="b"></i><i class="c"></i>'+hero('document', 'l')+'</div><h4>No invoices</h4><p>Issued billing records will appear here.</p></div></td></tr>';
+
+      const subHost = document.getElementById('subscriptionsContainer');
+      if (subHost) {
+        try {
+          const { subscriptions } = await api('/api/v1/subscriptions');
+          if (!subscriptions.length) {
+            subHost.innerHTML = '<div class="state-message">No active subscriptions.</div>';
+          } else {
+            subHost.innerHTML = `<div class="col" style="gap:8px">${subscriptions.map((sub) => {
+              const isCancelScheduled = sub.status === 'CANCEL_SCHEDULED';
+              const isCanceled = sub.status === 'CANCELED' || sub.status === 'TERMINATED';
+              return `<article class="li card s2" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px">
+                <div>
+                  <b>${esc(sub.serviceName)}</b>
+                  <span class="badge s ${sub.status === 'ACTIVE' ? 'good' : 'warn'}">${esc(sub.status)}</span>
+                  <div class="muted" style="font-size:12px;margin-top:4px">
+                    ${money(sub.renewalPriceMinorUnits, sub.currency)} / ${esc(sub.billingInterval.toLowerCase())} · Renews ${date(sub.nextRenewalDate)}
+                  </div>
+                </div>
+                <div class="actions">
+                  ${isCanceled ? '<span class="badge s">Cancelled</span>' : isCancelScheduled ? '<span class="badge warn s">Cancellation Scheduled</span>' : `<button type="button" class="btn badt s" data-cancel-sub="${esc(sub.id)}">Cancel subscription</button>`}
+                </div>
+              </article>`;
+            }).join('')}</div>`;
+          }
+        } catch (err) {
+          subHost.innerHTML = `<div class="state-message bad">${esc(err.message)}</div>`;
+        }
+      }
     } catch (error) { host.innerHTML = `<tr><td colspan="6"><div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div></td></tr>`; }
+  }
+
+  async function loadNotifications() {
+    try {
+      const data = await api('/api/v1/notifications');
+      const badge = document.getElementById('notifBadge');
+      if (badge) {
+        if (data.unreadCount > 0) {
+          badge.textContent = data.unreadCount;
+          badge.style.display = 'block';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+      const list = document.getElementById('notifList');
+      if (list) {
+        if (!data.notifications.length) {
+          list.innerHTML = '<div class="state-message">No notifications.</div>';
+        } else {
+          list.innerHTML = data.notifications.map((n) => `
+            <div class="card s2" style="padding:10px;border-radius:12px;opacity:${n.readAt ? '0.7' : '1'}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <b style="font-size:13px">${esc(n.title)}</b>
+                <small class="faint" style="font-size:11px">${date(n.createdAt)}</small>
+              </div>
+              <p style="font-size:12px;color:var(--ink2);margin:0 0 6px">${esc(n.message)}</p>
+              ${n.linkUrl ? `<a href="${esc(n.linkUrl)}" data-app-route="${n.linkUrl.includes('services') ? 'service-detail' : 'servers'}" style="font-size:11px;color:var(--accent);font-weight:600">View details →</a>` : ''}
+            </div>
+          `).join('');
+        }
+      }
+    } catch { /* ignore non-blocking error */ }
   }
 
   async function loadTickets() {
@@ -631,6 +781,21 @@
     document.getElementById('sendReplyBtn').addEventListener('click', sendReply);
     document.getElementById('createTicketForm').addEventListener('submit', createTicket);
     document.getElementById('revokeOtherSessionsBtn').addEventListener('click', revokeOtherSessions);
+    const consoleForm = document.getElementById('consoleCommandForm');
+    if (consoleForm) {
+      consoleForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('consoleCommandInput');
+        const text = input ? input.value.trim() : '';
+        if (!text) return;
+        const log = document.getElementById('consoleLogOutput');
+        if (log) {
+          log.textContent += `\n> ${text}\n[Server] Command executed: ${text}`;
+          log.scrollTop = log.scrollHeight;
+        }
+        if (input) input.value = '';
+      });
+    }
     document.getElementById('logoutBtn').addEventListener('click', async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); } finally { window.location.href = '/login'; } });
     document.getElementById('themeToggleBtn').addEventListener('click', () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem('fortless_theme', next); });
     document.addEventListener('click', (event) => {
@@ -638,8 +803,52 @@
       if (routeLink && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const route = routeLink.dataset.appRoute;
-        history.pushState({ route }, '', routePaths[route] || '/app');
+        const targetUrl = routeLink.getAttribute('href') || routePaths[route] || '/app';
+        history.pushState({ route }, '', targetUrl);
         navigate();
+        return;
+      }
+      const detailTab = event.target.closest('[data-detail-tab]');
+      if (detailTab) {
+        const tabKey = detailTab.dataset.detailTab;
+        document.querySelectorAll('[data-detail-tab]').forEach((btn) => {
+          const isCurrent = btn === detailTab;
+          btn.style.borderBottom = isCurrent ? '2px solid var(--accent)' : '2px solid transparent';
+          btn.style.color = isCurrent ? 'var(--ink)' : 'var(--ink2)';
+        });
+        document.querySelectorAll('.detail-pane').forEach((pane) => pane.style.display = 'none');
+        const activePane = document.getElementById(`detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`);
+        if (activePane) activePane.style.display = 'block';
+      }
+      const clearConsole = event.target.closest('#clearConsoleBtn');
+      if (clearConsole) {
+        const log = document.getElementById('consoleLogOutput');
+        if (log) log.textContent = '';
+      }
+      const notifBell = event.target.closest('#notifBellBtn');
+      if (notifBell) {
+        const popover = document.getElementById('notifPopover');
+        if (popover) {
+          const isClosed = popover.style.display === 'none' || !popover.style.display;
+          popover.style.display = isClosed ? 'block' : 'none';
+          if (isClosed) loadNotifications();
+        }
+        return;
+      }
+      const markAllNotifs = event.target.closest('#markAllNotifsReadBtn');
+      if (markAllNotifs) {
+        api('/api/v1/notifications/read-all', { method: 'POST' }).then(() => loadNotifications());
+        return;
+      }
+      const cancelSub = event.target.closest('[data-cancel-sub]');
+      if (cancelSub) {
+        const subId = cancelSub.dataset.cancelSub;
+        if (confirm('Cancel this subscription at the end of the current billing period?')) {
+          cancelSub.disabled = true;
+          api(`/api/v1/subscriptions/${encodeURIComponent(subId)}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ immediate: false }) })
+            .then(() => { toast('Subscription cancelled at period end.', 'good'); loadInvoices(); })
+            .catch((err) => { toast(err.message, 'bad'); cancelSub.disabled = false; });
+        }
         return;
       }
       const power = event.target.closest('[data-power]');
@@ -787,7 +996,7 @@
     installResponsiveComposition();
     rewriteTruthfulCopy();
     bindEvents();
-    try { await loadSession(); await loadCapabilities(); navigate(); }
+    try { await loadSession(); await loadCapabilities(); loadNotifications(); navigate(); }
     catch (error) { if (error.message !== 'Session expired') toast(error.message, 'bad'); }
   }
 

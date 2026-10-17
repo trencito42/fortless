@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { type ProviderAdapter, MockPterodactylAdapter } from '../provisioning/adapter.js';
@@ -47,6 +48,16 @@ export async function processOutboxQueue(
     try {
       if (event.event_type === 'service.provision.v1') {
         await executeProvisioningSaga(event.aggregate_id, JSON.parse(event.payload), adapter, db);
+      } else if (event.event_type === 'service.suspend.v1') {
+        const service = db.prepare('SELECT external_id FROM services WHERE id = ?').get(event.aggregate_id) as { external_id: string } | undefined;
+        if (service?.external_id) {
+          await adapter.suspend(service.external_id);
+        }
+      } else if (event.event_type === 'service.terminate.v1') {
+        const service = db.prepare('SELECT external_id FROM services WHERE id = ?').get(event.aggregate_id) as { external_id: string } | undefined;
+        if (service?.external_id) {
+          await adapter.terminate(service.external_id);
+        }
       }
 
       db.prepare("UPDATE outbox_events SET status = 'COMPLETED' WHERE id = ?").run(event.id);
@@ -55,7 +66,7 @@ export async function processOutboxQueue(
       const errMsg = err instanceof Error ? err.message : String(err);
       const newRetries = event.retry_count + 1;
 
-      if (newRetries >= 3) {
+      if (newRetries >= 3 || errMsg.includes('Insufficient capacity') || errMsg.includes('maintenance mode')) {
         db.prepare(`
           UPDATE outbox_events
           SET status = 'DEAD_LETTER', retry_count = ?
@@ -76,7 +87,7 @@ export async function processOutboxQueue(
 
         db.prepare(`
           UPDATE provision_operations
-          SET status = 'FAILED', last_error = ?, updated_at = datetime('now', 'utc')
+          SET status = 'NEEDS_MANUAL_REVIEW', last_error = ?, updated_at = datetime('now', 'utc')
           WHERE service_id = ?
         `).run(errMsg, event.aggregate_id);
       } else {
@@ -116,6 +127,53 @@ async function executeProvisioningSaga(
 
   const resources = JSON.parse(plan.resource_specs);
   const correlationTag = `fortless_svc_${serviceId}`;
+
+  // 1b. Node Capacity and Maintenance Verification
+  const node = db.prepare(`
+    SELECT id, name, max_memory_mb, allocated_memory_mb, max_disk_mb, allocated_disk_mb, maintenance_mode
+    FROM nodes WHERE id = ?
+  `).get(payload.nodeId) as {
+    id: string;
+    name: string;
+    max_memory_mb: number;
+    allocated_memory_mb: number;
+    max_disk_mb: number;
+    allocated_disk_mb: number;
+    maintenance_mode: number;
+  } | undefined;
+
+  // Initialize or update provision operation
+  const existingOp = db.prepare('SELECT id FROM provision_operations WHERE service_id = ?').get(serviceId);
+  if (!existingOp) {
+    db.prepare(`
+      INSERT INTO provision_operations (id, service_id, operation_type, status, idempotency_key, correlation_id, attempt_count, created_at, updated_at)
+      VALUES (?, ?, 'CREATE', 'IN_PROGRESS', ?, ?, 1, datetime('now', 'utc'), datetime('now', 'utc'))
+    `).run(`pop_${crypto.randomUUID()}`, serviceId, `idem_${serviceId}_create`, correlationTag);
+  } else {
+    db.prepare(`
+      UPDATE provision_operations
+      SET status = 'IN_PROGRESS', attempt_count = attempt_count + 1, updated_at = datetime('now', 'utc')
+      WHERE service_id = ?
+    `).run(serviceId);
+  }
+
+  if (node && node.maintenance_mode === 1) {
+    db.prepare(`
+      UPDATE provision_operations
+      SET status = 'NEEDS_MANUAL_REVIEW', last_error = 'Node is in maintenance mode', updated_at = datetime('now', 'utc')
+      WHERE service_id = ?
+    `).run(serviceId);
+    throw new Error(`Node ${node.name} is in maintenance mode`);
+  }
+
+  if (node && (node.allocated_memory_mb + resources.memoryMb > node.max_memory_mb || node.allocated_disk_mb + resources.diskMb > node.max_disk_mb)) {
+    db.prepare(`
+      UPDATE provision_operations
+      SET status = 'NEEDS_MANUAL_REVIEW', last_error = 'Insufficient capacity on node', updated_at = datetime('now', 'utc')
+      WHERE service_id = ?
+    `).run(serviceId);
+    throw new Error(`Insufficient capacity on node ${node.name}`);
+  }
 
   // 2. Pre-flight Lookup: Check if provider already has this server (Recovery check)
   const existingOnProvider = await adapter.lookupByCorrelationTag(correlationTag);
@@ -174,6 +232,22 @@ async function executeProvisioningSaga(
       SET fulfillment_status = 'FULFILLED'
       WHERE id = ?
     `).run(payload.orderItemId);
+
+    // Atomically allocate capacity on the node
+    if (payload.nodeId) {
+      trx.prepare(`
+        UPDATE nodes
+        SET allocated_memory_mb = allocated_memory_mb + ?,
+            allocated_disk_mb = allocated_disk_mb + ?
+        WHERE id = ?
+      `).run(resources.memoryMb, resources.diskMb, payload.nodeId);
+    }
+
+    trx.prepare(`
+      UPDATE provision_operations
+      SET status = 'SUCCEEDED', updated_at = datetime('now', 'utc')
+      WHERE service_id = ?
+    `).run(serviceId);
 
     // If all items for order fulfilled, mark order COMPLETED
     const item = trx.prepare('SELECT order_id FROM order_items WHERE id = ?').get(payload.orderItemId) as { order_id: string };

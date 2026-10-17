@@ -485,6 +485,18 @@ CREATE TABLE IF NOT EXISTS account_invitations (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  link_url TEXT,
+  read_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
 -- Indices for high-frequency queries
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_staff_memberships_status ON staff_memberships(status, role);
@@ -500,4 +512,5 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_account ON audit_events(account_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_events_status ON outbox_events(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_account_invitations_account ON account_invitations(account_id, email);
+CREATE INDEX IF NOT EXISTS idx_notifications_account_user ON notifications(account_id, user_id, read_at, created_at);
 `;
