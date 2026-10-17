@@ -92,6 +92,11 @@ Every vertical slice must be validated across the testing pyramid before being m
 - [x] `UI-03`: Ticket and service content is escaped before dynamic HTML rendering. `[MOCK_ONLY]` (Verified in tests/frontend.test.ts)
 - [x] `UI-05`: Auth and client shells define distinct portrait-phone and compact landscape-phone compositions with safe-area padding. `[MOCK_ONLY]` (Static CSS/source verification)
 
+### H. Extended Infrastructure & Web App Workloads
+- [x] `WEBAPP-01`: Seeded catalog includes Web & Cloud Apps with valid Node.js plan specifications and EUR pricing. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `WEBAPP-02`: Web app configuration validation enforces safe Git repository URLs and blocks SSRF / loopback targets. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `WEBAPP-03`: Outbox worker maps web application parameters to provisioning spec environment variables and provisions successfully. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+
 ---
 
 ## 3. Strict P0 Release Acceptance Gate Checklist

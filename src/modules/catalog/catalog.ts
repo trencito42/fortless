@@ -33,7 +33,7 @@ export interface PublishedPlan {
 }
 
 export function seedInitialCatalog(db: Database.Database = getDatabase()): void {
-  const existingCategory = db.prepare('SELECT id FROM categories LIMIT 1').get();
+  const existingCategory = db.prepare("SELECT id FROM categories WHERE id = 'cat_game_servers'").get();
   if (existingCategory) {
     return;
   }
@@ -122,7 +122,121 @@ export function seedInitialCatalog(db: Database.Database = getDatabase()): void 
       INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
       VALUES (?, ?, 'EUR', 'MONTHLY', 400, 0)
     `).run(generateId('prc'), plvBot);
+
+    // 5. Web & Cloud Apps
+    const catApps = 'cat_web_apps';
+    trx.prepare('INSERT OR IGNORE INTO categories (id, slug, name, description, sort_order) VALUES (?, ?, ?, ?, ?)')
+      .run(catApps, 'apps', 'Web & Cloud Apps', 'Containerized modern Node.js web apps with automated build & port management.', 3);
+
+    const prodApp = 'prod_nodejs_app';
+    trx.prepare(`
+      INSERT OR IGNORE INTO products (id, category_id, slug, name, provider_type, is_published)
+      VALUES (?, ?, 'nodejs-app', 'Node.js Web Application', 'PTERODACTYL', 1)
+    `).run(prodApp, catApps);
+
+    const plvStarter = 'plv_node_starter';
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_versions (id, product_id, version, name, resource_specs, status)
+      VALUES (?, ?, 1, 'Node.js Starter (1GB RAM)', ?, 'ACTIVE')
+    `).run(plvStarter, prodApp, JSON.stringify({
+      memoryMb: 1024,
+      cpuPct: 100,
+      diskMb: 10240,
+      databases: 1,
+      backups: 2,
+      eggId: 15,
+      dockerImage: 'ghcr.io/pterodactyl/yolks:nodejs_20',
+    }));
+
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+      VALUES (?, ?, 'EUR', 'MONTHLY', 500, 0)
+    `).run(generateId('prc'), plvStarter);
+
+    const plvPro = 'plv_node_pro';
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_versions (id, product_id, version, name, resource_specs, status)
+      VALUES (?, ?, 2, 'Node.js Pro (2GB RAM)', ?, 'ACTIVE')
+    `).run(plvPro, prodApp, JSON.stringify({
+      memoryMb: 2048,
+      cpuPct: 200,
+      diskMb: 25600,
+      databases: 2,
+      backups: 5,
+      eggId: 15,
+      dockerImage: 'ghcr.io/pterodactyl/yolks:nodejs_20',
+    }));
+
+    trx.prepare(`
+      INSERT OR IGNORE INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+      VALUES (?, ?, 'EUR', 'MONTHLY', 1000, 0)
+    `).run(generateId('prc'), plvPro);
   }, db);
+}
+
+export interface WebAppOptions {
+  repoUrl: string;
+  branch?: string;
+  buildCommand?: string;
+  startCommand?: string;
+  nodeVersion?: '18' | '20' | '22';
+  appPort?: number;
+}
+
+export function validateWebAppOptions(options: unknown): { valid: boolean; error?: string; options?: WebAppOptions } {
+  if (!options || typeof options !== 'object') {
+    return { valid: false, error: 'Web app configuration is required.' };
+  }
+  const opt = options as Record<string, unknown>;
+  const repoUrl = typeof opt.repoUrl === 'string' ? opt.repoUrl.trim() : '';
+  if (!repoUrl) {
+    return { valid: false, error: 'Git repository URL is required.' };
+  }
+
+  try {
+    const parsed = new URL(repoUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { valid: false, error: 'Only HTTP and HTTPS repository URLs are supported.' };
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === 'localhost' ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host === '127.0.0.1' ||
+      host === '0.0.0.0' ||
+      host === '169.254.169.254' ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+    ) {
+      return { valid: false, error: 'Private and loopback repository URLs are forbidden.' };
+    }
+  } catch {
+    return { valid: false, error: 'Invalid repository URL format.' };
+  }
+
+  const branch = typeof opt.branch === 'string' && opt.branch.trim() ? opt.branch.trim() : 'main';
+  if (!/^[a-zA-Z0-9_\-\./]+$/.test(branch)) {
+    return { valid: false, error: 'Invalid Git branch name.' };
+  }
+
+  const appPort = opt.appPort ? Number(opt.appPort) : 3000;
+  if (isNaN(appPort) || appPort < 1024 || appPort > 65535) {
+    return { valid: false, error: 'App port must be between 1024 and 65535.' };
+  }
+
+  return {
+    valid: true,
+    options: {
+      repoUrl,
+      branch,
+      buildCommand: typeof opt.buildCommand === 'string' ? opt.buildCommand.trim().slice(0, 100) : 'npm install && npm run build',
+      startCommand: typeof opt.startCommand === 'string' ? opt.startCommand.trim().slice(0, 100) : 'npm start',
+      nodeVersion: opt.nodeVersion === '18' || opt.nodeVersion === '22' ? opt.nodeVersion : '20',
+      appPort,
+    },
+  };
 }
 
 export function getPublishedPlans(db: Database.Database = getDatabase()): PublishedPlan[] {

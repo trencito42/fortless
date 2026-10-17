@@ -367,6 +367,69 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 13,
+    name: 'seed_web_apps_catalog',
+    up(db) {
+      // Seed Web Apps category if it does not exist
+      const existingCat = db.prepare("SELECT id FROM categories WHERE slug = 'apps'").get();
+      if (!existingCat) {
+        db.prepare(`
+          INSERT INTO categories (id, slug, name, description, sort_order, is_active)
+          VALUES ('cat_web_apps', 'apps', 'Web & Cloud Apps', 'Containerized modern Node.js web apps with automated build & port management.', 3, 1)
+        `).run();
+      }
+
+      // Seed Node.js Web Application product if not exists
+      const existingProd = db.prepare("SELECT id FROM products WHERE slug = 'nodejs-app'").get();
+      if (!existingProd) {
+        db.prepare(`
+          INSERT INTO products (id, category_id, slug, name, provider_type, is_published)
+          VALUES ('prod_nodejs_app', 'cat_web_apps', 'nodejs-app', 'Node.js Web Application', 'PTERODACTYL', 1)
+        `).run();
+
+        // Seed Starter and Pro plans
+        const plvStarter = 'plv_node_starter';
+        const plvPro = 'plv_node_pro';
+
+        db.prepare(`
+          INSERT INTO plan_versions (id, product_id, version, name, resource_specs, status)
+          VALUES (?, 'prod_nodejs_app', 1, 'Node.js Starter (1GB RAM)', ?, 'ACTIVE')
+        `).run(plvStarter, JSON.stringify({
+          memoryMb: 1024,
+          cpuPct: 100,
+          diskMb: 10240,
+          databases: 1,
+          backups: 2,
+          eggId: 15,
+          dockerImage: 'ghcr.io/pterodactyl/yolks:nodejs_20',
+        }));
+
+        db.prepare(`
+          INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+          VALUES ('prc_node_starter_m', ?, 'EUR', 'MONTHLY', 500, 0)
+        `).run(plvStarter);
+
+        db.prepare(`
+          INSERT INTO plan_versions (id, product_id, version, name, resource_specs, status)
+          VALUES (?, 'prod_nodejs_app', 2, 'Node.js Pro (2GB RAM)', ?, 'ACTIVE')
+        `).run(plvPro, JSON.stringify({
+          memoryMb: 2048,
+          cpuPct: 200,
+          diskMb: 25600,
+          databases: 2,
+          backups: 5,
+          eggId: 15,
+          dockerImage: 'ghcr.io/pterodactyl/yolks:nodejs_20',
+        }));
+
+        db.prepare(`
+          INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+          VALUES ('prc_node_pro_m', ?, 'EUR', 'MONTHLY', 1000, 0)
+        `).run(plvPro);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

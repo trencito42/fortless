@@ -148,9 +148,8 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 ### Phase 5: Extended Infrastructure (Node.js Web Apps, cPanel/WHM, Domains, VPS)
 *Goal: Expand Fortless orchestration beyond game/bot servers into multi-runtime cloud hosting: Web Apps, cPanel shared hosting, automated domain provisioning, and KVM/Proxmox cloud compute.*
 
-- [ ] **Slice 5.1: Node.js & Containerized Web App Hosting Engine**
-  - Catalog products for Node.js web applications with customizable environment variables, build scripts, and runtime versions.
-  - Pterodactyl generic NodeJS egg integration and automated port allocation.
+- [x] **Slice 5.1: Node.js & Containerized Web App Hosting Engine**
+  - Migration 13 applied; Web & Cloud Apps category seeded with Node.js Starter & Pro plans; Git repo validation & anti-SSRF; outbox worker environment variable mapping verified (`WEBAPP-01` to `WEBAPP-03`).
 - [ ] **Slice 5.2: cPanel / WHM Shared Hosting Provisioning Adapter**
   - Typed `CpanelProviderAdapter` with automated account creation, package synchronization, and anti-SSRF protections.
 - [ ] **Slice 5.3: Domain Search, Registration & DNS Management Layer**

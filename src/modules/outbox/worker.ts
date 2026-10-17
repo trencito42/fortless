@@ -179,7 +179,15 @@ async function executeProvisioningSaga(
     orderItemId: string;
     planVersionId: string;
     nodeId: string;
-    customOptions?: { serverName?: string };
+    customOptions?: {
+      serverName?: string;
+      repoUrl?: string;
+      branch?: string;
+      buildCommand?: string;
+      startCommand?: string;
+      appPort?: number;
+      nodeVersion?: string;
+    };
   },
   adapter: ProviderAdapter,
   db: Database.Database
@@ -251,6 +259,14 @@ async function executeProvisioningSaga(
     identifier = existingOnProvider.identifier;
   } else {
     try {
+      const envVars: Record<string, string> = {};
+      if (payload.customOptions?.repoUrl) envVars.GIT_REPO = payload.customOptions.repoUrl;
+      if (payload.customOptions?.branch) envVars.GIT_BRANCH = payload.customOptions.branch;
+      if (payload.customOptions?.buildCommand) envVars.BUILD_CMD = payload.customOptions.buildCommand;
+      if (payload.customOptions?.startCommand) envVars.START_CMD = payload.customOptions.startCommand;
+      if (payload.customOptions?.appPort) envVars.SERVER_PORT = String(payload.customOptions.appPort);
+      if (payload.customOptions?.nodeVersion) envVars.NODE_VERSION = String(payload.customOptions.nodeVersion);
+
       const provisionRes = await adapter.provision({
         serviceId,
         name: payload.customOptions?.serverName || plan.name,
@@ -260,7 +276,8 @@ async function executeProvisioningSaga(
         databases: resources.databases || 1,
         backups: resources.backups || 2,
         eggId: resources.eggId || 1,
-        environmentVariables: {},
+        dockerImage: resources.dockerImage,
+        environmentVariables: envVars,
         correlationTag,
       });
       externalId = provisionRes.externalId;

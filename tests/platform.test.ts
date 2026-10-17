@@ -67,7 +67,9 @@ import {
   updateProductPublishStatus,
   createPlanVersion,
   updatePlanStatus,
+  validateWebAppOptions,
 } from '../src/modules/catalog/catalog.js';
+import type { ProviderAdapter, ProvisioningSpec } from '../src/modules/provisioning/adapter.js';
 import { createQuote, verifyQuote } from '../src/modules/pricing/quote.js';
 import { processCheckout } from '../src/modules/checkout/checkout.js';
 import {
@@ -2338,6 +2340,154 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(staffAccess).toBeNull();
     });
   });
+
+  describe('Category N: Extended Infrastructure — Web Apps & Multi-Runtime Provisioning', () => {
+    it('WEBAPP-01: Seeded catalog includes Web & Cloud Apps with valid Node.js plan specifications and EUR pricing', () => {
+      seedInitialCatalog(db);
+      const plans = getPublishedPlans(db);
+      const webAppPlans = plans.filter((p) => p.categorySlug === 'apps');
+      expect(webAppPlans.length).toBeGreaterThanOrEqual(2);
+
+      const starter = webAppPlans.find((p) => p.planName.includes('Starter'));
+      expect(starter).toBeDefined();
+      expect(starter!.productSlug).toBe('nodejs-app');
+      expect(starter!.resources.memoryMb).toBe(1024);
+      expect(starter!.resources.eggId).toBe(15);
+      expect(starter!.prices).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ currency: 'EUR', interval: 'MONTHLY', priceMinorUnits: 500 }),
+        ])
+      );
+
+      const pro = webAppPlans.find((p) => p.planName.includes('Pro'));
+      expect(pro).toBeDefined();
+      expect(pro!.resources.memoryMb).toBe(2048);
+      expect(pro!.prices).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ currency: 'EUR', interval: 'MONTHLY', priceMinorUnits: 1000 }),
+        ])
+      );
+    });
+
+    it('WEBAPP-02: Web app configuration validation enforces safe Git repository URLs and blocks SSRF / loopback targets', () => {
+      // Valid public Git repository
+      const valid = validateWebAppOptions({
+        repoUrl: 'https://github.com/example/my-express-app.git',
+        branch: 'production',
+        buildCommand: 'npm run build',
+        startCommand: 'node dist/server.js',
+        appPort: 8080,
+        nodeVersion: '20',
+      });
+      expect(valid.valid).toBe(true);
+      expect(valid.options?.repoUrl).toBe('https://github.com/example/my-express-app.git');
+      expect(valid.options?.appPort).toBe(8080);
+      expect(valid.options?.nodeVersion).toBe('20');
+
+      // Reject loopback target
+      const loopback = validateWebAppOptions({
+        repoUrl: 'http://127.0.0.1:3000/repo.git',
+      });
+      expect(loopback.valid).toBe(false);
+      expect(loopback.error).toContain('Private and loopback');
+
+      // Reject AWS metadata IP
+      const metadata = validateWebAppOptions({
+        repoUrl: 'http://169.254.169.254/latest/meta-data',
+      });
+      expect(metadata.valid).toBe(false);
+      expect(metadata.error).toContain('Private and loopback');
+
+      // Reject non-HTTP protocol (e.g. file://, ssh://)
+      const fileProto = validateWebAppOptions({
+        repoUrl: 'file:///etc/passwd',
+      });
+      expect(fileProto.valid).toBe(false);
+      expect(fileProto.error).toContain('Only HTTP and HTTPS');
+    });
+
+    it('WEBAPP-03: Outbox worker maps web application parameters to provisioning spec environment variables and provisions successfully', async () => {
+      seedInitialCatalog(db);
+      const user = registerUser(
+        { email: 'developer@example.com', password: 'DevPassword123!', name: 'App Developer', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      const capturedSpecs: ProvisioningSpec[] = [];
+      const mockAdapter: ProviderAdapter = {
+        providerType: 'PTERODACTYL',
+        version: '1.11.x',
+        async provision(spec: ProvisioningSpec) {
+          capturedSpecs.push(spec);
+          return { externalId: 'pt_server_webapp_99', identifier: 'pt-srv-99' };
+        },
+        async lookupByCorrelationTag(_tag: string) {
+          return null;
+        },
+        async powerAction(_id, _action) {},
+        async suspend(_id) {},
+        async unsuspend(_id) {},
+        async terminate(_id) {},
+      };
+
+      const customOptions = {
+        serverName: 'my-portfolio-app',
+        repoUrl: 'https://github.com/developer/portfolio.git',
+        branch: 'release',
+        buildCommand: 'npm ci && npm run build',
+        startCommand: 'npm start',
+        appPort: 3000,
+        nodeVersion: '20',
+      };
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_node_starter', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout(
+        {
+          accountId: user.account.id,
+          quoteId: quote.id,
+          idempotencyKey: 'idem_webapp_1',
+          regionId: 'reg_fra_1',
+          customOptions,
+        },
+        db
+      );
+
+      const payload: StripeWebhookPayload = {
+        id: 'evt_webapp_1',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 595,
+            currency: 'eur',
+            status: 'succeeded',
+            metadata: { orderId: checkout.orderId },
+          },
+        },
+      };
+
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+
+      const processed = await processOutboxQueue(mockAdapter, db, { batchSize: 10 });
+      expect(processed).toBe(1);
+
+      // Verify captured spec has mapped environment variables
+      expect(capturedSpecs).toHaveLength(1);
+      const spec = capturedSpecs[0]!;
+      expect(spec.name).toBe('my-portfolio-app');
+      expect(spec.memoryMb).toBe(1024);
+      expect(spec.eggId).toBe(15);
+      expect(spec.dockerImage).toBe('ghcr.io/pterodactyl/yolks:nodejs_20');
+      expect(spec.environmentVariables.GIT_REPO).toBe('https://github.com/developer/portfolio.git');
+      expect(spec.environmentVariables.GIT_BRANCH).toBe('release');
+      expect(spec.environmentVariables.BUILD_CMD).toBe('npm ci && npm run build');
+      expect(spec.environmentVariables.START_CMD).toBe('npm start');
+      expect(spec.environmentVariables.SERVER_PORT).toBe('3000');
+      expect(spec.environmentVariables.NODE_VERSION).toBe('20');
+    });
+  });
 });
+
 
 
