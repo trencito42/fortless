@@ -32,6 +32,7 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/app/activity` | Page | `LOCAL_VERIFIED` | Audit trail viewer (`/api/v1/audit`) scoped strictly to tenant account. |
 | `/app/settings` | Page | `LOCAL_VERIFIED` | Active session inventory, remote session revocation, TOTP enrollment/disablement. |
 | `/status` | Page | `LOCAL_VERIFIED` | Standalone public status dashboard with canonical Petal design system, Hugeicons, live indicator dot, component telemetry grid, active incidents, and history. |
+| `/legal/:doc` | Page | `LOCAL_VERIFIED` | Compliance and legal document portal (terms, privacy, aup, refunds, sla) in Petal design system. |
 
 ---
 

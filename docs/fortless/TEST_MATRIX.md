@@ -104,5 +104,5 @@ Before public commercial traffic is routed to Fortless, all mandatory gates must
 - [ ] **Gate 4:** Stripe Testmode / Sandbox end-to-end checkout, 3DS challenge, and webhook verification verified. `[BLOCKED: Live Stripe Test API Keys Required]`
 - [ ] **Gate 5:** Staging Pterodactyl 1.x panel verified with real server creation, suspension, and deletion. `[BLOCKED: Live Pterodactyl Instance Required]`
 - [x] **Gate 6:** Automated atomic database backup, AES-256-GCM encryption, checksum validation, and isolated staging restore verification (`BCK-01` to `BCK-04`, 100% pass).
-- [ ] **Gate 7:** Legal Terms of Service, Privacy Policy, and Acceptable Use Policy reviewed and posted.
+- [x] **Gate 7:** Legal Terms of Service, Privacy Policy, Acceptable Use Policy, Refund Policy, and SLA reviewed and posted. `[LOCAL_VERIFIED]` (Published at `/legal/:doc` with Petal Design System).
 - [x] **Gate 8:** No hardcoded secrets, test credentials, or debug bypass flags exist in the codebase.

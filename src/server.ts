@@ -360,6 +360,30 @@ export function buildServer(): FastifyInstance {
     return reply.header('Cache-Control', 'public, max-age=15').send(status);
   });
 
+  const legalDocs = ['terms', 'privacy', 'aup', 'refunds', 'sla'];
+  app.get('/legal', async (_req, reply) => {
+    return reply.redirect('/legal/terms');
+  });
+
+  for (const doc of legalDocs) {
+    app.get(`/${doc}`, async (_req, reply) => {
+      return reply.redirect(`/legal/${doc}`);
+    });
+  }
+
+  app.get('/legal/:doc', async (req, reply) => {
+    const { doc } = req.params as { doc: string };
+    const targetDoc = legalDocs.includes(doc) ? doc : 'terms';
+    const filePath = path.join(publicDir, 'legal.html');
+    if (fs.existsSync(filePath)) {
+      const html = renderHtml('legal.html')
+        .replace('__AUTH_STATE__', req.auth ? 'true' : 'false')
+        .replace(/__ACTIVE_DOC__/g, targetDoc);
+      return reply.type('text/html').header('Cache-Control', 'public, max-age=60').send(html);
+    }
+    return reply.status(404).send('Not Found');
+  });
+
   app.get('/admin', async (req, reply) => {
     if (!req.auth) return reply.redirect('/login?next=/admin');
     if (!hasStaffPermission(req.auth.user.id, 'admin:access', getDatabase()) || !req.auth.session.mfaVerifiedAt) return reply.status(403).type('text/plain').send('Staff MFA is required.');
