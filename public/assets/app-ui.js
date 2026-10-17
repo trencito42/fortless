@@ -2359,7 +2359,7 @@ ${node.textContent || ""}
       auditLogs = logs;
       filterActivity();
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load activity</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   function filterActivity() {
@@ -2386,25 +2386,7 @@ ${node.textContent || ""}
       return;
     }
     host.innerHTML = logs.map(
-      (item) => `
-    <div class="z-aur">
-      <button type="button" class="z-aut" aria-expanded="false">
-        <span class="ico-b">${hero("shield")}</span>
-        <span class="tx">
-          <b>${esc(item.actor_name || item.actor_type)} \xB7 ${esc(item.action.replaceAll(".", " \xB7 "))}</b>
-          <small>${esc(item.resource_type)} \xB7 ${esc(compactId(item.resource_id))}</small>
-        </span>
-        <span class="t">${esc(formatDate(item.created_at))}</span>
-        <span class="chv">${hero("chevron", "s")}</span>
-      </button>
-      <div class="z-aud">
-        <div class="code">
-          Reference: ${esc(item.correlation_id || "\u2014")}<br>
-          Origin: ${esc(item.ip_address || "Unavailable")}
-        </div>
-      </div>
-    </div>
-  `
+      (item) => `<div class="li"><span class="tile sm">${hero("shield", "s")}</span><span class="tx"><b>${esc(item.actor_name || item.actor_type)} \xB7 ${esc(item.action.replaceAll(".", " \xB7 "))}</b><small>${esc(item.resource_type)} \xB7 ${esc(compactId(item.resource_id))} \xB7 ${esc(item.ip_address || "\u2014")}</small></span><span class="muted" style="font-size:12px;flex-shrink:0">${esc(formatDate(item.created_at))}</span></div>`
     ).join("");
   }
 

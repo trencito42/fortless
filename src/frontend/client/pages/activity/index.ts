@@ -22,7 +22,7 @@ export async function renderActivity(): Promise<void> {
     auditLogs = logs;
     filterActivity();
   } catch (error: any) {
-    host.innerHTML = `<div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div>`;
+    host.innerHTML = `<div class="alert bad"><div><b>Failed to load activity</b><span>${esc(error.message)}</span></div></div>`;
   }
 }
 
@@ -58,25 +58,7 @@ export function filterActivity(): void {
 
   host.innerHTML = logs
     .map(
-      (item) => `
-    <div class="z-aur">
-      <button type="button" class="z-aut" aria-expanded="false">
-        <span class="ico-b">${hero('shield')}</span>
-        <span class="tx">
-          <b>${esc(item.actor_name || item.actor_type)} · ${esc(item.action.replaceAll('.', ' · '))}</b>
-          <small>${esc(item.resource_type)} · ${esc(compactId(item.resource_id))}</small>
-        </span>
-        <span class="t">${esc(formatDate(item.created_at))}</span>
-        <span class="chv">${hero('chevron', 's')}</span>
-      </button>
-      <div class="z-aud">
-        <div class="code">
-          Reference: ${esc(item.correlation_id || '—')}<br>
-          Origin: ${esc(item.ip_address || 'Unavailable')}
-        </div>
-      </div>
-    </div>
-  `
+      (item) => `<div class="li"><span class="tile sm">${hero('shield', 's')}</span><span class="tx"><b>${esc(item.actor_name || item.actor_type)} · ${esc(item.action.replaceAll('.', ' · '))}</b><small>${esc(item.resource_type)} · ${esc(compactId(item.resource_id))} · ${esc(item.ip_address || '—')}</small></span><span class="muted" style="font-size:12px;flex-shrink:0">${esc(formatDate(item.created_at))}</span></div>`
     )
     .join('');
 }

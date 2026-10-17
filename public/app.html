@@ -378,30 +378,29 @@
 
     <!-- AUDIT SECTION -->
     <section id="section-audit" class="view-section" style="display:none">
-      <div class="card flat" style="padding:24px">
-        <div class="section-card-head">
-          <div class="tx">
-            <h2 style="font:700 18px var(--font)">Account activity</h2>
-            <p style="color:var(--ink2);font-size:13.5px">Recorded audit events; this UI does not claim independent tamper-proof certification.</p>
-          </div>
-          <div class="actions" style="display:flex;gap:8px">
-            <a href="/api/v1/activity/export" class="btn sec s" download style="font-size:12px;gap:6px">Export CSV</a>
-            <button id="refreshAuditBtn" class="btn sec s" style="font-size:12px;gap:6px"><svg style="width:14px;height:14px;flex:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.0884 13.18C19.704 14.3285 19.0111 15.3538 18.0837 16.1471C17.1563 16.9404 16.0278 17.4738 14.8209 17.6913C13.614 17.9087 12.3713 17.8023 11.22 17.3832C10.0688 16.9642 9.05266 16.2478 8.27981 15.3101M3.91162 10.82C4.29598 9.6715 4.98889 8.64618 5.91629 7.85288C6.8437 7.05959 7.97221 6.52622 9.17912 6.30874C10.386 6.09126 11.6287 6.19771 12.78 6.61676C13.9312 7.03581 14.9473 7.75218 15.7202 8.68986M15.7202 4.5V8.68986H19.9082M8.27981 15.3101L4.0918 19.5M8.27981 15.3101H4.0918V19.5"/></svg> Refresh</button>
-          </div>
+      <div class="hd" style="margin-bottom:14px">
+        <div class="tx">
+          <span class="pill">Activity</span>
+          <h2>Account activity</h2>
+          <p>Recorded audit events.</p>
         </div>
-        <div id="auditLog" class="z-au">
-          <div class="z-bar activity-toolbar">
-            <div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="auditSearch" type="search" placeholder="Search activity" aria-label="Search activity"></div>
-            <div class="seg s" role="radiogroup" aria-label="Filter activity type">
-              <label><input type="radio" name="auditType" value="ALL" checked><span>All</span></label>
-              <label><input type="radio" name="auditType" value="AUTH"><span>Sign-in</span></label>
-              <label><input type="radio" name="auditType" value="SUPPORT"><span>Support</span></label>
-              <label><input type="radio" name="auditType" value="BILLING"><span>Billing</span></label>
-            </div>
-            <small id="auditResultCount" class="muted"></small>
-          </div>
-          <div id="auditList"><div class="z-skb" role="status"><span class="sr">Loading audit events</span><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div></div></div>
+        <div class="row" style="gap:8px">
+          <a href="/api/v1/activity/export" class="btn sec s" download>Export CSV</a>
+          <button id="refreshAuditBtn" class="ib s" aria-label="Refresh activity"><svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg></button>
         </div>
+      </div>
+      <div class="card" style="padding:20px">
+        <div class="ch" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
+          <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="auditSearch" type="search" placeholder="Search activity" aria-label="Search activity"></label>
+          <div class="seg s" role="radiogroup" aria-label="Filter activity type">
+            <label><input type="radio" name="auditType" value="ALL" checked><span>All</span></label>
+            <label><input type="radio" name="auditType" value="AUTH"><span>Sign-in</span></label>
+            <label><input type="radio" name="auditType" value="SUPPORT"><span>Support</span></label>
+            <label><input type="radio" name="auditType" value="BILLING"><span>Billing</span></label>
+          </div>
+          <small id="auditResultCount" class="muted"></small>
+        </div>
+        <div id="auditList"><div class="sk" role="status" aria-label="Loading audit events"><i></i><i></i><i></i></div></div>
       </div>
     </section>
 
