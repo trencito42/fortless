@@ -7,7 +7,7 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { compactId } from '../../../core/utils/formatting.js';
-import { hero, renderEmptyState } from '../../../petal/index.js';
+import { hero, renderEmptyState, renderSkeleton } from '../../../petal/index.js';
 
 let auditLogs: any[] = [];
 
@@ -15,7 +15,7 @@ export async function renderActivity(): Promise<void> {
   const host = document.getElementById('auditList');
   if (!host) return;
 
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading audit events…</span></div>`;
+  host.innerHTML = renderSkeleton('list', 'Loading audit events');
 
   try {
     const { logs } = await api<{ logs: any[] }>('/api/v1/audit');

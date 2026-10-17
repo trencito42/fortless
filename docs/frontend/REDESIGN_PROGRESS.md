@@ -36,6 +36,7 @@
 - Added original Petal rich editor/drop control adapters.
 - Preserved tenant-scoped create/reply/attachment APIs and explicit partial-upload errors.
 - Backend support lifecycle and attachments have automated coverage.
+- Restored the canonical Petal conversation-row radius and hover surface, removed the browser-native `fieldset` border from the segmented priority control, and replaced the oversized custom message stack with Petal `.z-cmt/.z-cmi` communication components.
 
 ## M6 — Commerce, domains and account records (implemented, visual review pending)
 
@@ -51,6 +52,13 @@
 
 - Authenticated browser screenshot comparison across desktop, portrait and landscape remains pending.
 - Accessibility pass, notification focus/dismiss polish and dead-code cleanup remain pending.
+
+## Petal fidelity and loading stability correction
+
+- Added the original Utilities Pro `.z-skb` skeleton contract and route-specific dashboard, list, table, profile and article adapters.
+- Services, dashboard, deploy, billing, domains, support, activity and settings now mount Petal skeletons before data requests instead of short text placeholders.
+- Initial application HTML carries matching skeleton geometry, preventing the first route frame from collapsing before the module mounts.
+- Added a complete `out.html` category audit to the component map. Categories are selected by real workflow need; demo-only social/media/charts are not copied into the commercial UI without corresponding product data.
 
 ## Mobile dashboard correction
 

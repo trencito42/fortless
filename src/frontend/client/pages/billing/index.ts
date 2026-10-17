@@ -7,7 +7,7 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { money } from '../../../core/utils/formatting.js';
 import { formatDate } from '../../../core/utils/dates.js';
-import { hero, renderEmptyState, toast } from '../../../petal/index.js';
+import { hero, renderEmptyState, renderSkeleton, toast } from '../../../petal/index.js';
 
 let invoiceCache: any[] = [];
 
@@ -42,7 +42,7 @@ export async function renderBilling(): Promise<void> {
   const host = document.getElementById('invoicesTableBody');
   if (!host) return;
 
-  host.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:30px">Loading billing records…</td></tr>';
+  host.innerHTML = `<tr><td colspan="6">${renderSkeleton('table', 'Loading billing records')}</td></tr>`;
 
   try {
     const { invoices } = await api<{ invoices: any[] }>('/api/v1/invoices');
@@ -69,6 +69,7 @@ export async function renderBilling(): Promise<void> {
     // Load Subscriptions
     const subHost = document.getElementById('subscriptionsContainer');
     if (subHost) {
+      subHost.innerHTML = renderSkeleton('list', 'Loading subscriptions');
       try {
         const { subscriptions } = await api<{ subscriptions: any[] }>('/api/v1/subscriptions');
         if (!subscriptions.length) {

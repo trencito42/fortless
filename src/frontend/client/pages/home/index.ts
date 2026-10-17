@@ -3,12 +3,12 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { money } from '../../../core/utils/formatting.js';
-import { hero, renderEmptyState } from '../../../petal/index.js';
+import { hero, renderEmptyState, renderSkeleton } from '../../../petal/index.js';
 
 export async function renderHome(): Promise<void> {
   const host = document.getElementById('dashboardOverview');
   if (!host) return;
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading workspace overview…</span></div>`;
+  host.innerHTML = renderSkeleton('dashboard', 'Loading workspace overview');
   const [serviceResult, ticketResult, invoiceResult, auditResult] = await Promise.allSettled([
     api<{ services: any[] }>('/api/v1/services'), api<{ tickets: any[] }>('/api/v1/tickets'), api<{ invoices: any[] }>('/api/v1/invoices'), api<{ logs: any[] }>('/api/v1/audit'),
   ]);

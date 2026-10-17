@@ -6,7 +6,7 @@
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
-import { hero, toast } from '../../../petal/index.js';
+import { hero, renderSkeleton, toast } from '../../../petal/index.js';
 
 declare global {
   interface Window {
@@ -60,7 +60,7 @@ export async function loadSessions(): Promise<void> {
   const host = document.getElementById('sessionList');
   if (!host) return;
 
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading active devices…</span></div>`;
+  host.innerHTML = renderSkeleton('list', 'Loading active devices');
 
   try {
     const { sessions } = await api<{ sessions: any[] }>('/api/v1/auth/sessions');
@@ -105,7 +105,7 @@ export async function loadMfa(): Promise<void> {
   const host = document.getElementById('mfaControl');
   if (!host) return;
 
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading two-step verification…</span></div>`;
+  host.innerHTML = renderSkeleton('profile', 'Loading two-step verification');
 
   try {
     const status = await api<{ enabled: boolean; recoveryCodesRemaining: number }>('/api/v1/auth/mfa');
@@ -356,7 +356,7 @@ export async function loadTeamMembers(): Promise<void> {
   const host = document.getElementById('teamMemberList');
   if (!host) return;
 
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading team members…</span></div>`;
+  host.innerHTML = renderSkeleton('table', 'Loading team members');
 
   try {
     const data = await api<{ members: any[] }>('/api/v1/account/members');

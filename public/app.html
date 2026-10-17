@@ -161,7 +161,7 @@
     <!-- CONTENT SECTIONS -->
     <section id="section-dashboard" class="view-section">
       <div id="dashboardOverview" class="page-stack">
-        <div class="state-message"><span>Loading workspace overview…</span></div>
+        <div class="z-skb" role="status"><span class="sr">Loading workspace overview</span><div class="g z-skeleton-metrics"><div class="c z-skeleton-card"><div class="skel" style="width:50%;height:10px"></div><div class="skel" style="width:70%;height:22px"></div></div><div class="c z-skeleton-card"><div class="skel" style="width:50%;height:10px"></div><div class="skel" style="width:70%;height:22px"></div></div><div class="c z-skeleton-card"><div class="skel" style="width:50%;height:10px"></div><div class="skel" style="width:70%;height:22px"></div></div><div class="c z-skeleton-card"><div class="skel" style="width:50%;height:10px"></div><div class="skel" style="width:70%;height:22px"></div></div></div><div class="skel" style="width:100%;height:154px;border-radius:20px"></div></div>
       </div>
     </section>
 
@@ -185,7 +185,7 @@
           <small id="serviceResultCount" class="muted"></small>
         </div>
         <div id="serversContainer">
-          <div class="state-message">Loading services…</div>
+          <div class="z-skb" role="status"><span class="sr">Loading services</span><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div></div>
         </div>
       </div>
     </section>
@@ -283,11 +283,11 @@
             </div>
             <div class="z-pane on" data-deploy-pane="0">
               <div class="section-card-head"><span class="ico-b accent"><svg class="ic"><use href="#i-flash"/></svg></span><div class="tx"><h2>Select a workload</h2><p>Choose a published plan from the live Fortless catalog.</p></div></div>
-              <div class="z-pls" id="planSelector"><div class="state-message"><span>Loading catalog…</span></div></div>
+              <div class="z-pls" id="planSelector"><div class="z-skb" role="status"><span class="sr">Loading catalog</span><div class="skel" style="width:100%;height:150px;border-radius:18px"></div></div></div>
             </div>
             <div class="z-pane" data-deploy-pane="1">
               <div class="section-card-head"><span class="ico-b info"><svg class="ic"><use href="#i-globe"/></svg></span><div class="tx"><h2>Datacenter location</h2><p>Availability is read from current catalog capacity.</p></div></div>
-              <div class="z-pls region-grid" id="regionSelector"><div class="state-message"><span>Loading regions…</span></div></div>
+              <div class="z-pls region-grid" id="regionSelector"><div class="z-skb" role="status"><span class="sr">Loading regions</span><div class="skel" style="width:100%;height:112px;border-radius:18px"></div></div></div>
             </div>
             <div class="z-pane" data-deploy-pane="2">
               <div class="section-card-head"><span class="ico-b violet"><svg class="ic"><use href="#i-edit-01"/></svg></span><div class="tx"><h2>Instance details</h2><p>Give this service a recognizable label.</p></div></div>
@@ -351,7 +351,7 @@
         </div>
         <div class="z-bar domain-toolbar"><div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="zoneSearch" type="search" placeholder="Filter domains" aria-label="Filter domain zones"></div><small id="zoneResultCount" class="muted"></small></div>
         <div id="domainZonesContainer" style="margin-top:14px">
-          <div class="state-message">Loading domain zones…</div>
+          <div class="z-skb" role="status"><span class="sr">Loading domain zones</span><div class="skel" style="width:100%;height:32px;border-radius:10px"></div><div class="skel" style="width:100%;height:16px"></div><div class="skel" style="width:92%;height:16px"></div></div>
         </div>
       </div>
 
@@ -416,7 +416,7 @@
           </div>
         </div>
         <div id="subscriptionsContainer">
-          <div class="state-message">Loading subscriptions…</div>
+          <div class="z-skb" role="status"><span class="sr">Loading subscriptions</span><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div></div>
         </div>
       </div>
 
@@ -452,7 +452,7 @@
               </tr>
             </thead>
             <tbody id="invoicesTableBody">
-              <tr><td colspan="6" style="text-align:center;padding:30px">Loading invoices...</td></tr>
+              <tr><td colspan="6"><div class="z-skb" role="status"><span class="sr">Loading invoices</span><div class="skel" style="width:100%;height:32px;border-radius:10px"></div><div class="skel" style="width:100%;height:16px"></div><div class="skel" style="width:92%;height:16px"></div></div></td></tr>
             </tbody>
           </table>
           </div>
@@ -481,7 +481,7 @@
           <small id="ticketResultCount" class="muted"></small>
         </div>
         <div id="ticketsList">
-          <div style="text-align:center;padding:30px;color:var(--ink2)">Loading support threads...</div>
+          <div class="z-skb" role="status"><span class="sr">Loading support conversations</span><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div></div>
         </div>
       </div>
     </section>
@@ -513,7 +513,7 @@
             </div>
             <small id="auditResultCount" class="muted"></small>
           </div>
-          <div id="auditList"><div class="state-message"><span>Loading audit events…</span></div></div>
+          <div id="auditList"><div class="z-skb" role="status"><span class="sr">Loading audit events</span><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div></div></div>
         </div>
       </div>
     </section>

@@ -797,6 +797,22 @@ ${node.textContent || ""}
     };
   }
 
+  // src/frontend/petal/components/skeleton.ts
+  function block(width, height, radius = "10px") {
+    return `<div class="skel" style="width:${width};height:${height}px;border-radius:${radius}"></div>`;
+  }
+  function renderSkeleton(kind, label = "Loading content") {
+    const row = () => `<div class="r">${block("40px", 40, "50%")}<div class="c">${block("60%", 12)}${block("85%", 10)}</div></div>`;
+    const views = {
+      dashboard: `<div class="g z-skeleton-metrics">${[0, 1, 2, 3].map(() => `<div class="c z-skeleton-card">${block("50%", 10)}${block("70%", 22)}</div>`).join("")}</div>${block("100%", 154, "20px")}${block("100%", 180, "20px")}`,
+      list: [0, 1, 2, 3].map(row).join(""),
+      table: `${block("100%", 32, "10px")}${[0, 1, 2, 3].map(() => `<div class="r">${block("25%", 12)}${block("30%", 12)}${block("15%", 12)}${block("15%", 12)}</div>`).join("")}`,
+      profile: `${block("100%", 60, "16px")}<div class="r">${block("64px", 64, "50%")}<div class="c">${block("45%", 14)}${block("30%", 10)}</div></div>${block("90%", 10)}${block("70%", 10)}`,
+      article: `${block("70%", 22)}<div class="r">${block("28px", 28, "50%")}${block("30%", 10)}</div>${block("100%", 130, "16px")}${block("100%", 10)}${block("88%", 10)}`
+    };
+    return `<div class="z-skb" role="status" aria-live="polite"><span class="sr">${label}</span>${views[kind]}</div>`;
+  }
+
   // src/frontend/core/utils/dates.ts
   function formatDate(value) {
     if (!value) return "\u2014";
@@ -1173,7 +1189,7 @@ ${node.textContent || ""}
   async function renderHome() {
     const host = document.getElementById("dashboardOverview");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading workspace overview\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("dashboard", "Loading workspace overview");
     const [serviceResult, ticketResult, invoiceResult, auditResult] = await Promise.allSettled([
       api("/api/v1/services"),
       api("/api/v1/tickets"),
@@ -1254,7 +1270,7 @@ ${node.textContent || ""}
   async function renderServices() {
     const host = document.getElementById("serversContainer");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading services\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("list", "Loading services");
     try {
       const { services } = await api("/api/v1/services");
       serviceInventory = services;
@@ -1436,7 +1452,8 @@ ${node.textContent || ""}
     }
     const host = document.getElementById("planSelector");
     if (host) {
-      host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading catalog\u2026</span></div>`;
+      host.className = "deploy-catalog-loading";
+      host.innerHTML = renderSkeleton("list", "Loading catalog");
     }
     try {
       const [plansRes, regionsRes] = await Promise.all([
@@ -1596,7 +1613,7 @@ ${node.textContent || ""}
   async function loadZones() {
     const host = document.getElementById("domainZonesContainer");
     if (!host) return;
-    host.innerHTML = '<div class="state-message">Loading domain zones\u2026</div>';
+    host.innerHTML = renderSkeleton("table", "Loading domain zones");
     try {
       const { zones } = await api("/api/v1/domains/zones");
       if (!zones.length) {
@@ -1677,7 +1694,7 @@ ${node.textContent || ""}
       host.innerHTML = "";
       return;
     }
-    host.innerHTML = '<div class="state-message">Searching availability and catalog pricing\u2026</div>';
+    host.innerHTML = renderSkeleton("list", "Searching domain availability and catalog pricing");
     try {
       const res = await api(`/api/v1/domains/search?query=${encodeURIComponent(clean)}`);
       if (!res.results || !res.results.length) {
@@ -1740,7 +1757,7 @@ ${node.textContent || ""}
   async function loadDnsRecords(zoneId) {
     const host = document.getElementById("dnsRecordsContainer");
     if (!host) return;
-    host.innerHTML = '<div class="state-message">Loading DNS records\u2026</div>';
+    host.innerHTML = renderSkeleton("table", "Loading DNS records");
     try {
       const { records } = await api(`/api/v1/domains/zones/${encodeURIComponent(zoneId)}/records`);
       if (!records.length) {
@@ -1904,7 +1921,7 @@ ${node.textContent || ""}
   async function renderBilling() {
     const host = document.getElementById("invoicesTableBody");
     if (!host) return;
-    host.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:30px">Loading billing records\u2026</td></tr>';
+    host.innerHTML = `<tr><td colspan="6">${renderSkeleton("table", "Loading billing records")}</td></tr>`;
     try {
       const { invoices } = await api("/api/v1/invoices");
       invoiceCache = invoices;
@@ -1922,6 +1939,7 @@ ${node.textContent || ""}
       filterBilling();
       const subHost = document.getElementById("subscriptionsContainer");
       if (subHost) {
+        subHost.innerHTML = renderSkeleton("list", "Loading subscriptions");
         try {
           const { subscriptions } = await api("/api/v1/subscriptions");
           if (!subscriptions.length) {
@@ -2012,11 +2030,13 @@ ${node.textContent || ""}
   async function renderTickets() {
     const host = document.getElementById("ticketsList");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading support conversations\u2026</span></div>`;
+    host.className = "support-loading";
+    host.innerHTML = renderSkeleton("list", "Loading support conversations");
     try {
       const { tickets } = await api("/api/v1/tickets");
       ticketCache = tickets;
       if (!tickets.length) {
+        host.className = "support-empty";
         host.innerHTML = renderEmptyState({ icon: "support", title: "No support conversations", message: "Open a ticket when you need help with an account or service.", actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new">${hero("plus", "s")}Open ticket</a>` });
         return;
       }
@@ -2024,6 +2044,7 @@ ${node.textContent || ""}
       host.innerHTML = tickets.map(ticketRow).join("");
       filterTickets();
     } catch (error) {
+      host.className = "support-error";
       host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
     }
   }
@@ -2066,7 +2087,7 @@ ${node.textContent || ""}
   async function renderTicketDetail(id) {
     const host = document.getElementById("ticketDetailPage");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading conversation\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("article", "Loading support conversation");
     try {
       const data = await api(`/api/v1/tickets/${encodeURIComponent(id)}`);
       const closed = data.ticket.status === "CLOSED";
@@ -2074,7 +2095,7 @@ ${node.textContent || ""}
       <div class="support-thread-layout">
         <article class="card support-thread">
           <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="badge ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="badge ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} \xB7 Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
-          <div class="support-messages">${data.messages.map((message) => `<article class="support-message ${message.is_staff ? "staff" : "customer"}"><div class="support-message-author"><span class="av s">${esc((message.author_name || (message.is_staff ? "Support" : "You")).slice(0, 2).toUpperCase())}</span><div><b>${esc(message.is_staff ? message.author_name || "Fortless support" : message.author_name || "You")}</b><small>${message.is_staff ? "Fortless support" : "Customer"} \xB7 ${esc(formatDate(message.created_at))}</small></div></div><div class="support-message-body">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></article>`).join("")}</div>
+          <div class="support-messages z-cmt">${data.messages.map((message) => `<article class="z-cmi ${message.is_staff ? "staff" : "customer"}"><span class="av s">${esc((message.author_name || (message.is_staff ? "Support" : "You")).slice(0, 2).toUpperCase())}</span><div class="tx"><div class="hd"><b>${esc(message.is_staff ? message.author_name || "Fortless support" : message.author_name || "You")}</b><small>${message.is_staff ? "Fortless support" : "Customer"} \xB7 ${esc(formatDate(message.created_at))}</small></div><div class="bd">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></div></article>`).join("")}</div>
           ${closed ? `<div class="state-message warn">${hero("warning")}<span>This ticket is closed. New replies are disabled.</span></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor("ticketReplyEditor", "Ticket reply", "Write a reply\u2026")}${fileDrop("ticketReplyFileInput", "ticketReplyFileLabel")}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero("paper", "s")}Send reply</button></div></form>`}
         </article>
         <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="badge ${statusTone(data.ticket.status)} s">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="badge ${priorityTone(data.ticket.priority)} s">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>
@@ -2189,7 +2210,7 @@ ${node.textContent || ""}
   async function renderActivity() {
     const host = document.getElementById("auditList");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading audit events\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("list", "Loading audit events");
     try {
       const { logs } = await api("/api/v1/audit");
       auditLogs = logs;
@@ -2262,7 +2283,7 @@ ${node.textContent || ""}
   async function loadSessions() {
     const host = document.getElementById("sessionList");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading active devices\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("list", "Loading active devices");
     try {
       const { sessions } = await api("/api/v1/auth/sessions");
       const otherCount = sessions.filter((session) => !session.isCurrent).length;
@@ -2293,7 +2314,7 @@ ${node.textContent || ""}
   async function loadMfa() {
     const host = document.getElementById("mfaControl");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading two-step verification\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("profile", "Loading two-step verification");
     try {
       const status = await api("/api/v1/auth/mfa");
       host.innerHTML = status.enabled ? `
@@ -2514,7 +2535,7 @@ ${node.textContent || ""}
   async function loadTeamMembers() {
     const host = document.getElementById("teamMemberList");
     if (!host) return;
-    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading team members\u2026</span></div>`;
+    host.innerHTML = renderSkeleton("table", "Loading team members");
     try {
       const data = await api("/api/v1/account/members");
       if (!data.members || !data.members.length) {

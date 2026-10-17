@@ -5,7 +5,7 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { formatBytes } from '../../../core/utils/formatting.js';
 import { renderMarkdown } from '../../../core/utils/markdown.js';
-import { editorMarkdown, hero, petalRichTextEditor, renderEmptyState, resetEditor, toast } from '../../../petal/index.js';
+import { editorMarkdown, hero, petalRichTextEditor, renderEmptyState, renderSkeleton, resetEditor, toast } from '../../../petal/index.js';
 
 type Navigate = (path: string) => void;
 type Ticket = { id: string; subject: string; priority: string; status: string; created_at: string; updated_at: string; message_count?: number };
@@ -35,11 +35,13 @@ function ticketRow(ticket: Ticket): string {
 export async function renderTickets(): Promise<void> {
   const host = document.getElementById('ticketsList');
   if (!host) return;
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading support conversations…</span></div>`;
+  host.className = 'support-loading';
+  host.innerHTML = renderSkeleton('list', 'Loading support conversations');
   try {
     const { tickets } = await api<{ tickets: Ticket[] }>('/api/v1/tickets');
     ticketCache = tickets;
     if (!tickets.length) {
+      host.className = 'support-empty';
       host.innerHTML = renderEmptyState({ icon: 'support', title: 'No support conversations', message: 'Open a ticket when you need help with an account or service.', actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new">${hero('plus', 's')}Open ticket</a>` });
       return;
     }
@@ -47,6 +49,7 @@ export async function renderTickets(): Promise<void> {
     host.innerHTML = tickets.map(ticketRow).join('');
     filterTickets();
   } catch (error: any) {
+    host.className = 'support-error';
     host.innerHTML = `<div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div>`;
   }
 }
@@ -94,7 +97,7 @@ function attachmentMarkup(ticketId: string, attachments: Attachment[]): string {
 export async function renderTicketDetail(id: string): Promise<void> {
   const host = document.getElementById('ticketDetailPage');
   if (!host) return;
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading conversation…</span></div>`;
+  host.innerHTML = renderSkeleton('article', 'Loading support conversation');
   try {
     const data = await api<{ ticket: Ticket; messages: any[]; attachments: Attachment[] }>(`/api/v1/tickets/${encodeURIComponent(id)}`);
     const closed = data.ticket.status === 'CLOSED';
@@ -102,7 +105,7 @@ export async function renderTicketDetail(id: string): Promise<void> {
       <div class="support-thread-layout">
         <article class="card support-thread">
           <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="badge ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="badge ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace('_', ' '))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} · Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
-          <div class="support-messages">${data.messages.map((message) => `<article class="support-message ${message.is_staff ? 'staff' : 'customer'}"><div class="support-message-author"><span class="av s">${esc((message.author_name || (message.is_staff ? 'Support' : 'You')).slice(0, 2).toUpperCase())}</span><div><b>${esc(message.is_staff ? message.author_name || 'Fortless support' : message.author_name || 'You')}</b><small>${message.is_staff ? 'Fortless support' : 'Customer'} · ${esc(formatDate(message.created_at))}</small></div></div><div class="support-message-body">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></article>`).join('')}</div>
+          <div class="support-messages z-cmt">${data.messages.map((message) => `<article class="z-cmi ${message.is_staff ? 'staff' : 'customer'}"><span class="av s">${esc((message.author_name || (message.is_staff ? 'Support' : 'You')).slice(0, 2).toUpperCase())}</span><div class="tx"><div class="hd"><b>${esc(message.is_staff ? message.author_name || 'Fortless support' : message.author_name || 'You')}</b><small>${message.is_staff ? 'Fortless support' : 'Customer'} · ${esc(formatDate(message.created_at))}</small></div><div class="bd">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></div></article>`).join('')}</div>
           ${closed ? `<div class="state-message warn">${hero('warning')}<span>This ticket is closed. New replies are disabled.</span></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor('ticketReplyEditor', 'Ticket reply', 'Write a reply…')}${fileDrop('ticketReplyFileInput', 'ticketReplyFileLabel')}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero('paper', 's')}Send reply</button></div></form>`}
         </article>
         <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="badge ${statusTone(data.ticket.status)} s">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="badge ${priorityTone(data.ticket.priority)} s">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>

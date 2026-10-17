@@ -6,7 +6,7 @@
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { money } from '../../../core/utils/formatting.js';
-import { hero, toast } from '../../../petal/index.js';
+import { hero, renderSkeleton, toast } from '../../../petal/index.js';
 import { capabilitiesStore } from '../../../core/state/capabilities.js';
 
 export interface DeployState {
@@ -71,7 +71,8 @@ export async function renderDeploy(): Promise<void> {
 
   const host = document.getElementById('planSelector');
   if (host) {
-    host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading catalog…</span></div>`;
+    host.className = 'deploy-catalog-loading';
+    host.innerHTML = renderSkeleton('list', 'Loading catalog');
   }
 
   try {

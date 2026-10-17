@@ -7,7 +7,7 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { money } from '../../../core/utils/formatting.js';
 import { formatDate } from '../../../core/utils/dates.js';
-import { toast, renderEmptyState } from '../../../petal/index.js';
+import { toast, renderEmptyState, renderSkeleton } from '../../../petal/index.js';
 
 interface DomainSearchResult {
   domain: string;
@@ -77,7 +77,7 @@ export async function loadZones(): Promise<void> {
   const host = document.getElementById('domainZonesContainer');
   if (!host) return;
 
-  host.innerHTML = '<div class="state-message">Loading domain zones…</div>';
+  host.innerHTML = renderSkeleton('table', 'Loading domain zones');
 
   try {
     const { zones } = await api<{ zones: DomainZone[] }>('/api/v1/domains/zones');
@@ -168,7 +168,7 @@ export async function searchDomains(query: string): Promise<void> {
     return;
   }
 
-  host.innerHTML = '<div class="state-message">Searching availability and catalog pricing…</div>';
+  host.innerHTML = renderSkeleton('list', 'Searching domain availability and catalog pricing');
 
   try {
     const res = await api<{ results: DomainSearchResult[] }>(`/api/v1/domains/search?query=${encodeURIComponent(clean)}`);
@@ -248,7 +248,7 @@ export async function loadDnsRecords(zoneId: string): Promise<void> {
   const host = document.getElementById('dnsRecordsContainer');
   if (!host) return;
 
-  host.innerHTML = '<div class="state-message">Loading DNS records…</div>';
+  host.innerHTML = renderSkeleton('table', 'Loading DNS records');
 
   try {
     const { records } = await api<{ records: DnsRecord[] }>(`/api/v1/domains/zones/${encodeURIComponent(zoneId)}/records`);

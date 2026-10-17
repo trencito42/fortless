@@ -5,7 +5,7 @@
 
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
-import { hero, renderEmptyState, toast } from '../../../petal/index.js';
+import { hero, renderEmptyState, renderSkeleton, toast } from '../../../petal/index.js';
 import { capabilitiesStore } from '../../../core/state/capabilities.js';
 
 let serviceInventory: any[] = [];
@@ -48,7 +48,7 @@ export async function renderServices(): Promise<void> {
   const host = document.getElementById('serversContainer');
   if (!host) return;
 
-  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading services…</span></div>`;
+  host.innerHTML = renderSkeleton('list', 'Loading services');
 
   try {
     const { services } = await api<{ services: any[] }>('/api/v1/services');

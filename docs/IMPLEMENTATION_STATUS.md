@@ -51,7 +51,7 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | Ticketing with Markdown & Attachments | `MOCK_ONLY` | Dedicated customer list/new/conversation pages, original Petal editor/drop controls adapted to safe Markdown, customer/staff thread management, multi-tenant attachments with SHA256 integrity, 5MB limit and MIME whitelist |
 | Native Petal SVG Charts | `MOCK_ONLY` | Chart primitives remain available, but customer pages do not render invented historical utilization series |
 | Client redesign documentation | `MOCK_ONLY` | `docs/frontend/CLIENT_AREA_REDESIGN.md`, component map, route spec, progress and visual QA matrix; rendered browser QA remains pending |
-| Petal client route sweep | `MOCK_ONLY` | Support inbox CSS completed from `z6`; Deploy uses original `z4` wizard/summary; Domains/Billing/Activity/Settings use Petal tables, lists and filters. Authenticated device visual QA remains pending. |
+| Petal client route sweep | `MOCK_ONLY` | Full `out.html` category-to-route audit recorded; Support uses canonical conversation/comment components; Deploy uses original `z4` wizard/summary; Domains/Billing/Activity/Settings use Petal tables, lists and filters; Utilities Pro page skeletons prevent loading-state collapse. Authenticated device visual QA remains pending. |
 | Admin Step-Up Challenge Modal | `MOCK_ONLY` | Transparent 403 `STEP_UP_REQUIRED` interception, TOTP challenge verify `/api/v1/auth/step-up`, seamless mutation retry |
 
 ## Fail-closed integrations
@@ -65,7 +65,7 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 ## Verification executed
 
 - `npx tsc --noEmit` — passed with 0 TypeScript compiler errors.
-- `npm test` — 128/128 passed across the modular frontend, identity, catalog, payments, support, provisioning, staff RBAC, team/email, subscriptions/notifications, workers, WebAuthn, attachments, domains/DNS, VPS, cPanel, web apps, AI guardrails, renewal/dunning, status and backup suites.
+- `npm test` — 129/129 passed across the modular frontend, identity, catalog, payments, support, provisioning, staff RBAC, team/email, subscriptions/notifications, workers, WebAuthn, attachments, domains/DNS, VPS, cPanel, web apps, AI guardrails, renewal/dunning, status and backup suites.
 - Separated `getDatabase()` connection acquisition from automatic schema migration runs.
 - Fixed Admin UI modal clipping on mobile and invisibility on desktop by correcting unclosed `<nav class="tabbar">` and adding Petal `.scrim` / `.modal` CSS.
 - Applied Migration 11 (`ticket attachments and multi-tenant file storage`) to SQLite database.

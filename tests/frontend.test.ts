@@ -6,6 +6,7 @@ import { formatDate } from '../src/frontend/core/utils/dates.js';
 import { esc } from '../src/frontend/core/utils/dom.js';
 import { renderMarkdown } from '../src/frontend/core/utils/markdown.js';
 import { spark, smooth } from '../src/frontend/petal/components/sparklines.js';
+import { renderSkeleton } from '../src/frontend/petal/components/skeleton.js';
 import { ApiError, SessionExpiredError, StepUpRequiredError } from '../src/frontend/core/api/errors.js';
 
 describe('Category N: Modular Frontend Architecture & Petal Integration', () => {
@@ -122,6 +123,18 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(svg).toContain('viewBox="0 0 120 36"');
       expect(svg).toContain('stroke="var(--accent)"');
       expect(svg).toContain('<path d="M');
+    });
+  });
+
+  describe('Petal lifecycle components', () => {
+    it('renders canonical page skeleton classes without loading-copy layout placeholders', () => {
+      const list = renderSkeleton('list', 'Loading services');
+      const dashboard = renderSkeleton('dashboard', 'Loading workspace overview');
+      expect(list).toContain('class="z-skb"');
+      expect(list).toContain('class="skel"');
+      expect(list).toContain('role="status"');
+      expect(dashboard).toContain('z-skeleton-metrics');
+      expect(dashboard).not.toContain('state-message');
     });
   });
 
