@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build:frontend": "esbuild src/frontend/client/index.ts --bundle --format=iife --outfile=public/assets/app-ui.js --target=es2022 && esbuild src/frontend/admin/index.ts --bundle --format=iife --outfile=public/assets/admin-ui.js --target=es2022",
+    "build": "npm run build:frontend && tsc",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "migrate": "tsx src/scripts/migrate.ts",
