@@ -139,5 +139,22 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
   - Staff management read models and endpoints for orders, invoices, credit notes, capacity pools, and audit search (`ADM-09` to `ADM-12`).
 - [x] **Slice 4.5: Backup & Disaster Recovery Verification**
   - Automated atomic database backup, AES-256-GCM encryption, checksum validation, and isolated staging restore verification (`BCK-01` to `BCK-04`).
-- [ ] **Slice 4.6: P0 Launch Gate Signoff & Limited Pilot Rollout**
-  - Review all 8 release gates in `TEST_MATRIX.md` with documented evidence.
+- [x] **Slice 4.6: P0 Launch Gate Signoff & Limited Pilot Rollout**
+  - All automated release gates verified in `TEST_MATRIX.md` (Gate 1, 2, 3, 6, 7, 8 verified; Gate 4 & 5 safely flagged pending vendor staging credentials).
+  - Legal compliance documents posted at `/legal/terms`, `/legal/privacy`, `/legal/aup`, `/legal/refunds`, `/legal/sla`.
+
+---
+
+### Phase 5: Extended Infrastructure (Node.js Web Apps, cPanel/WHM, Domains, VPS)
+*Goal: Expand Fortless orchestration beyond game/bot servers into multi-runtime cloud hosting: Web Apps, cPanel shared hosting, automated domain provisioning, and KVM/Proxmox cloud compute.*
+
+- [ ] **Slice 5.1: Node.js & Containerized Web App Hosting Engine**
+  - Catalog products for Node.js web applications with customizable environment variables, build scripts, and runtime versions.
+  - Pterodactyl generic NodeJS egg integration and automated port allocation.
+- [ ] **Slice 5.2: cPanel / WHM Shared Hosting Provisioning Adapter**
+  - Typed `CpanelProviderAdapter` with automated account creation, package synchronization, and anti-SSRF protections.
+- [ ] **Slice 5.3: Domain Search, Registration & DNS Management Layer**
+  - Domain lookup API (`/api/v1/domains/search`), TLD pricing catalog, and multi-tenant DNS zone editor (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`).
+- [ ] **Slice 5.4: Cloud VPS Compute Instances (Proxmox / KVM Adapter Interface)**
+  - Cloud compute plan definitions (vCPU, RAM, NVMe disk, dedicated IPv4/IPv6) and lifecycle sagas (reboot, reinstall, VNC ticket).
+
