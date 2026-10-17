@@ -16,6 +16,16 @@ export async function processOutboxQueue(
   adapter: ProviderAdapter = defaultAdapter,
   db: Database.Database = getDatabase()
 ): Promise<number> {
+  // 0. Recover stale PROCESSING events whose lease expired (> 5 minutes old)
+  db.prepare(`
+    UPDATE outbox_events
+    SET status = 'PENDING',
+        retry_count = retry_count + 1,
+        scheduled_at = datetime('now', 'utc')
+    WHERE status = 'PROCESSING'
+      AND scheduled_at <= datetime('now', '-5 minutes', 'utc')
+  `).run();
+
   const pendingEvents = db.prepare(`
     SELECT * FROM outbox_events
     WHERE status = 'PENDING' AND scheduled_at <= datetime('now', 'utc')
@@ -32,7 +42,7 @@ export async function processOutboxQueue(
   let processedCount = 0;
 
   for (const event of pendingEvents) {
-    db.prepare("UPDATE outbox_events SET status = 'PROCESSING' WHERE id = ?").run(event.id);
+    db.prepare("UPDATE outbox_events SET status = 'PROCESSING', scheduled_at = datetime('now', 'utc') WHERE id = ?").run(event.id);
 
     try {
       if (event.event_type === 'service.provision.v1') {

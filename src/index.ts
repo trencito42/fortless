@@ -21,7 +21,7 @@ async function bootstrap() {
   try {
     const address = await server.listen({
       port: config.PORT,
-      host: '0.0.0.0', // Listen on all interfaces so Nginx upstream 127.0.0.1:3021 connects
+      host: config.HOST,
     });
     console.log(`🚀 FORTLESS API listening at: ${address} (Bound to port ${config.PORT})`);
   } catch (err) {

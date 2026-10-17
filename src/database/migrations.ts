@@ -156,7 +156,7 @@ const migrations: Migration[] = [
   },
 ];
 
-export function runMigrations(db: Database.Database): void {
+export function runMigrations(db: Database.Database): number {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -169,11 +169,14 @@ export function runMigrations(db: Database.Database): void {
     (db.prepare('SELECT version FROM schema_migrations').all() as { version: number }[]).map((row) => row.version)
   );
 
+  let newCount = 0;
   for (const migration of migrations) {
     if (applied.has(migration.version)) continue;
     db.transaction(() => {
       migration.up(db);
       db.prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)').run(migration.version, migration.name);
     })();
+    newCount++;
   }
+  return newCount;
 }

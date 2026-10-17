@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import fs from 'node:fs';
 import { SCHEMA_SQL } from '../src/database/schema.js';
 import { runMigrations } from '../src/database/migrations.js';
 import {
@@ -45,24 +44,16 @@ import { listTickets, createTicket, getTicketThread, addCustomerReply } from '..
 
 describe('FORTLESS Comprehensive Production Test Suite', () => {
   let db: Database.Database;
-  const testDbPath = './data/test_fortless.db';
 
   beforeEach(() => {
-    fs.mkdirSync('./data', { recursive: true });
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
-    db = new Database(testDbPath);
+    db = new Database(':memory:');
     db.pragma('foreign_keys = ON');
     db.exec(SCHEMA_SQL);
     seedInitialCatalog(db);
-  }, 30_000);
+  }, 10_000);
 
   afterEach(() => {
     db.close();
-    if (fs.existsSync(testDbPath)) {
-      fs.unlinkSync(testDbPath);
-    }
   });
 
   describe('Category A: Identity, Authentication & Multi-Tenant Isolation', () => {
@@ -452,6 +443,48 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const duplicateRes = ingestPSPWebhook('stripe', 'acct_primary', rawBody, payload, db);
       expect(duplicateRes.status).toBe('DEDUPLICATED');
     });
+
+    it('PAY-06: Checkout idempotency detects divergence in customOptions with same idempotency key', () => {
+      const user = registerUser(
+        { email: 'idem_diverge@example.com', password: 'P@ssword123!', name: 'Idem Diverge', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      const quote = createQuote(
+        user.account.id,
+        [{ planVersionId: 'plv_mc_4gb', quantity: 1 }],
+        'DE',
+        false,
+        undefined,
+        db
+      );
+
+      // First submission with serverName: 'alpha-srv'
+      processCheckout(
+        {
+          accountId: user.account.id,
+          quoteId: quote.id,
+          idempotencyKey: 'idem_diverge_key_001',
+          regionId: 'reg_fra_1',
+          customOptions: { serverName: 'alpha-srv' },
+        },
+        db
+      );
+
+      // Second submission with divergent serverName under same idempotencyKey must throw
+      expect(() => {
+        processCheckout(
+          {
+            accountId: user.account.id,
+            quoteId: quote.id,
+            idempotencyKey: 'idem_diverge_key_001',
+            regionId: 'reg_fra_1',
+            customOptions: { serverName: 'beta-srv' },
+          },
+          db
+        );
+      }).toThrow('Idempotency key was previously used with a different request payload.');
+    });
   });
 
   describe('Category D: Tenant-Safe Support Lifecycle', () => {
@@ -599,6 +632,53 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       });
       expect(service.contract_status).toBe('ACTIVE');
       expect(service.external_id).toBeDefined();
+    });
+
+    it('PROV-05: Outbox worker automatically recovers stuck PROCESSING events after lease expiration', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser(
+        { email: 'lease_recovery@example.com', password: 'P@ssword123!', name: 'Lease Recovery', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_lease_test', regionId: 'reg_fra_1' }, db);
+
+      const payload: StripeWebhookPayload = {
+        id: 'evt_lease_recovery_001',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 1428,
+            currency: 'eur',
+            status: 'succeeded',
+            metadata: { orderId: checkout.orderId },
+          },
+        },
+      };
+
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+
+      // Simulate a crashed worker: event was marked PROCESSING 10 minutes ago
+      db.prepare(`
+        UPDATE outbox_events
+        SET status = 'PROCESSING',
+            scheduled_at = datetime('now', '-10 minutes', 'utc')
+      `).run();
+
+      // Ensure outbox event is in PROCESSING state
+      const preCheck = db.prepare('SELECT status FROM outbox_events LIMIT 1').get() as { status: string };
+      expect(preCheck.status).toBe('PROCESSING');
+
+      // Now run processOutboxQueue: the lease recovery query must automatically rescue it to PENDING and process it!
+      const processed = await processOutboxQueue(adapter, db);
+      expect(processed).toBe(1);
+
+      const postCheck = db.prepare('SELECT status, retry_count FROM outbox_events LIMIT 1').get() as { status: string; retry_count: number };
+      expect(postCheck.status).toBe('COMPLETED');
+      expect(postCheck.retry_count).toBeGreaterThanOrEqual(1); // incremented during recovery
     });
   });
 

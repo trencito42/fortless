@@ -26,6 +26,7 @@ export function processCheckout(
     accountId: data.accountId,
     quoteId: data.quoteId,
     regionId: data.regionId,
+    customOptions: data.customOptions || {},
   })).digest('hex');
 
   // 1. Check Idempotency Record
