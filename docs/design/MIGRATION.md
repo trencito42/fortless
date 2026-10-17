@@ -16,13 +16,13 @@ Status values: TODO, IN PROGRESS, DONE (only after `scripts/verify-views.py` pas
 | 7 | home | public/app.html, src/frontend/client/pages/home | 2 | DONE | commit Wave 1 (home) |
 | 8 | services | src/frontend/client/pages/dashboard, pages/services | 2 | DONE | commit 2af538a |
 | 9 | service | src/frontend/client/pages/services (detail) | 2 | DONE | commit 2af538a |
-| 10 | deploy | src/frontend/client/pages/deploy | 3 | TODO | |
-| 11 | domains | src/frontend/client/pages/domains | 3 | TODO | |
-| 12 | billing | src/frontend/client/pages/billing | 3 | TODO | |
-| 13 | support | src/frontend/client/pages/support | 3 | TODO | |
-| 14 | ticket | src/frontend/client/pages/support (detail) | 3 | TODO | |
-| 15 | activity | src/frontend/client/pages/activity | 3 | TODO | |
-| 16 | settings | src/frontend/client/pages/settings | 3 | TODO | |
+| 10 | deploy | src/frontend/client/pages/deploy | 3 | DONE | commit e3e657a |
+| 11 | domains | src/frontend/client/pages/domains | 3 | DONE | commit 32d1b15 |
+| 12 | billing | src/frontend/client/pages/billing | 3 | DONE | commit 8af73fd |
+| 13 | support | src/frontend/client/pages/support | 3 | DONE | commit 5c53f84 |
+| 14 | ticket | src/frontend/client/pages/support (detail) | 3 | DONE | commit 5c53f84 |
+| 15 | activity | src/frontend/client/pages/activity | 3 | DONE | commit dff5f19 |
+| 16 | settings | src/frontend/client/pages/settings | 3 | DONE | commit 684c7a8 |
 | 17 | o-over | public/admin.html, src/frontend/admin/pages/overview | 4 | TODO | |
 | 18 | o-acc | src/frontend/admin/pages/accounts | 4 | TODO | |
 | 19 | o-svc | src/frontend/admin/pages/services | 4 | TODO | |
