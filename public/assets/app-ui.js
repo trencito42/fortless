@@ -1186,10 +1186,41 @@ ${node.textContent || ""}
   }
 
   // src/frontend/client/pages/home/index.ts
+  function tile(iconName, tone, size = "sm") {
+    const cls = ["tile", tone, size].filter(Boolean).join(" ");
+    return `<span class="${cls}">${hero(iconName)}</span>`;
+  }
+  function pill(text, tone, dot = false) {
+    return `<span class="pill ${tone}${dot ? " d" : ""}">${esc(text)}</span>`;
+  }
+  function metricCard(label, value, iconName, tone) {
+    return `<div class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div>${tile(iconName, tone, "")}</div>`;
+  }
+  function emptyState(iconName, title, message, action = "") {
+    return `<div class="es">${tile(iconName, "neu", "lg")}<h4>${esc(title)}</h4><p>${esc(message)}</p>${action}</div>`;
+  }
+  function skeleton(n = 5) {
+    return `<div class="sk" role="status" aria-label="Loading">${Array(n).fill("<i></i>").join("")}</div>`;
+  }
+  function panel(title, sub, body, actionHref, actionLabel) {
+    const action = `<a class="btn xs" href="${actionHref}" data-app-route>${esc(actionLabel)}</a>`;
+    return `<section class="card"><div class="ch"><div class="tx"><h3>${esc(title)}</h3><p>${esc(sub)}</p></div>${action}</div><div class="col">${body}</div></section>`;
+  }
+  var RT_TONE = { RUNNING: "good", INSTALLING: "warn", ERROR: "bad" };
+  var TIX_TONE = {
+    OPEN: "info",
+    WAITING_STAFF: "warn",
+    WAITING_CUSTOMER: "violet",
+    RESOLVED: "good",
+    CLOSED: ""
+  };
+  function niceName(s) {
+    return s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  }
   async function renderHome() {
     const host = document.getElementById("dashboardOverview");
     if (!host) return;
-    host.innerHTML = renderSkeleton("dashboard", "Loading workspace overview");
+    host.innerHTML = skeleton();
     const [serviceResult, ticketResult, invoiceResult, auditResult] = await Promise.allSettled([
       api("/api/v1/services"),
       api("/api/v1/tickets"),
@@ -1200,35 +1231,93 @@ ${node.textContent || ""}
     const tickets = ticketResult.status === "fulfilled" ? ticketResult.value.tickets : [];
     const invoices = invoiceResult.status === "fulfilled" ? invoiceResult.value.invoices : [];
     const logs = auditResult.status === "fulfilled" ? auditResult.value.logs : [];
-    const openTickets = tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status));
-    const outstanding = invoices.filter((item) => ["DRAFT", "OPEN", "PENDING", "OVERDUE"].includes(item.status));
+    const openTickets = tickets.filter((t) => !["RESOLVED", "CLOSED"].includes(t.status));
+    const outstanding = invoices.filter((i) => ["DRAFT", "OPEN", "PENDING", "OVERDUE"].includes(i.status));
     const currency = invoices[0]?.currency || "EUR";
-    const outstandingTotal = outstanding.reduce((sum, item) => sum + Number(item.total_minor_units || 0), 0);
-    const failures = [serviceResult, ticketResult, invoiceResult, auditResult].filter((item) => item.status === "rejected").length;
-    host.innerHTML = `${failures ? `<div class="state-message warn">${hero("warning")}<span>${failures} dashboard source${failures === 1 ? "" : "s"} could not be loaded. Available records are shown below.</span></div>` : ""}
-    <div class="dashboard-welcome"><div><span class="badge accent s">Workspace overview</span><h2>Your workspace, at a glance.</h2><p>Services, billing, support and security activity from your account.</p></div><div class="row wrap"><a class="btn sec s" href="/app/support/new" data-app-route="ticket-new">${hero("support", "s")}Open ticket</a><a class="btn s" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}Deploy service</a></div></div>
-    <div class="grid g4 keep2 dashboard-metrics">
-      ${metric("Active services", services.filter((item) => item.contract_status === "ACTIVE").length, "servers", "good")}
-      ${metric("Total services", services.length, "cube", "accent")}
-      ${metric("Open tickets", openTickets.length, "support", openTickets.length ? "warn" : "good")}
-      ${metric("Outstanding", money(outstandingTotal, currency), "credit", outstandingTotal ? "warn" : "good")}
+    const outstandingTotal = outstanding.reduce((sum, i) => sum + Number(i.total_minor_units || 0), 0);
+    const caps = capabilitiesStore.get();
+    const providerOk = Boolean(caps?.provisioning.enabled && caps?.payments.enabled);
+    const failCount = [serviceResult, ticketResult, invoiceResult, auditResult].filter(
+      (r) => r.status === "rejected"
+    ).length;
+    const running = services.filter((s) => s.runtime_state === "RUNNING").length;
+    const installing = services.filter((s) => s.runtime_state === "INSTALLING").length;
+    const stopped = services.filter((s) => !["RUNNING", "INSTALLING"].includes(s.runtime_state || "")).length;
+    const totalSvcs = services.length;
+    const fleetBar = totalSvcs > 0 ? `<div style="display:flex;height:12px;border-radius:12px;overflow:hidden;gap:3px;margin:4px 0 12px">
+        ${running > 0 ? `<b style="flex:${running};background:var(--good);border-radius:12px"></b>` : ""}
+        ${installing > 0 ? `<b style="flex:${installing};background:var(--warn);border-radius:12px"></b>` : ""}
+        ${stopped > 0 ? `<b style="flex:${stopped};background:var(--info);border-radius:12px"></b>` : ""}
+       </div>
+       <div class="row" style="gap:14px;flex-wrap:nowrap">
+         ${running > 0 ? pill(`${running} running`, "good", true) : ""}
+         ${installing > 0 ? pill(`${installing} installing`, "warn", true) : ""}
+         ${stopped > 0 ? pill(`${stopped} stopped`, "info", true) : ""}
+       </div>` : emptyState(
+      "server",
+      "No services yet",
+      "Browse the catalog to start.",
+      '<a class="btn s tint" href="/app/deploy" data-app-route="deploy">View catalog</a>'
+    );
+    const servicesBody = services.slice(0, 3).map((s) => {
+      const rt = s.runtime_state || "UNKNOWN";
+      const tone = RT_TONE[rt] || "info";
+      return `<a class="li" href="/app/services/${esc(s.id)}" data-app-route="service-detail">${tile("server", tone)}<span class="tx"><b>${esc(s.plan_name || "Hosting service")}</b><small>${esc(s.node_name || s.node_id || "No node assigned")}</small></span>${pill(rt, tone)}</a>`;
+    }).join("") || emptyState("server", "No services yet", "Ordering stays unavailable until providers are verified.");
+    const supportBody = tickets.slice(0, 3).map((t) => {
+      const tone = TIX_TONE[t.status] || "";
+      return `<button class="li" data-app-route-btn="support">${tile("support", tone)}<span class="tx"><b>${esc(t.subject)}</b><small>${esc(t.id)} \xB7 ${esc(formatDate(t.updated_at || t.created_at))}</small></span>${pill(niceName(t.status), tone)}</button>`;
+    }).join("") || emptyState("support", "No support conversations", "Open a ticket when you need help.");
+    const billingBody = invoices.slice(0, 3).map((r) => {
+      const tone = r.status === "PAID" ? "good" : r.status === "OPEN" ? "info" : "";
+      return `<div class="li h">${tile("document", "")}<span class="tx"><b>${esc(r.invoice_number || "Draft invoice")}</b><small>${esc(formatDate(r.created_at))}</small></span><b class="num">${money(r.total_minor_units, r.currency)}</b>${pill(r.status, tone)}</div>`;
+    }).join("") || emptyState("document", "No billing records", "Issued invoices appear here.");
+    const activityBody = logs.slice(0, 4).map(
+      (l) => `<div class="li h">${tile("shield", "")}<span class="tx"><b>${esc(String(l.action || "").replace(/\./g, " \xB7 "))}</b><small>${esc(formatDate(l.created_at))}</small></span></div>`
+    ).join("") || emptyState("shield", "No recent activity", "Events appear as you use the account.");
+    host.innerHTML = `
+    ${failCount ? `<div style="margin-bottom:12px"><div class="alert warn">${hero("warning", "s")}<div><b>${failCount} dashboard source${failCount === 1 ? "" : "s"} unavailable</b><span>Available records are shown below.</span></div></div></div>` : ""}
+    ${!providerOk ? `<div style="margin-bottom:12px"><div class="alert warn">${hero("warning", "s")}<div><b>Commerce configuration required</b><span>Ordering stays unavailable until payment and infrastructure providers pass verification.</span></div></div></div>` : ""}
+
+    <div class="hd">
+      <div class="tx">
+        ${pill("Workspace overview", "acc")}
+        <h2>Your workspace, at a glance.</h2>
+        <p>Services, billing, support and security activity from your account.</p>
+      </div>
+      <div class="act">
+        <button class="btn" data-modal="ticket">${hero("support", "s")}Open ticket</button>
+        <a class="btn pri" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}Deploy service</a>
+      </div>
     </div>
-    ${!services.length ? `<div class="card dashboard-onboarding">${renderEmptyState({ icon: "servers", title: "Start with your first service", message: "Browse the real catalog. Checkout remains unavailable until payment and provider verification pass.", actionHtml: `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>` })}</div>` : ""}
-    <div class="dashboard-columns">
-      ${panel("My services", "Provider-observed contract and runtime state.", "/app/services", "View all services", services.slice(0, 4).map((item) => `<a class="li card s2" href="/app/services/${esc(item.id)}" data-app-route="service-detail"><span class="ico-b ${item.runtime_state === "RUNNING" ? "good" : "info"}">${hero("servers")}</span><span class="tx"><b>${esc(item.plan_name || "Hosting service")}</b><span>${esc(item.node_name || item.node_id || "No node assigned")}</span></span><span class="badge s">${esc(item.contract_status)}</span>${hero("chevron", "s")}</a>`).join("") || emptyLine("No services yet"))}
-      ${panel("Support", "Recent account conversations.", "/app/support", "View support", tickets.slice(0, 4).map((item) => `<a class="li card s2" href="/app/support/${esc(item.id)}" data-app-route="ticket-detail"><span class="ico-b accent">${hero("support")}</span><span class="tx"><b>${esc(item.subject)}</b><span>${esc(formatDate(item.updated_at || item.created_at))}</span></span><span class="badge s">${esc(item.status)}</span></a>`).join("") || emptyLine("No support conversations"))}
-      ${panel("Billing", "Latest issued account records.", "/app/billing", "View billing", invoices.slice(0, 4).map((item) => `<div class="li card s2"><span class="ico-b">${hero("document")}</span><span class="tx"><b>${esc(item.invoice_number || "Draft invoice")}</b><span>${esc(formatDate(item.created_at))}</span></span><b>${money(item.total_minor_units, item.currency)}</b><span class="badge s">${esc(item.status)}</span></div>`).join("") || emptyLine("No billing records"))}
-      ${panel("Recent activity", "Security-relevant account events.", "/app/activity", "View activity", logs.slice(0, 4).map((item) => `<div class="li card s2"><span class="ico-b">${hero("shield")}</span><span class="tx"><b>${esc(String(item.action || "").replaceAll(".", " \xB7 "))}</b><span>${esc(formatDate(item.created_at))}</span></span></div>`).join("") || emptyLine("No recent activity"))}
+
+    <div class="g g4 k2" style="margin-bottom:12px">
+      ${metricCard("Active services", services.filter((s) => s.contract_status === "ACTIVE").length, "server", "good")}
+      ${metricCard("Total services", services.length, "cube", "")}
+      ${metricCard("Open tickets", openTickets.length, "support", openTickets.length ? "warn" : "")}
+      ${metricCard("Outstanding", money(outstandingTotal, currency), "credit", outstandingTotal ? "warn" : "")}
+    </div>
+
+    <div style="margin-bottom:12px">
+      <section class="card">
+        <div class="ch"><div class="tx"><h3>Fleet</h3><p>Runtime state across your services</p></div></div>
+        ${fleetBar}
+      </section>
+    </div>
+
+    <div class="g g2">
+      ${panel("My services", "Provider-observed contract and runtime state.", servicesBody, "/app/services", "View all")}
+      ${panel("Support", "Recent account conversations.", supportBody, "/app/support", "View support")}
+      ${panel("Billing", "Latest issued account records.", billingBody, "/app/billing", "View billing")}
+      ${panel("Recent activity", "Security-relevant account events.", activityBody, "/app/activity", "View activity")}
     </div>`;
-  }
-  function metric(label, value, icon, tone) {
-    return `<div class="card metric-card"><div><span class="metric-label">${esc(label)}</span><strong class="metric-value">${esc(String(value))}</strong></div><span class="ico-b ${tone}">${hero(icon)}</span></div>`;
-  }
-  function emptyLine(text) {
-    return `<div class="state-message"><span>${esc(text)}</span></div>`;
-  }
-  function panel(title, description, href, action, body) {
-    return `<section class="card dashboard-panel"><div class="section-card-head"><div class="tx"><h3>${esc(title)}</h3><p>${esc(description)}</p></div><a class="btn sec xs" href="${href}" data-app-route>${esc(action)}</a></div><div class="col" style="gap:7px">${body}</div></section>`;
+    host.querySelectorAll("[data-app-route-btn]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = btn.dataset.appRouteBtn;
+        if (target) window.history.pushState({}, "", `/app/${target}`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+    });
   }
 
   // src/frontend/client/pages/dashboard/index.ts
