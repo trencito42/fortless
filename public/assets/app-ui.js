@@ -201,13 +201,18 @@
   }
 
   async function loadCatalog() {
-    if (state.plans.length) return renderCatalog();
+    if (state.plans.length && state.regions?.length) return renderCatalog();
     const host = document.getElementById('planSelector');
     message(host, 'Loading catalog…');
     try {
-      const { plans } = await api('/api/v1/catalog/plans');
-      state.plans = plans;
-      if (!state.selectedPlanId && plans[0]) state.selectedPlanId = plans[0].planVersionId;
+      const [plansRes, regionsRes] = await Promise.all([
+        api('/api/v1/catalog/plans'),
+        api('/api/v1/catalog/regions'),
+      ]);
+      state.plans = plansRes.plans || [];
+      state.regions = regionsRes.regions || [];
+      if (!state.selectedPlanId && state.plans[0]) state.selectedPlanId = state.plans[0].planVersionId;
+      if (!state.selectedRegionId && state.regions[0]) state.selectedRegionId = state.regions[0].id;
       renderCatalog();
     } catch (error) { message(host, error.message, 'bad'); }
   }
@@ -220,16 +225,18 @@
       const selected = plan.planVersionId === state.selectedPlanId;
       return `<button type="button" class="z-plc" data-plan-id="${esc(plan.planVersionId)}" aria-pressed="${selected}"><span class="badge ${plan.categorySlug === 'game-servers' ? 'accent' : 'violet'} s">${esc(plan.categoryName)}</span><b>${esc(plan.planName)}</b><span class="p">${price ? money(price.priceMinorUnits, price.currency) : 'Unavailable'} <small>/${esc((price?.interval || '').toLowerCase())}</small></span><small class="f">${esc(plan.productName)} · ${plan.resources.memoryMb / 1024} GB RAM · ${plan.resources.cpuPct}% CPU · ${plan.resources.diskMb / 1024} GB disk</small></button>`;
     }).join('') || `<div class="state-message warn">${hero('warning')}<span>No published plans are available.</span></div>`;
-    document.querySelectorAll('.reg-card').forEach((card) => {
-      card.className = 'z-plc region-choice';
-      const regionId = card.dataset.reg === 'fra-1' ? 'reg_fra_1' : 'reg_lon_1';
-      card.dataset.regionId = regionId;
-      card.setAttribute('role', 'button');
-      card.setAttribute('tabindex', '0');
-      card.setAttribute('aria-pressed', String(regionId === state.selectedRegionId));
-      const description = card.querySelector('.f');
-      if (description) description.textContent = 'Catalog region · live availability is not yet verified';
-    });
+
+    const regHost = document.getElementById('regionSelector');
+    if (regHost && state.regions?.length) {
+      regHost.innerHTML = state.regions.map((reg) => {
+        const flag = reg.country === 'DE' ? '🇩🇪' : reg.country === 'GB' ? '🇬🇧' : '🌐';
+        const selected = reg.id === state.selectedRegionId;
+        const statusText = reg.isSoldOut ? 'Sold out in this region' : `${Math.floor(reg.memoryAvailableMb / 1024)} GB RAM available`;
+        const badge = reg.isSoldOut ? '<span class="badge red s" style="margin-left:auto">Sold Out</span>' : '<span class="badge green s" style="margin-left:auto">Available</span>';
+        return `<button type="button" class="z-plc reg-card region-choice" data-region-id="${esc(reg.id)}" aria-pressed="${selected}" ${reg.isSoldOut ? 'disabled style="opacity:0.6"' : ''}><div style="display:flex;align-items:center;width:100%"><b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${badge}</div><small class="f">${esc(statusText)}</small></button>`;
+      }).join('');
+    }
+
     updateSummary();
   }
 
@@ -238,11 +245,28 @@
     if (!plan) return;
     const price = plan.prices[0];
     const subtotal = price?.priceMinorUnits || 0;
-    const tax = Math.round(subtotal * .19);
+    const discount = state.activeCoupon ? state.activeCoupon.discountMinorUnits : 0;
+    const taxableSubtotal = Math.max(0, subtotal - discount);
+    const tax = Math.round(taxableSubtotal * .19);
+    const total = taxableSubtotal + tax;
+
     document.getElementById('sumPlan').textContent = plan.planName;
-    document.getElementById('sumReg').textContent = state.selectedRegionId === 'reg_fra_1' ? 'Frankfurt (catalog)' : 'London (catalog)';
+    const selReg = state.regions?.find((r) => r.id === state.selectedRegionId);
+    document.getElementById('sumReg').textContent = selReg ? `${selReg.name} (${selReg.code})` : 'Frankfurt (catalog)';
+    
+    const rowDisc = document.getElementById('rowDiscount');
+    if (rowDisc) {
+      if (state.activeCoupon && discount > 0) {
+        rowDisc.style.display = 'flex';
+        document.getElementById('sumCouponCode').textContent = state.activeCoupon.code;
+        document.getElementById('sumDiscount').textContent = `-${money(discount, price?.currency || 'EUR')}`;
+      } else {
+        rowDisc.style.display = 'none';
+      }
+    }
+
     document.getElementById('sumVat').textContent = money(tax, price?.currency || 'EUR');
-    document.getElementById('sumTotal').textContent = money(subtotal + tax, price?.currency || 'EUR');
+    document.getElementById('sumTotal').textContent = money(total, price?.currency || 'EUR');
   }
 
   async function beginCheckout() {
@@ -255,8 +279,25 @@
     button.disabled = true;
     button.querySelector('span').textContent = 'Preparing checkout…';
     try {
-      const quote = await api('/api/v1/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ planVersionId: state.selectedPlanId, quantity: 1 }], billingCountry: 'DE', isB2B: false }) });
-      const checkout = await api('/api/v1/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ quoteId: quote.id, regionId: state.selectedRegionId, customOptions: { serverName: name } }) });
+      const quote = await api('/api/v1/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ planVersionId: state.selectedPlanId, quantity: 1, regionId: state.selectedRegionId }],
+          billingCountry: 'DE',
+          isB2B: false,
+          couponCode: state.activeCoupon?.code || undefined,
+        }),
+      });
+      const checkout = await api('/api/v1/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({
+          quoteId: quote.id,
+          regionId: state.selectedRegionId,
+          customOptions: { serverName: name },
+        }),
+      });
       window.location.href = checkout.checkoutUrl;
     } catch (error) { toast(error.message, 'bad'); }
     finally { button.disabled = false; button.querySelector('span').textContent = 'Continue to secure checkout'; }
@@ -606,7 +647,38 @@
       const plan = event.target.closest('[data-plan-id]');
       if (plan) { state.selectedPlanId = plan.dataset.planId; document.querySelectorAll('[data-plan-id]').forEach((item) => item.setAttribute('aria-pressed', String(item === plan))); updateSummary(); }
       const region = event.target.closest('[data-region-id]');
-      if (region) { state.selectedRegionId = region.dataset.regionId; document.querySelectorAll('[data-region-id]').forEach((item) => item.setAttribute('aria-pressed', String(item === region))); updateSummary(); }
+      if (region && !region.disabled) { state.selectedRegionId = region.dataset.regionId; document.querySelectorAll('[data-region-id]').forEach((item) => item.setAttribute('aria-pressed', String(item === region))); updateSummary(); }
+      const applyCoupon = event.target.closest('#applyCouponBtn');
+      if (applyCoupon) {
+        const input = document.getElementById('couponInput');
+        const code = input ? input.value.trim() : '';
+        if (!code) {
+          state.activeCoupon = null;
+          updateSummary();
+          return;
+        }
+        applyCoupon.disabled = true;
+        applyCoupon.textContent = '…';
+        const plan = state.plans.find((item) => item.planVersionId === state.selectedPlanId);
+        const subtotal = plan ? (plan.prices[0] ? plan.prices[0].priceMinorUnits : 0) : 0;
+        api('/api/v1/catalog/validate-coupon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, subtotalMinorUnits: subtotal }),
+        })
+          .then((res) => {
+            state.activeCoupon = { code: res.coupon.code, discountMinorUnits: res.discountMinorUnits };
+            toast(`Coupon ${res.coupon.code} applied!`, 'good');
+            updateSummary();
+          })
+          .catch((err) => {
+            toast(err.message, 'bad');
+          })
+          .finally(() => {
+            applyCoupon.disabled = false;
+            applyCoupon.textContent = 'Apply';
+          });
+      }
       const ticket = event.target.closest('[data-ticket-id]');
       if (ticket) openTicket(ticket.dataset.ticketId);
       const auditRow = event.target.closest('.z-aut');

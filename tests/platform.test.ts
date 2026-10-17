@@ -34,7 +34,25 @@ import {
   clearSandboxReceipts,
 } from '../src/modules/email/outbox.js';
 import { config } from '../src/config/index.js';
-import { seedInitialCatalog, getPublishedPlans } from '../src/modules/catalog/catalog.js';
+import {
+  seedInitialCatalog,
+  getPublishedPlans,
+  listCategories,
+  listProducts,
+  getProductDetail,
+  listRegionsWithCapacity,
+  reserveCapacity,
+  releaseCapacity,
+  sweepExpiredReservations,
+  createCoupon,
+  validateCoupon,
+  redeemCouponAtomic,
+  listCoupons,
+  createProduct,
+  updateProductPublishStatus,
+  createPlanVersion,
+  updatePlanStatus,
+} from '../src/modules/catalog/catalog.js';
 import { createQuote, verifyQuote } from '../src/modules/pricing/quote.js';
 import { processCheckout } from '../src/modules/checkout/checkout.js';
 import {
@@ -333,6 +351,161 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(() => {
         verifyQuote(quote.id, 'acc_fake_other_tenant', db);
       }).toThrow('Quote not found or does not belong to this account.');
+    });
+
+    it('CAT-04: Product and plan version querying returns structured specs and regions with capacity', () => {
+      const categories = listCategories(db);
+      expect(categories.length).toBeGreaterThanOrEqual(2);
+
+      const products = listProducts({}, db);
+      expect(products.length).toBeGreaterThanOrEqual(3);
+
+      const detail = getProductDetail('minecraft', db);
+      expect(detail).not.toBeNull();
+      expect(detail?.plans.length).toBeGreaterThanOrEqual(2);
+      expect(detail?.plans[0]?.resources.memoryMb).toBe(4096);
+
+      const regions = listRegionsWithCapacity(db);
+      expect(regions.length).toBeGreaterThanOrEqual(2);
+      expect(regions[0]?.total_nodes).toBeGreaterThanOrEqual(1);
+      expect(regions[0]?.isSoldOut).toBe(false);
+    });
+
+    it('CAT-05: Admin can create product, publish/unpublish, and version plans with prices', () => {
+      const cat = listCategories(db)[0] as { id: string };
+      expect(cat).toBeDefined();
+
+      const prod = createProduct(
+        { categoryId: cat.id, slug: 'rust-server', name: 'Rust Dedicated Server', providerType: 'PTERODACTYL', isPublished: false },
+        db
+      );
+      expect(prod.id).toBeDefined();
+
+      // Unpublished by default
+      const publishedBefore = listProducts({}, db);
+      expect(publishedBefore.find((p: any) => p.slug === 'rust-server')).toBeUndefined();
+
+      // Publish product
+      updateProductPublishStatus(prod.id, true, db);
+      const publishedAfter = listProducts({}, db);
+      expect(publishedAfter.find((p: any) => p.slug === 'rust-server')).toBeDefined();
+
+      // Create plan version
+      const plan = createPlanVersion(
+        {
+          productId: prod.id,
+          name: 'Rust Survival 8GB',
+          resourceSpecs: { memoryMb: 8192, cpuPct: 300, diskMb: 51200, databases: 1, backups: 2, eggId: 7 },
+          prices: [
+            { currency: 'EUR', interval: 'MONTHLY', priceMinorUnits: 2000, setupFeeMinorUnits: 0 },
+            { currency: 'EUR', interval: 'ANNUAL', priceMinorUnits: 20000, setupFeeMinorUnits: 0 },
+          ],
+        },
+        db
+      );
+      expect(plan.version).toBe(1);
+
+      // Retire plan
+      updatePlanStatus(plan.planVersionId, 'RETIRED', db);
+      const activePlans = getPublishedPlans(db);
+      expect(activePlans.find((p) => p.planVersionId === plan.planVersionId)).toBeUndefined();
+    });
+
+    it('CAT-06: Capacity engine reserves node memory/disk atomically and releases properly', () => {
+      const res = reserveCapacity(
+        { planVersionId: 'plv_mc_4gb', regionId: 'reg_fra_1', cartItemId: 'cart_item_abc_1' },
+        db
+      );
+      expect(res.reservationId).toBeDefined();
+      expect(res.nodeId).toBe('node_fra_01');
+
+      const nodeAfter = db.prepare('SELECT allocated_memory_mb, allocated_disk_mb FROM nodes WHERE id = ?').get('node_fra_01') as { allocated_memory_mb: number; allocated_disk_mb: number };
+      expect(nodeAfter.allocated_memory_mb).toBe(4096);
+      expect(nodeAfter.allocated_disk_mb).toBe(30720);
+
+      // Release reservation
+      const released = releaseCapacity('cart_item_abc_1', db);
+      expect(released).toBe(true);
+
+      const nodeReleased = db.prepare('SELECT allocated_memory_mb, allocated_disk_mb FROM nodes WHERE id = ?').get('node_fra_01') as { allocated_memory_mb: number; allocated_disk_mb: number };
+      expect(nodeReleased.allocated_memory_mb).toBe(0);
+      expect(nodeReleased.allocated_disk_mb).toBe(0);
+    });
+
+    it('CAT-07: Stale reservations sweeper recovers expired capacity allocations', () => {
+      reserveCapacity(
+        { planVersionId: 'plv_mc_4gb', regionId: 'reg_fra_1', cartItemId: 'cart_item_stale' },
+        db
+      );
+
+      // Force reservation to appear in the past
+      db.prepare("UPDATE capacity_reservations SET expires_at = datetime('now', '-10 minutes') WHERE cart_item_id = 'cart_item_stale'").run();
+
+      const swept = sweepExpiredReservations(db);
+      expect(swept).toBeGreaterThanOrEqual(1);
+
+      const node = db.prepare('SELECT allocated_memory_mb FROM nodes WHERE id = ?').get('node_fra_01') as { allocated_memory_mb: number };
+      expect(node.allocated_memory_mb).toBe(0);
+    });
+
+    it('CAT-08: Coupon system validates discounts, enforces single-use per account, and caps redemptions', () => {
+      const userA = registerUser({ email: 'coupon_a@example.com', password: 'P@ssword123!', name: 'User A', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const userB = registerUser({ email: 'coupon_b@example.com', password: 'P@ssword123!', name: 'User B', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      createCoupon(
+        { code: 'WELCOME25', discountType: 'PERCENTAGE', discountValue: 25, maxRedemptions: 1, expiresAt: new Date(Date.now() + 86400000).toISOString() },
+        db
+      );
+
+      const allCoupons = listCoupons(db);
+      expect(allCoupons.some((c) => c.code === 'WELCOME25')).toBe(true);
+
+      // User A validates coupon on €20.00 order
+      const valid = validateCoupon('WELCOME25', userA.account.id, 2000, db);
+      expect(valid.discountMinorUnits).toBe(500); // 25% of 2000 = 500
+
+      // User A redeems coupon
+      redeemCouponAtomic(valid.coupon.id, userA.account.id, 'ord_first_001', db);
+
+      // User A cannot redeem again (single-use per account)
+      expect(() => {
+        validateCoupon('WELCOME25', userA.account.id, 2000, db);
+      }).toThrow('This coupon has already been redeemed by your workspace.');
+
+      // User B cannot redeem because maxRedemptions was 1
+      expect(() => {
+        validateCoupon('WELCOME25', userB.account.id, 2000, db);
+      }).toThrow('Coupon usage limit reached.');
+    });
+
+    it('CAT-09: Quote generation with coupon discounts subtotal and computes tax on discounted base', () => {
+      const user = registerUser({ email: 'discount_buyer@example.com', password: 'P@ssword123!', name: 'Disc Buyer', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      createCoupon(
+        { code: 'SAVE5EUR', discountType: 'FIXED_AMOUNT', discountValue: 500, maxRedemptions: 10, expiresAt: new Date(Date.now() + 86400000).toISOString() },
+        db
+      );
+
+      // Minecraft 4GB (€12.00) minus €5.00 discount = €7.00 taxable. 19% VAT on €7.00 = €1.33. Total = €8.33.
+      const quote = createQuote(
+        user.account.id,
+        [{ planVersionId: 'plv_mc_4gb', quantity: 1 }],
+        'DE',
+        false,
+        undefined,
+        'SAVE5EUR',
+        db
+      );
+
+      expect(quote.subtotalMinorUnits).toBe(1200);
+      expect(quote.discountMinorUnits).toBe(500);
+      expect(quote.couponCode).toBe('SAVE5EUR');
+      expect(quote.taxMinorUnits).toBe(133);
+      expect(quote.totalMinorUnits).toBe(833);
+
+      const verified = verifyQuote(quote.id, user.account.id, db);
+      expect(verified.totalMinorUnits).toBe(833);
+      expect(verified.discountMinorUnits).toBe(500);
     });
   });
 

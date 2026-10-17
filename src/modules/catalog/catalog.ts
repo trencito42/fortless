@@ -181,7 +181,7 @@ export function getPublishedPlans(db: Database.Database = getDatabase()): Publis
     priceMap.set(p.plan_version_id, list);
   }
 
-  return rows.map((r) => ({
+    return rows.map((r) => ({
     planVersionId: r.plan_version_id,
     productId: r.product_id,
     productSlug: r.product_slug,
@@ -193,4 +193,440 @@ export function getPublishedPlans(db: Database.Database = getDatabase()): Publis
     resources: JSON.parse(r.resource_specs) as PlanResourceSpec,
     prices: priceMap.get(r.plan_version_id) || [],
   }));
+}
+
+export function listCategories(db: Database.Database = getDatabase()) {
+  return db.prepare(`
+    SELECT id, slug, name, description, sort_order
+    FROM categories
+    WHERE is_active = 1
+    ORDER BY sort_order ASC, name ASC
+  `).all();
+}
+
+export function listProducts(options: { categorySlug?: string; includeUnpublished?: boolean } = {}, db: Database.Database = getDatabase()) {
+  let query = `
+    SELECT p.id, p.slug, p.name, p.provider_type, p.is_published, p.created_at,
+           c.id AS category_id, c.slug AS category_slug, c.name AS category_name
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    WHERE (? OR p.is_published = 1)
+  `;
+  const params: (number | string)[] = [options.includeUnpublished ? 1 : 0];
+
+  if (options.categorySlug) {
+    query += ' AND c.slug = ?';
+    params.push(options.categorySlug);
+  }
+
+  query += ' ORDER BY c.sort_order ASC, p.name ASC';
+  return db.prepare(query).all(...params);
+}
+
+export function getProductDetail(slug: string, db: Database.Database = getDatabase()) {
+  const product = db.prepare(`
+    SELECT p.id, p.slug, p.name, p.provider_type, p.is_published, p.created_at,
+           c.id AS category_id, c.slug AS category_slug, c.name AS category_name
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    WHERE p.slug = ?
+  `).get(slug) as { id: string; slug: string; name: string; provider_type: string; is_published: number } | undefined;
+
+  if (!product) return null;
+
+  const planVersions = db.prepare(`
+    SELECT id, version, name, resource_specs, status, created_at
+    FROM plan_versions
+    WHERE product_id = ? AND status = 'ACTIVE'
+    ORDER BY version ASC
+  `).all(product.id) as { id: string; version: number; name: string; resource_specs: string; status: string }[];
+
+  const plansWithPrices = planVersions.map((pv) => {
+    const prices = db.prepare(`
+      SELECT currency, interval, price_minor_units, setup_fee_minor_units
+      FROM plan_prices
+      WHERE plan_version_id = ?
+    `).all(pv.id) as PlanPrice[];
+
+    return {
+      id: pv.id,
+      version: pv.version,
+      name: pv.name,
+      resources: JSON.parse(pv.resource_specs) as PlanResourceSpec,
+      prices,
+    };
+  });
+
+  return { ...product, plans: plansWithPrices };
+}
+
+export function listRegionsWithCapacity(db: Database.Database = getDatabase()) {
+  const regions = db.prepare(`
+    SELECT r.id, r.code, r.name, r.country,
+           count(n.id) as total_nodes,
+           coalesce(sum(case when n.maintenance_mode = 0 then 1 else 0 end), 0) as available_nodes,
+           coalesce(sum(n.max_memory_mb), 0) as total_memory_mb,
+           coalesce(sum(n.allocated_memory_mb), 0) as allocated_memory_mb,
+           coalesce(sum(n.max_disk_mb), 0) as total_disk_mb,
+           coalesce(sum(n.allocated_disk_mb), 0) as allocated_disk_mb
+    FROM regions r
+    LEFT JOIN nodes n ON n.region_id = r.id
+    WHERE r.is_active = 1
+    GROUP BY r.id
+    ORDER BY r.name ASC
+  `).all() as Array<{
+    id: string;
+    code: string;
+    name: string;
+    country: string;
+    total_nodes: number;
+    available_nodes: number;
+    total_memory_mb: number;
+    allocated_memory_mb: number;
+    total_disk_mb: number;
+    allocated_disk_mb: number;
+  }>;
+
+  return regions.map((r) => {
+    const memoryAvailableMb = Math.max(0, r.total_memory_mb - r.allocated_memory_mb);
+    const diskAvailableMb = Math.max(0, r.total_disk_mb - r.allocated_disk_mb);
+    const isSoldOut = r.available_nodes === 0 || memoryAvailableMb < 1024 || diskAvailableMb < 5120;
+    return {
+      ...r,
+      memoryAvailableMb,
+      diskAvailableMb,
+      isSoldOut,
+    };
+  });
+}
+
+export function reserveCapacity(
+  params: { planVersionId: string; regionId?: string; cartItemId: string; ttlMinutes?: number },
+  db: Database.Database = getDatabase()
+): { reservationId: string; nodeId: string; expiresAt: string } {
+  return runInTransaction((trx) => {
+    // 1. Get required resource specs
+    const plan = trx.prepare('SELECT id, resource_specs, status FROM plan_versions WHERE id = ?').get(params.planVersionId) as {
+      id: string;
+      resource_specs: string;
+      status: string;
+    } | undefined;
+
+    if (!plan || plan.status !== 'ACTIVE') {
+      throw new Error(`Plan version ${params.planVersionId} is not active for allocation.`);
+    }
+
+    const resources = JSON.parse(plan.resource_specs) as PlanResourceSpec;
+    const requiredMemory = resources.memoryMb;
+    const requiredDisk = resources.diskMb;
+
+    // 2. Find eligible node with headroom
+    let nodeQuery = `
+      SELECT id, region_id, max_memory_mb, allocated_memory_mb, max_disk_mb, allocated_disk_mb
+      FROM nodes
+      WHERE maintenance_mode = 0
+        AND (max_memory_mb - allocated_memory_mb) >= ?
+        AND (max_disk_mb - allocated_disk_mb) >= ?
+    `;
+    const queryParams: (number | string)[] = [requiredMemory, requiredDisk];
+
+    if (params.regionId) {
+      nodeQuery += ' AND region_id = ?';
+      queryParams.push(params.regionId);
+    }
+
+    nodeQuery += ' ORDER BY (max_memory_mb - allocated_memory_mb) DESC LIMIT 1';
+
+    const eligibleNode = trx.prepare(nodeQuery).get(...queryParams) as {
+      id: string;
+      region_id: string;
+      max_memory_mb: number;
+      allocated_memory_mb: number;
+      max_disk_mb: number;
+      allocated_disk_mb: number;
+    } | undefined;
+
+    if (!eligibleNode) {
+      throw new Error(params.regionId ? 'Capacity sold out in requested region.' : 'No infrastructure capacity currently available.');
+    }
+
+    // 3. Atomically update allocated counters
+    trx.prepare(`
+      UPDATE nodes
+      SET allocated_memory_mb = allocated_memory_mb + ?,
+          allocated_disk_mb = allocated_disk_mb + ?
+      WHERE id = ?
+    `).run(requiredMemory, requiredDisk, eligibleNode.id);
+
+    // 4. Create capacity reservation
+    const reservationId = generateId('res');
+    const ttlMinutes = params.ttlMinutes ?? 15;
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+
+    trx.prepare(`
+      INSERT INTO capacity_reservations (id, node_id, plan_version_id, cart_item_id, expires_at, status)
+      VALUES (?, ?, ?, ?, ?, 'RESERVED')
+    `).run(reservationId, eligibleNode.id, params.planVersionId, params.cartItemId, expiresAt);
+
+    return { reservationId, nodeId: eligibleNode.id, expiresAt };
+  }, db);
+}
+
+export function releaseCapacity(cartItemId: string, db: Database.Database = getDatabase()): boolean {
+  return runInTransaction((trx) => {
+    const reservation = trx.prepare(`
+      SELECT cr.id, cr.node_id, cr.status, pv.resource_specs
+      FROM capacity_reservations cr
+      JOIN plan_versions pv ON pv.id = cr.plan_version_id
+      WHERE cr.cart_item_id = ?
+    `).get(cartItemId) as { id: string; node_id: string; status: string; resource_specs: string } | undefined;
+
+    if (!reservation || reservation.status !== 'RESERVED') {
+      return false;
+    }
+
+    const resources = JSON.parse(reservation.resource_specs) as PlanResourceSpec;
+
+    trx.prepare(`
+      UPDATE nodes
+      SET allocated_memory_mb = max(0, allocated_memory_mb - ?),
+          allocated_disk_mb = max(0, allocated_disk_mb - ?)
+      WHERE id = ?
+    `).run(resources.memoryMb, resources.diskMb, reservation.node_id);
+
+    trx.prepare("UPDATE capacity_reservations SET status = 'RELEASED' WHERE id = ?").run(reservation.id);
+    return true;
+  }, db);
+}
+
+export function sweepExpiredReservations(db: Database.Database = getDatabase()): number {
+  return runInTransaction((trx) => {
+    const expired = trx.prepare(`
+      SELECT cr.id, cr.node_id, pv.resource_specs
+      FROM capacity_reservations cr
+      JOIN plan_versions pv ON pv.id = cr.plan_version_id
+      WHERE cr.status = 'RESERVED' AND cr.expires_at < datetime('now', 'utc')
+    `).all() as { id: string; node_id: string; resource_specs: string }[];
+
+    for (const res of expired) {
+      const resources = JSON.parse(res.resource_specs) as PlanResourceSpec;
+      trx.prepare(`
+        UPDATE nodes
+        SET allocated_memory_mb = max(0, allocated_memory_mb - ?),
+            allocated_disk_mb = max(0, allocated_disk_mb - ?)
+        WHERE id = ?
+      `).run(resources.memoryMb, resources.diskMb, res.node_id);
+
+      trx.prepare("UPDATE capacity_reservations SET status = 'RELEASED' WHERE id = ?").run(res.id);
+    }
+
+    return expired.length;
+  }, db);
+}
+
+export interface CouponRule {
+  id: string;
+  code: string;
+  discountType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+  discountValue: number;
+  maxRedemptions: number;
+  redemptionsCount: number;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+export function createCoupon(
+  params: {
+    code: string;
+    discountType: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    discountValue: number;
+    maxRedemptions: number;
+    expiresAt: string;
+  },
+  db: Database.Database = getDatabase()
+): CouponRule {
+  if (params.discountValue <= 0) throw new Error('Discount value must be positive.');
+  if (params.discountType === 'PERCENTAGE' && params.discountValue > 100) throw new Error('Percentage discount cannot exceed 100%.');
+  if (params.maxRedemptions <= 0) throw new Error('Max redemptions must be greater than zero.');
+
+  const id = generateId('cpn');
+  const code = params.code.trim().toUpperCase();
+
+  db.prepare(`
+    INSERT INTO coupon_rules (id, code, discount_type, discount_value, max_redemptions, redemptions_count, expires_at, is_active)
+    VALUES (?, ?, ?, ?, ?, 0, ?, 1)
+  `).run(id, code, params.discountType, params.discountValue, params.maxRedemptions, params.expiresAt);
+
+  return {
+    id,
+    code,
+    discountType: params.discountType,
+    discountValue: params.discountValue,
+    maxRedemptions: params.maxRedemptions,
+    redemptionsCount: 0,
+    expiresAt: params.expiresAt,
+    isActive: true,
+  };
+}
+
+export function validateCoupon(
+  code: string,
+  accountId: string,
+  subtotalMinorUnits: number,
+  db: Database.Database = getDatabase()
+): { coupon: CouponRule; discountMinorUnits: number } {
+  const normalized = code.trim().toUpperCase();
+  const row = db.prepare(`
+    SELECT id, code, discount_type, discount_value, max_redemptions, redemptions_count, expires_at, is_active
+    FROM coupon_rules
+    WHERE code = ?
+  `).get(normalized) as {
+    id: string;
+    code: string;
+    discount_type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    discount_value: number;
+    max_redemptions: number;
+    redemptions_count: number;
+    expires_at: string;
+    is_active: number;
+  } | undefined;
+
+  if (!row || !row.is_active) {
+    throw new Error('Invalid or inactive coupon code.');
+  }
+
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    throw new Error('This coupon has expired.');
+  }
+
+  const prior = db.prepare('SELECT id FROM coupon_redemptions WHERE coupon_id = ? AND account_id = ?').get(row.id, accountId);
+  if (prior) {
+    throw new Error('This coupon has already been redeemed by your workspace.');
+  }
+
+  if (row.redemptions_count >= row.max_redemptions) {
+    throw new Error('Coupon usage limit reached.');
+  }
+
+  let discountMinorUnits = 0;
+  if (row.discount_type === 'PERCENTAGE') {
+    discountMinorUnits = Math.round((subtotalMinorUnits * row.discount_value) / 100);
+  } else {
+    discountMinorUnits = Math.min(subtotalMinorUnits, row.discount_value);
+  }
+
+  return {
+    coupon: {
+      id: row.id,
+      code: row.code,
+      discountType: row.discount_type,
+      discountValue: row.discount_value,
+      maxRedemptions: row.max_redemptions,
+      redemptionsCount: row.redemptions_count,
+      expiresAt: row.expires_at,
+      isActive: Boolean(row.is_active),
+    },
+    discountMinorUnits,
+  };
+}
+
+export function redeemCouponAtomic(
+  couponId: string,
+  accountId: string,
+  orderId: string,
+  db: Database.Database = getDatabase()
+): void {
+  runInTransaction((trx) => {
+    const updated = trx.prepare(`
+      UPDATE coupon_rules
+      SET redemptions_count = redemptions_count + 1
+      WHERE id = ? AND redemptions_count < max_redemptions AND is_active = 1
+    `).run(couponId);
+
+    if (updated.changes === 0) {
+      throw new Error('Coupon cannot be redeemed (limit reached or inactive).');
+    }
+
+    trx.prepare(`
+      INSERT INTO coupon_redemptions (id, coupon_id, account_id, order_id)
+      VALUES (?, ?, ?, ?)
+    `).run(generateId('cpr'), couponId, accountId, orderId);
+  }, db);
+}
+
+export function listCoupons(db: Database.Database = getDatabase()): CouponRule[] {
+  const rows = db.prepare('SELECT * FROM coupon_rules ORDER BY expires_at ASC, code ASC').all() as Array<{
+    id: string;
+    code: string;
+    discount_type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+    discount_value: number;
+    max_redemptions: number;
+    redemptions_count: number;
+    expires_at: string;
+    is_active: number;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    discountType: r.discount_type,
+    discountValue: r.discount_value,
+    maxRedemptions: r.max_redemptions,
+    redemptionsCount: r.redemptions_count,
+    expiresAt: r.expires_at,
+    isActive: Boolean(r.is_active),
+  }));
+}
+
+export function createProduct(
+  data: { categoryId: string; slug: string; name: string; providerType: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS'; isPublished?: boolean },
+  db: Database.Database = getDatabase()
+): { id: string } {
+  const id = generateId('prd');
+  db.prepare(`
+    INSERT INTO products (id, category_id, slug, name, provider_type, is_published)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, data.categoryId, data.slug, data.name, data.providerType, data.isPublished ? 1 : 0);
+  return { id };
+}
+
+export function updateProductPublishStatus(
+  productId: string,
+  isPublished: boolean,
+  db: Database.Database = getDatabase()
+): void {
+  db.prepare('UPDATE products SET is_published = ? WHERE id = ?').run(isPublished ? 1 : 0, productId);
+}
+
+export function createPlanVersion(
+  data: { productId: string; name: string; resourceSpecs: PlanResourceSpec; prices: PlanPrice[] },
+  db: Database.Database = getDatabase()
+): { planVersionId: string; version: number } {
+  return runInTransaction((trx) => {
+    const maxVersionRow = trx.prepare('SELECT max(version) as max_v FROM plan_versions WHERE product_id = ?').get(data.productId) as { max_v: number | null };
+    const nextVersion = (maxVersionRow?.max_v ?? 0) + 1;
+    const planVersionId = generateId('plv');
+
+    trx.prepare(`
+      INSERT INTO plan_versions (id, product_id, version, name, resource_specs, status)
+      VALUES (?, ?, ?, ?, ?, 'ACTIVE')
+    `).run(planVersionId, data.productId, nextVersion, data.name, JSON.stringify(data.resourceSpecs));
+
+    for (const prc of data.prices) {
+      trx.prepare(`
+        INSERT INTO plan_prices (id, plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(generateId('prc'), planVersionId, prc.currency, prc.interval, prc.priceMinorUnits, prc.setupFeeMinorUnits ?? 0);
+    }
+
+    return { planVersionId, version: nextVersion };
+  }, db);
+}
+
+export function updatePlanStatus(
+  planVersionId: string,
+  status: 'DRAFT' | 'ACTIVE' | 'RETIRED',
+  db: Database.Database = getDatabase()
+): void {
+  db.prepare('UPDATE plan_versions SET status = ? WHERE id = ?').run(status, planVersionId);
 }

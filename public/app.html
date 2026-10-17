@@ -860,10 +860,19 @@ button.li{width:100%;border:0;background:none;text-align:left}
                 <span class="muted">Billing Term</span>
                 <b>Monthly (Recurring)</b>
               </div>
+              <div id="rowDiscount" style="display:none;justify-content:space-between;color:var(--emerald)">
+                <span>Discount (<span id="sumCouponCode"></span>)</span>
+                <b id="sumDiscount">-€0.00</b>
+              </div>
               <div style="display:flex;justify-content:space-between">
                 <span class="muted">VAT (19%)</span>
                 <b id="sumVat">—</b>
               </div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-bottom:16px">
+              <input type="text" id="couponInput" class="inp" placeholder="Coupon / Promo code" style="padding:8px 12px;font-size:13px;text-transform:uppercase;flex:1">
+              <button type="button" id="applyCouponBtn" class="btn sec s" style="font-size:12px;white-space:nowrap">Apply</button>
             </div>
 
             <div style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 0">

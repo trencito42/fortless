@@ -7,6 +7,9 @@ import { generateId } from '../identity/auth.js';
 export interface QuoteRequestItem {
   planVersionId: string;
   quantity: number;
+  interval?: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
+  regionId?: string;
+  customOptions?: Record<string, unknown>;
 }
 
 export interface TaxEvidence {
@@ -22,12 +25,16 @@ export interface QuoteSnapshot {
   accountId: string;
   currency: string;
   subtotalMinorUnits: number;
+  discountMinorUnits?: number;
+  couponCode?: string;
   taxMinorUnits: number;
   totalMinorUnits: number;
   taxEvidence: TaxEvidence;
   lines: {
     planVersionId: string;
     quantity: number;
+    interval?: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
+    regionId?: string;
     unitPriceMinorUnits: number;
     totalMinorUnits: number;
   }[];
@@ -82,6 +89,8 @@ export function signQuoteData(data: Omit<QuoteSnapshot, 'signature'>): string {
     id: data.id,
     accountId: data.accountId,
     subtotal: data.subtotalMinorUnits,
+    discount: data.discountMinorUnits ?? 0,
+    coupon: data.couponCode ?? null,
     tax: data.taxMinorUnits,
     total: data.totalMinorUnits,
     validUntil: data.validUntil,
@@ -95,8 +104,21 @@ export function createQuote(
   billingCountry: string,
   isB2B = false,
   taxId?: string,
-  db: Database.Database = getDatabase()
+  couponCodeOrDb?: string | Database.Database,
+  explicitDb?: Database.Database
 ): QuoteSnapshot {
+  let couponCode: string | undefined = undefined;
+  let db: Database.Database;
+
+  if (typeof couponCodeOrDb === 'string') {
+    couponCode = couponCodeOrDb;
+    db = explicitDb ?? getDatabase();
+  } else if (couponCodeOrDb && typeof couponCodeOrDb === 'object') {
+    db = couponCodeOrDb;
+  } else {
+    db = explicitDb ?? getDatabase();
+  }
+
   if (!items || items.length === 0) {
     throw new Error('Quote must contain at least one item.');
   }
@@ -105,19 +127,23 @@ export function createQuote(
   const lines: QuoteSnapshot['lines'] = [];
 
   for (const item of items) {
-    if (item.quantity <= 0) {
-      throw new Error('Item quantity must be greater than zero.');
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      throw new Error('Item quantity must be a positive integer.');
+    }
+    if (item.quantity > 50) {
+      throw new Error('Maximum quantity per order item is 50.');
     }
 
+    const interval = item.interval ?? 'MONTHLY';
     const priceRow = db.prepare(`
       SELECT pp.price_minor_units
       FROM plan_prices pp
       JOIN plan_versions pv ON pv.id = pp.plan_version_id
-      WHERE pp.plan_version_id = ? AND pp.currency = 'EUR' AND pp.interval = 'MONTHLY' AND pv.status = 'ACTIVE'
-    `).get(item.planVersionId) as { price_minor_units: number } | undefined;
+      WHERE pp.plan_version_id = ? AND pp.currency = 'EUR' AND pp.interval = ? AND pv.status = 'ACTIVE'
+    `).get(item.planVersionId, interval) as { price_minor_units: number } | undefined;
 
     if (!priceRow) {
-      throw new Error(`Plan version ${item.planVersionId} is not available for purchase.`);
+      throw new Error(`Plan version ${item.planVersionId} is not available for purchase on interval ${interval}.`);
     }
 
     const lineTotal = priceRow.price_minor_units * item.quantity;
@@ -126,23 +152,76 @@ export function createQuote(
     lines.push({
       planVersionId: item.planVersionId,
       quantity: item.quantity,
+      interval,
+      regionId: item.regionId,
       unitPriceMinorUnits: priceRow.price_minor_units,
       totalMinorUnits: lineTotal,
     });
   }
 
+  let discountMinorUnits = 0;
+  let validatedCouponCode: string | undefined = undefined;
+
+  if (couponCode && couponCode.trim()) {
+    const couponRow = db.prepare(`
+      SELECT id, code, discount_type, discount_value, max_redemptions, redemptions_count, expires_at, is_active
+      FROM coupon_rules
+      WHERE code = ?
+    `).get(couponCode.trim().toUpperCase()) as {
+      id: string;
+      code: string;
+      discount_type: 'PERCENTAGE' | 'FIXED_AMOUNT';
+      discount_value: number;
+      max_redemptions: number;
+      redemptions_count: number;
+      expires_at: string;
+      is_active: number;
+    } | undefined;
+
+    if (!couponRow || !couponRow.is_active) {
+      throw new Error('Invalid or inactive coupon code.');
+    }
+    if (new Date(couponRow.expires_at).getTime() < Date.now()) {
+      throw new Error('This coupon has expired.');
+    }
+    const prior = db.prepare('SELECT id FROM coupon_redemptions WHERE coupon_id = ? AND account_id = ?').get(couponRow.id, accountId);
+    if (prior) {
+      throw new Error('This coupon has already been redeemed by your workspace.');
+    }
+
+    if (couponRow.redemptions_count >= couponRow.max_redemptions) {
+      throw new Error('Coupon usage limit reached.');
+    }
+
+    if (couponRow.discount_type === 'PERCENTAGE') {
+      discountMinorUnits = Math.round((subtotal * couponRow.discount_value) / 100);
+    } else {
+      discountMinorUnits = Math.min(subtotal, couponRow.discount_value);
+    }
+    validatedCouponCode = couponRow.code;
+  }
+
+  const taxableAmount = Math.max(0, subtotal - discountMinorUnits);
   const taxEvidence = resolveTaxRate(billingCountry, isB2B, taxId);
-  const taxAmount = computeTaxMinorUnits(subtotal, taxEvidence.taxRateBasisPoints);
-  const totalAmount = subtotal + taxAmount;
+  const taxAmount = computeTaxMinorUnits(taxableAmount, taxEvidence.taxRateBasisPoints);
+  const totalAmount = taxableAmount + taxAmount;
 
   const quoteId = generateId('quo');
   const validUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15-minute TTL
+
+  const snapshotMeta = {
+    taxEvidence,
+    discountMinorUnits,
+    couponCode: validatedCouponCode,
+  };
 
   const quoteData: Omit<QuoteSnapshot, 'signature'> = {
     id: quoteId,
     accountId,
     currency: 'EUR',
     subtotalMinorUnits: subtotal,
+    discountMinorUnits,
+    couponCode: validatedCouponCode,
     taxMinorUnits: taxAmount,
     totalMinorUnits: totalAmount,
     taxEvidence,
@@ -156,7 +235,7 @@ export function createQuote(
   db.prepare(`
     INSERT INTO quotes (id, account_id, currency, subtotal_minor_units, tax_minor_units, total_minor_units, tax_calculation_snapshot, valid_until, status)
     VALUES (?, ?, 'EUR', ?, ?, ?, ?, ?, 'OPEN')
-  `).run(quoteId, accountId, subtotal, taxAmount, totalAmount, JSON.stringify(taxEvidence), validUntil);
+  `).run(quoteId, accountId, subtotal, taxAmount, totalAmount, JSON.stringify(snapshotMeta), validUntil);
 
   for (const line of lines) {
     db.prepare(`
@@ -201,14 +280,21 @@ export function verifyQuote(quoteId: string, accountId: string, db: Database.Dat
     total_minor_units: number;
   })[];
 
+  const rawMeta = JSON.parse(quoteRow.tax_calculation_snapshot) as Record<string, unknown>;
+  const taxEvidence = (rawMeta.taxEvidence ?? rawMeta) as TaxEvidence;
+  const discountMinorUnits = typeof rawMeta.discountMinorUnits === 'number' ? rawMeta.discountMinorUnits : 0;
+  const couponCode = typeof rawMeta.couponCode === 'string' ? rawMeta.couponCode : undefined;
+
   const quoteData: Omit<QuoteSnapshot, 'signature'> = {
     id: quoteRow.id,
     accountId: quoteRow.account_id,
     currency: quoteRow.currency,
     subtotalMinorUnits: quoteRow.subtotal_minor_units,
+    discountMinorUnits,
+    couponCode,
     taxMinorUnits: quoteRow.tax_minor_units,
     totalMinorUnits: quoteRow.total_minor_units,
-    taxEvidence: JSON.parse(quoteRow.tax_calculation_snapshot) as TaxEvidence,
+    taxEvidence,
     lines: lines.map((l) => ({
       planVersionId: l.plan_version_id,
       quantity: l.quantity,

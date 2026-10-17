@@ -11,15 +11,17 @@ export type StaffPermission =
   | 'tickets:manage'
   | 'audit:read'
   | 'staff:read'
-  | 'staff:manage';
+  | 'staff:manage'
+  | 'catalog:read'
+  | 'catalog:manage';
 
 const rolePermissions: Record<StaffRole, readonly StaffPermission[]> = {
-  OWNER: ['admin:access', 'accounts:read', 'accounts:manage', 'services:read', 'tickets:read', 'tickets:manage', 'audit:read', 'staff:read', 'staff:manage'],
-  ADMINISTRATOR: ['admin:access', 'accounts:read', 'accounts:manage', 'services:read', 'tickets:read', 'tickets:manage', 'audit:read', 'staff:read'],
-  BILLING: ['admin:access', 'accounts:read'],
-  SUPPORT: ['admin:access', 'accounts:read', 'services:read', 'tickets:read', 'tickets:manage'],
-  INFRASTRUCTURE: ['admin:access', 'accounts:read', 'services:read', 'audit:read'],
-  AUDITOR: ['admin:access', 'accounts:read', 'services:read', 'tickets:read', 'audit:read', 'staff:read'],
+  OWNER: ['admin:access', 'accounts:read', 'accounts:manage', 'services:read', 'tickets:read', 'tickets:manage', 'audit:read', 'staff:read', 'staff:manage', 'catalog:read', 'catalog:manage'],
+  ADMINISTRATOR: ['admin:access', 'accounts:read', 'accounts:manage', 'services:read', 'tickets:read', 'tickets:manage', 'audit:read', 'staff:read', 'catalog:read', 'catalog:manage'],
+  BILLING: ['admin:access', 'accounts:read', 'catalog:read'],
+  SUPPORT: ['admin:access', 'accounts:read', 'services:read', 'tickets:read', 'tickets:manage', 'catalog:read'],
+  INFRASTRUCTURE: ['admin:access', 'accounts:read', 'services:read', 'audit:read', 'catalog:read', 'catalog:manage'],
+  AUDITOR: ['admin:access', 'accounts:read', 'services:read', 'tickets:read', 'audit:read', 'staff:read', 'catalog:read'],
 };
 
 export interface StaffAccess {

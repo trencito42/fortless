@@ -39,7 +39,20 @@ import {
   revokeAccountMember,
   acceptAccountInvitation,
 } from './modules/identity/teams.js';
-import { getPublishedPlans } from './modules/catalog/catalog.js';
+import {
+  getPublishedPlans,
+  listCategories,
+  listProducts,
+  getProductDetail,
+  listRegionsWithCapacity,
+  validateCoupon,
+  createCoupon,
+  listCoupons,
+  createProduct,
+  updateProductPublishStatus,
+  createPlanVersion,
+  updatePlanStatus,
+} from './modules/catalog/catalog.js';
 import { createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
 import { verifyStripeSignature, ingestPSPWebhook } from './modules/payments/webhooks.js';
@@ -667,10 +680,53 @@ export function buildServer(): FastifyInstance {
     };
   });
 
+  // Catalog: Categories
+  app.get('/api/v1/catalog/categories', async () => {
+    const categories = listCategories();
+    return { categories };
+  });
+
+  // Catalog: Products
+  app.get('/api/v1/catalog/products', async (req) => {
+    const query = req.query as { category?: string } | undefined;
+    const products = listProducts({ categorySlug: query?.category });
+    return { products };
+  });
+
+  // Catalog: Product Detail
+  app.get('/api/v1/catalog/products/:slug', async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    const product = getProductDetail(slug);
+    if (!product) {
+      return reply.status(404).send({ error: 'Product not found.' });
+    }
+    return { product };
+  });
+
   // Catalog: Published Plans
   app.get('/api/v1/catalog/plans', async () => {
     const plans = getPublishedPlans();
     return { plans };
+  });
+
+  // Catalog: Regions with Live Capacity
+  app.get('/api/v1/catalog/regions', async () => {
+    const regions = listRegionsWithCapacity();
+    return { regions };
+  });
+
+  // Catalog: Validate Coupon
+  app.post('/api/v1/catalog/validate-coupon', { preHandler: [requireAuth] }, async (req, reply) => {
+    const body = req.body as { code?: string; subtotalMinorUnits?: number } | undefined;
+    if (!body?.code) {
+      return reply.status(400).send({ error: 'Missing coupon code.' });
+    }
+    try {
+      const result = validateCoupon(body.code, req.auth!.account.id, body.subtotalMinorUnits ?? 0);
+      return reply.send(result);
+    } catch (err: unknown) {
+      return reply.status(422).send({ error: (err as Error).message });
+    }
   });
 
   // Pricing: Generate Quote
@@ -679,11 +735,15 @@ export function buildServer(): FastifyInstance {
       z.object({
         planVersionId: z.string(),
         quantity: z.number().int().positive().default(1),
+        interval: z.enum(['MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL']).optional(),
+        regionId: z.string().optional(),
+        customOptions: z.record(z.string(), z.unknown()).optional(),
       })
     ),
     billingCountry: z.string().length(2).default('DE'),
     isB2B: z.boolean().default(false),
     taxId: z.string().optional(),
+    couponCode: z.string().optional(),
   });
 
   app.post('/api/v1/quotes', { preHandler: [requireAuth] }, async (req, reply) => {
@@ -698,9 +758,111 @@ export function buildServer(): FastifyInstance {
         parse.data.items,
         parse.data.billingCountry,
         parse.data.isB2B,
-        parse.data.taxId
+        parse.data.taxId,
+        parse.data.couponCode
       );
       return reply.status(201).send(quote);
+    } catch (err: unknown) {
+      return reply.status(422).send({ error: (err as Error).message });
+    }
+  });
+
+  // Admin Catalog: List Products
+  app.get('/api/v1/admin/catalog/products', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => {
+    const products = listProducts({ includeUnpublished: true });
+    return { products };
+  });
+
+  // Admin Catalog: Create Product
+  const createProductSchema = z.object({
+    categoryId: z.string(),
+    slug: z.string().min(2).max(64),
+    name: z.string().min(2).max(100),
+    providerType: z.enum(['PTERODACTYL', 'CPANEL', 'REGISTRAR', 'VPS']),
+    isPublished: z.boolean().default(false),
+  });
+
+  app.post('/api/v1/admin/catalog/products', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+    const parse = createProductSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    const result = createProduct(parse.data);
+    return reply.status(201).send(result);
+  });
+
+  // Admin Catalog: Toggle Publish
+  app.patch('/api/v1/admin/catalog/products/:id/publish', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as { isPublished?: boolean } | undefined;
+    updateProductPublishStatus(id, Boolean(body?.isPublished));
+    return reply.send({ success: true, productId: id, isPublished: Boolean(body?.isPublished) });
+  });
+
+  // Admin Catalog: Create Plan Version
+  const createPlanSchema = z.object({
+    productId: z.string(),
+    name: z.string().min(2).max(100),
+    resourceSpecs: z.object({
+      memoryMb: z.number().int().positive(),
+      cpuPct: z.number().int().positive(),
+      diskMb: z.number().int().positive(),
+      databases: z.number().int().nonnegative().default(0),
+      backups: z.number().int().nonnegative().default(0),
+      eggId: z.number().int().optional(),
+    }),
+    prices: z.array(
+      z.object({
+        currency: z.string().default('EUR'),
+        interval: z.enum(['MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL']),
+        priceMinorUnits: z.number().int().nonnegative(),
+        setupFeeMinorUnits: z.number().int().nonnegative().default(0),
+      })
+    ).min(1),
+  });
+
+  app.post('/api/v1/admin/catalog/plans', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+    const parse = createPlanSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    const result = createPlanVersion(parse.data);
+    return reply.status(201).send(result);
+  });
+
+  // Admin Catalog: Update Plan Status
+  app.patch('/api/v1/admin/catalog/plans/:id/status', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as { status?: 'DRAFT' | 'ACTIVE' | 'RETIRED' } | undefined;
+    if (!body?.status || !['DRAFT', 'ACTIVE', 'RETIRED'].includes(body.status)) {
+      return reply.status(400).send({ error: 'Valid status (DRAFT, ACTIVE, RETIRED) is required.' });
+    }
+    updatePlanStatus(id, body.status);
+    return reply.send({ success: true, planVersionId: id, status: body.status });
+  });
+
+  // Admin Catalog: Coupons
+  app.get('/api/v1/admin/catalog/coupons', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => {
+    const coupons = listCoupons();
+    return { coupons };
+  });
+
+  const createCouponSchema = z.object({
+    code: z.string().min(3).max(32),
+    discountType: z.enum(['PERCENTAGE', 'FIXED_AMOUNT']),
+    discountValue: z.number().int().positive(),
+    maxRedemptions: z.number().int().positive(),
+    expiresAt: z.string(),
+  });
+
+  app.post('/api/v1/admin/catalog/coupons', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+    const parse = createCouponSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    try {
+      const coupon = createCoupon(parse.data);
+      return reply.status(201).send(coupon);
     } catch (err: unknown) {
       return reply.status(422).send({ error: (err as Error).message });
     }
