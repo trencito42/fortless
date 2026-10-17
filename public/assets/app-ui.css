@@ -36,6 +36,7 @@
 .service-row .title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .service-row .meta{margin-top:4px;color:var(--ink2);font-size:12.5px}
 .service-row .actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.service-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px}.service-toolbar>.inp:first-child{width:min(320px,100%)}.service-toolbar>.inp.sel{min-width:180px}.service-toolbar>#serviceResultCount{margin-left:auto}
 .endpoint{max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:7px 10px;border-radius:10px;background:var(--s1);font:600 12px/1 var(--mono)}
 .deploy-layout{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(280px,.8fr);gap:18px;align-items:start}
 .region-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -117,6 +118,7 @@
   .mfa-actions{flex-direction:column-reverse}.mfa-actions .btn{width:100%;min-height:44px}
   .mfa-app-link{align-self:stretch;min-height:44px}.z-bc{grid-template-columns:1fr}
   .service-row .actions{width:100%;justify-content:flex-start}
+  .service-toolbar{align-items:stretch}.service-toolbar>.inp:first-child,.service-toolbar>.inp.sel,.service-toolbar>.seg{width:100%}.service-toolbar>#serviceResultCount{margin-left:0}.service-toolbar>.seg span{justify-content:center}
   .z-ssr>button{width:calc(100% - 58px);margin-left:58px;min-height:42px}
   .kv{grid-template-columns:1fr;gap:3px}
   .kv dd{text-align:left;margin-bottom:10px;overflow-wrap:anywhere}

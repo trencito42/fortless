@@ -24,7 +24,10 @@
 ## M4 — Services (in progress)
 
 - Inventory moved to `/app/services`; existing scoped detail route retained.
-- Pending: search/filter/list-grid controls and capability-based detail tabs.
+- Added real client-side name/identifier, product and observed-runtime filters with Petal controls.
+- Removed the non-operational fake console and utilization-like allocation bars.
+- Provider power actions are absent when the platform capability is unavailable; allocation labels explicitly distinguish limits from utilization.
+- Pending: list/grid preference and deeper provider-specific detail surfaces after verified capability APIs exist.
 
 ## M5 — Support (implemented, visual review pending)
 

@@ -14,12 +14,13 @@ The canonical source is `blueprint/fortless-blueprint/design/`. `out.html`, `pan
 | Rich text editor | `out.html` `rte()` and `.rte/.rtb/.rta` | ticket create/reply | Original markup/CSS/command behavior adapted to safe Markdown output |
 | Drop upload | `out.html` `.drop`; `z4.js` CSV drop behavior | ticket create/reply | Original control adapted to validated attachment API |
 | Segmented controls | `out.html`/Petal core | ticket priority and status filters | Reused |
+| Custom select enhancement | `panel.html`/`out.html` `enhanceSelects()` | service/product filters and existing forms | Original behavior adapted for dynamic options and teardown-safe mounting |
 | Invoice summary/table | `z5.js` Invoices, `z5.css` | `/app/billing`, dashboard | Adapted to exact currency/minor-unit data |
 | Filterable audit log | `z5.js`/`z5.css` | `/app/activity` | Existing real-data adaptation retained |
 | Multi-step wizard | `z4.js`/`z4.css` | `/app/deploy` | Planned M6; server quote remains authoritative |
 | Two-factor QR flow | `z5.js` Two-factor setup | `/app/settings` | Existing three-step real TOTP flow retained |
 | Active sessions | `z5.js` Active sessions | `/app/settings` | Existing real session API integration retained |
-| Data tables/filters | `out.html`, `z4.js`, `z5.js` | services, domains, billing | Partially adapted; remaining responsive density work in M4/M6 |
+| Data tables/filters | `out.html`, `z4.js`, `z5.js` | services, domains, billing | Services search/product/runtime filters implemented; remaining domains/billing density work in M6 |
 | Skeleton/error boundary | `z6.js` Utilities pro | route loading/error states | Selected patterns pending lifecycle adapter |
 | Charts/gauges/live widgets | `z5.js` | none by default | Intentionally unused: no trustworthy historical utilization source |
 | API keys | `z5.js` | none | Intentionally unused: customer API key lifecycle is not implemented |

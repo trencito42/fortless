@@ -6,3 +6,4 @@ export * from './components/modals.js';
 export * from './components/empty-state.js';
 export * from './components/cmd.js';
 export * from './components/rich-text-editor.js';
+export * from './components/custom-select.js';

@@ -11,7 +11,7 @@ import { AppShell } from './shell/app-shell.js';
 
 // Feature Pages
 import { renderHome } from './pages/home/index.js';
-import { renderServices, powerService } from './pages/dashboard/index.js';
+import { renderServices, powerService, filterServices } from './pages/dashboard/index.js';
 import { renderServiceDetail } from './pages/services/index.js';
 import { renderDeploy, deployState, updateSummary, beginCheckout } from './pages/deploy/index.js';
 import { renderDomains } from './pages/domains/index.js';
@@ -41,7 +41,7 @@ import {
   loadTeamMembers,
   restoreMfaScanStep,
 } from './pages/settings/index.js';
-import { installRichTextEditors } from '../petal/index.js';
+import { installCustomSelects, installRichTextEditors } from '../petal/index.js';
 
 const appShell = new AppShell();
 
@@ -445,6 +445,10 @@ function bindDelegatedEvents() {
       filterTickets();
       return;
     }
+    if (target.id === 'serviceSearch') {
+      filterServices();
+      return;
+    }
     if (target.id === 'newTicketFileInput' || target.id === 'ticketReplyFileInput') {
       updateFileLabel(target);
       return;
@@ -474,6 +478,7 @@ function bindDelegatedEvents() {
     const target = event.target as HTMLInputElement;
     if (target.id === 'newTicketFileInput' || target.id === 'ticketReplyFileInput') updateFileLabel(target);
     if (target.name === 'ticketStatus') filterTickets();
+    if (target.name === 'serviceState' || target.id === 'serviceTypeFilter') filterServices();
   });
 }
 
@@ -481,6 +486,7 @@ function bindDelegatedEvents() {
 async function init() {
   appShell.init();
   installRichTextEditors(document);
+  installCustomSelects(document);
   bindDelegatedEvents();
 
   // Support legacy hash-based route migration

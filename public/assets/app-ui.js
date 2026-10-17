@@ -720,6 +720,83 @@ ${node.textContent || ""}
     };
   }
 
+  // src/frontend/petal/components/custom-select.ts
+  function closeSelects(except) {
+    document.querySelectorAll(".inp.sel .dd").forEach((drop) => {
+      if (drop !== except) drop.hidden = true;
+    });
+    document.querySelectorAll(".inp.sel .selbtn").forEach((button) => {
+      if (!except || button.parentElement?.querySelector(".dd") !== except) button.setAttribute("aria-expanded", "false");
+    });
+  }
+  function enhance(select) {
+    if (select.__petalEnhanced) return;
+    select.__petalEnhanced = true;
+    const wrapper = select.parentElement;
+    if (!wrapper) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "selbtn";
+    button.setAttribute("aria-haspopup", "listbox");
+    button.setAttribute("aria-expanded", "false");
+    const drop = document.createElement("div");
+    drop.className = "dd";
+    drop.hidden = true;
+    wrapper.append(button, drop);
+    const draw = () => {
+      button.textContent = select.options[select.selectedIndex]?.text || "";
+      button.disabled = select.disabled;
+      drop.innerHTML = `<div class="menu" role="listbox">${Array.from(select.options).map((option, index) => `<button type="button" role="option" data-petal-option="${index}" aria-selected="${option.selected}">${esc(option.text)}<svg class="ic s ck" aria-hidden="true"><use href="#i-tick-02"/></svg></button>`).join("")}</div>`;
+    };
+    draw();
+    select.__petalObserver = new MutationObserver(draw);
+    select.__petalObserver.observe(select, { childList: true, subtree: true, attributes: true });
+    button.addEventListener("click", () => {
+      const opening = drop.hidden;
+      closeSelects(drop);
+      drop.hidden = !opening;
+      button.setAttribute("aria-expanded", String(opening));
+      if (opening) drop.querySelector('[aria-selected="true"]')?.focus();
+    });
+    drop.addEventListener("click", (event) => {
+      const option = event.target.closest("[data-petal-option]");
+      if (!option) return;
+      select.selectedIndex = Number(option.dataset.petalOption);
+      draw();
+      closeSelects();
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      button.focus();
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        select.selectedIndex = Math.max(0, Math.min(select.options.length - 1, select.selectedIndex + delta));
+        draw();
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+  }
+  function installCustomSelects(root = document) {
+    const scan = () => root.querySelectorAll(".inp.sel select").forEach(enhance);
+    scan();
+    const observer = new MutationObserver(scan);
+    observer.observe(document.body, { childList: true, subtree: true });
+    const outside = (event) => {
+      if (!event.target.closest(".inp.sel")) closeSelects();
+    };
+    const keydown = (event) => {
+      if (event.key === "Escape") closeSelects();
+    };
+    document.addEventListener("click", outside);
+    document.addEventListener("keydown", keydown);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("click", outside);
+      document.removeEventListener("keydown", keydown);
+    };
+  }
+
   // src/frontend/core/utils/dates.ts
   function formatDate(value) {
     if (!value) return "\u2014";
@@ -1139,12 +1216,48 @@ ${node.textContent || ""}
   }
 
   // src/frontend/client/pages/dashboard/index.ts
+  var serviceInventory = [];
+  function renderServiceInventory() {
+    const host = document.getElementById("serversContainer");
+    if (!host) return;
+    const query = document.getElementById("serviceSearch")?.value.trim().toLowerCase() || "";
+    const type = document.getElementById("serviceTypeFilter")?.value || "ALL";
+    const state = document.querySelector('input[name="serviceState"]:checked')?.value || "ALL";
+    const filtered = serviceInventory.filter((service) => {
+      const runtime = service.runtime_state || "UNKNOWN";
+      const matchesQuery = !query || [service.plan_name, service.identifier, service.id, service.node_name].some((value) => String(value || "").toLowerCase().includes(query));
+      const matchesType = type === "ALL" || service.plan_name === type;
+      const matchesState = state === "ALL" || (state === "RUNNING" ? runtime === "RUNNING" : runtime !== "RUNNING");
+      return matchesQuery && matchesType && matchesState;
+    });
+    const count = document.getElementById("serviceResultCount");
+    if (count) count.textContent = `${filtered.length} of ${serviceInventory.length} services`;
+    if (!filtered.length) {
+      host.innerHTML = renderEmptyState({ icon: "search", title: serviceInventory.length ? "No matching services" : "No services yet", message: serviceInventory.length ? "Try a different name, product or runtime filter." : "Ordering stays unavailable until payment and infrastructure providers are configured and verified.", actionHtml: serviceInventory.length ? "" : `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>` });
+      return;
+    }
+    const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
+    host.innerHTML = `<div class="col" style="gap:8px">${filtered.map((service) => {
+      const runtime = service.runtime_state || "UNKNOWN";
+      const runningNow = runtime === "RUNNING";
+      const badge = runningNow ? "good" : runtime === "INSTALLING" ? "warn" : runtime === "ERROR" ? "bad" : "info";
+      const endpoint = service.identifier ? `Provider ID \xB7 ${service.identifier}` : "Provisioning record";
+      return `<article class="li card s2 service-row">
+      <span class="ico-b ${badge}">${hero("servers")}</span><div class="tx"><div class="title-row"><b>${esc(service.plan_name || "Hosting service")}</b><span class="badge ${badge} s">${esc(runtime)}</span><span class="badge s">${esc(service.contract_status)}</span></div><div class="meta">${esc(service.node_name || service.node_id)} \xB7 ${Number(service.memory_limit_mb || 0) / 1024} GB RAM \xB7 ${esc(service.cpu_limit_pct || 0)}% CPU \xB7 ${Number(service.disk_limit_mb || 0) / 1024} GB disk</div></div>
+      <code class="endpoint">${esc(endpoint)}</code><div class="actions">${providerReady ? `<button class="btn s sec" data-power="RESTART" data-service="${esc(service.id)}" ${runningNow ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn s badt" data-power="STOP" data-service="${esc(service.id)}" ${runningNow ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn s goodt" data-power="START" data-service="${esc(service.id)}" ${runningNow ? "disabled" : ""}>${hero("play", "xs")}Start</button>` : `<span class="badge warn s">Provider controls unavailable</span>`}<a href="/app/services/${esc(service.id)}" class="btn s tint" data-app-route="service-detail">${hero("chevron", "xs")}Manage</a></div>
+    </article>`;
+    }).join("")}</div>`;
+  }
+  function filterServices() {
+    renderServiceInventory();
+  }
   async function renderServices() {
     const host = document.getElementById("serversContainer");
     if (!host) return;
     host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading services\u2026</span></div>`;
     try {
       const { services } = await api("/api/v1/services");
+      serviceInventory = services;
       const running = services.filter((s) => s.runtime_state === "RUNNING").length;
       const memory = services.reduce((sum, s) => sum + Number(s.memory_limit_mb || 0), 0);
       const cpu = services.reduce((sum, s) => sum + Number(s.cpu_limit_pct || 0), 0);
@@ -1156,55 +1269,9 @@ ${node.textContent || ""}
       if (statTotal) statTotal.textContent = String(services.length);
       if (statRam) statRam.textContent = `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`;
       if (statCpu) statCpu.textContent = `${cpu}%`;
-      if (!services.length) {
-        host.innerHTML = renderEmptyState({
-          icon: "servers",
-          title: "No services yet",
-          message: "Ordering stays unavailable until payment and infrastructure providers are configured and verified.",
-          actionHtml: `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>`
-        });
-        return;
-      }
-      host.innerHTML = `
-      <div class="col" style="gap:8px">
-        ${services.map((service) => {
-        const runtime = service.runtime_state || "UNKNOWN";
-        const runningNow = runtime === "RUNNING";
-        const badge = runningNow ? "good" : runtime === "INSTALLING" ? "warn" : runtime === "ERROR" ? "bad" : "info";
-        const endpoint = service.identifier ? `Provider ID \xB7 ${service.identifier}` : "Provisioning record";
-        return `
-              <article class="li card s2 service-row">
-                <span class="ico-b ${badge}">${hero("servers")}</span>
-                <div class="tx">
-                  <div class="title-row">
-                    <b>${esc(service.plan_name || "Hosting service")}</b>
-                    <span class="badge ${badge} s">${esc(runtime)}</span>
-                    <span class="badge s">${esc(service.contract_status)}</span>
-                  </div>
-                  <div class="meta">
-                    ${esc(service.node_name || service.node_id)} \xB7 ${Number(service.memory_limit_mb || 0) / 1024} GB RAM \xB7 ${esc(service.cpu_limit_pct || 0)}% CPU \xB7 ${Number(service.disk_limit_mb || 0) / 1024} GB disk
-                  </div>
-                </div>
-                <code class="endpoint">${esc(endpoint)}</code>
-                <div class="actions">
-                  <button class="btn s sec" data-power="RESTART" data-service="${esc(service.id)}" ${runningNow ? "" : "disabled"}>
-                    ${hero("refresh", "xs")}Restart
-                  </button>
-                  <button class="btn s badt" data-power="STOP" data-service="${esc(service.id)}" ${runningNow ? "" : "disabled"}>
-                    ${hero("stop", "xs")}Stop
-                  </button>
-                  <button class="btn s goodt" data-power="START" data-service="${esc(service.id)}" ${runningNow ? "disabled" : ""}>
-                    ${hero("play", "xs")}Start
-                  </button>
-                  <a href="/app/services/${esc(service.id)}" class="btn s tint" data-app-route="service-detail" data-service-id="${esc(service.id)}">
-                    ${hero("chevron", "xs")}Manage
-                  </a>
-                </div>
-              </article>
-            `;
-      }).join("")}
-      </div>
-    `;
+      const typeFilter = document.getElementById("serviceTypeFilter");
+      if (typeFilter) typeFilter.innerHTML = `<option value="ALL">All products</option>${Array.from(new Set(services.map((item) => String(item.plan_name || "Hosting service")))).sort().map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join("")}`;
+      renderServiceInventory();
     } catch (error) {
       host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
     }
@@ -1249,18 +1316,23 @@ ${node.textContent || ""}
         contractBadge.className = `badge s ${service.contractStatus === "ACTIVE" ? "good" : "warn"}`;
       }
       const runningNow = runtime === "RUNNING";
+      const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
+      const powerActions = document.getElementById("detailPowerActions");
+      if (powerActions && !providerReady) {
+        powerActions.innerHTML = '<span class="badge warn">Provider controls unavailable</span>';
+      }
       const restartBtn = document.getElementById("detailRestartBtn");
       const stopBtn = document.getElementById("detailStopBtn");
       const startBtn = document.getElementById("detailStartBtn");
-      if (restartBtn) {
+      if (restartBtn && providerReady) {
         restartBtn.disabled = !runningNow;
         restartBtn.onclick = () => powerService(service.id, "RESTART", restartBtn);
       }
-      if (stopBtn) {
+      if (stopBtn && providerReady) {
         stopBtn.disabled = !runningNow;
         stopBtn.onclick = () => powerService(service.id, "STOP", stopBtn);
       }
-      if (startBtn) {
+      if (startBtn && providerReady) {
         startBtn.disabled = runningNow;
         startBtn.onclick = () => powerService(service.id, "START", startBtn);
       }
@@ -1288,17 +1360,11 @@ ${node.textContent || ""}
       const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
       const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
       const gaugeRamVal = document.getElementById("gaugeRamValue");
-      const gaugeRamBar = document.getElementById("gaugeRamBar");
       const gaugeCpuVal = document.getElementById("gaugeCpuValue");
-      const gaugeCpuBar = document.getElementById("gaugeCpuBar");
       const gaugeDiskVal = document.getElementById("gaugeDiskValue");
-      const gaugeDiskBar = document.getElementById("gaugeDiskBar");
       if (gaugeRamVal) gaugeRamVal.textContent = `${(ramMb / 1024).toFixed(1)} GB`;
-      if (gaugeRamBar) gaugeRamBar.style.width = "100%";
       if (gaugeCpuVal) gaugeCpuVal.textContent = `${cpuPct}%`;
-      if (gaugeCpuBar) gaugeCpuBar.style.width = `${Math.min(100, cpuPct / 2)}%`;
       if (gaugeDiskVal) gaugeDiskVal.textContent = `${(diskMb / 1024).toFixed(0)} GB`;
-      if (gaugeDiskBar) gaugeDiskBar.style.width = "100%";
       const timeline = document.getElementById("detailAuditTimeline");
       if (timeline) {
         if (!service.auditTrail || !service.auditTrail.length) {
@@ -1314,22 +1380,6 @@ ${node.textContent || ""}
         `
           ).join("");
         }
-      }
-      const consoleOutput = document.getElementById("consoleLogOutput");
-      const consoleForm = document.getElementById("consoleCommandForm");
-      const consoleInput = document.getElementById("consoleCommandInput");
-      const consoleSendBtn = consoleForm?.querySelector('button[type="submit"]');
-      if (consoleOutput) {
-        consoleOutput.textContent = `[SYSTEM] Interactive server console is currently unavailable.
-[SECURITY] Direct provider-backed console execution requires verified WebSocket node telemetry.
-[AUDIT] Authenticated operational commands are logged directly in the audit trail.`;
-      }
-      if (consoleInput) {
-        consoleInput.placeholder = "Console unavailable \u2014 provider WebSocket unconfigured";
-        consoleInput.disabled = true;
-      }
-      if (consoleSendBtn) {
-        consoleSendBtn.disabled = true;
       }
     } catch (error) {
       toast(error.message, "bad");
@@ -2833,6 +2883,10 @@ ${node.textContent || ""}
         filterTickets();
         return;
       }
+      if (target.id === "serviceSearch") {
+        filterServices();
+        return;
+      }
       if (target.id === "newTicketFileInput" || target.id === "ticketReplyFileInput") {
         updateFileLabel(target);
         return;
@@ -2859,11 +2913,13 @@ ${node.textContent || ""}
       const target = event.target;
       if (target.id === "newTicketFileInput" || target.id === "ticketReplyFileInput") updateFileLabel(target);
       if (target.name === "ticketStatus") filterTickets();
+      if (target.name === "serviceState" || target.id === "serviceTypeFilter") filterServices();
     });
   }
   async function init() {
     appShell.init();
     installRichTextEditors(document);
+    installCustomSelects(document);
     bindDelegatedEvents();
     const legacyRoute = window.location.hash.slice(1);
     if (legacyRoute) {

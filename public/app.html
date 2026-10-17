@@ -178,6 +178,12 @@
           <div class="tx"><h2>Services</h2><p>Provider-observed runtime records for this account.</p></div>
           <button id="refreshServersBtn" class="btn sec s" style="font-size:12px;gap:6px"><svg style="width:14px;height:14px;flex:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.0884 13.18C19.704 14.3285 19.0111 15.3538 18.0837 16.1471C17.1563 16.9404 16.0278 17.4738 14.8209 17.6913C13.614 17.9087 12.3713 17.8023 11.22 17.3832C10.0688 16.9642 9.05266 16.2478 8.27981 15.3101M3.91162 10.82C4.29598 9.6715 4.98889 8.64618 5.91629 7.85288C6.8437 7.05959 7.97221 6.52622 9.17912 6.30874C10.386 6.09126 11.6287 6.19771 12.78 6.61676C13.9312 7.03581 14.9473 7.75218 15.7202 8.68986M15.7202 4.5V8.68986H19.9082M8.27981 15.3101L4.0918 19.5M8.27981 15.3101H4.0918V19.5"/></svg> Refresh</button>
         </div>
+        <div class="service-toolbar">
+          <div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="serviceSearch" type="search" placeholder="Search name or identifier" aria-label="Search services"></div>
+          <div class="inp sel s"><select id="serviceTypeFilter" aria-label="Filter by product"><option value="ALL">All products</option></select></div>
+          <div class="seg s" role="radiogroup" aria-label="Filter service state"><label><input type="radio" name="serviceState" value="ALL" checked><span>All</span></label><label><input type="radio" name="serviceState" value="RUNNING"><span>Running</span></label><label><input type="radio" name="serviceState" value="OTHER"><span>Other</span></label></div>
+          <small id="serviceResultCount" class="muted"></small>
+        </div>
         <div id="serversContainer">
           <div class="state-message">Loading services…</div>
         </div>
@@ -212,8 +218,7 @@
         <!-- Underline Tabs -->
         <div class="underline-tabs" style="display:flex;gap:20px;border-bottom:1px solid var(--s3);margin-top:20px">
           <button class="tab-btn active" data-detail-tab="overview" style="padding:10px 0;background:none;border:none;border-bottom:2px solid var(--accent);font-weight:600;color:var(--ink)">Overview</button>
-          <button class="tab-btn" data-detail-tab="console" style="padding:10px 0;background:none;border:none;border-bottom:2px solid transparent;font-weight:600;color:var(--ink2)">Console</button>
-          <button class="tab-btn" data-detail-tab="resources" style="padding:10px 0;background:none;border:none;border-bottom:2px solid transparent;font-weight:600;color:var(--ink2)">Resources</button>
+          <button class="tab-btn" data-detail-tab="resources" style="padding:10px 0;background:none;border:none;border-bottom:2px solid transparent;font-weight:600;color:var(--ink2)">Allocation</button>
           <button class="tab-btn" data-detail-tab="activity" style="padding:10px 0;background:none;border:none;border-bottom:2px solid transparent;font-weight:600;color:var(--ink2)">Activity</button>
         </div>
       </div>
@@ -236,40 +241,22 @@
         </div>
       </div>
 
-      <div id="detailTabConsole" class="detail-pane" style="display:none">
-        <div class="card flat" style="background:#0a0e15;border-radius:18px;padding:16px;color:#eef2f7;font-family:var(--mono);font-size:13px">
-          <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1f293d;padding-bottom:10px;margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <span class="dotc" style="background:var(--good);width:8px;height:8px;border-radius:50%"></span>
-              <span style="font-size:12px;color:#8d9bae">Virtual Console Session · Isolated Client Stream</span>
-            </div>
-            <button id="clearConsoleBtn" class="btn s sec" style="font-size:11px;padding:4px 10px;height:28px">Clear</button>
-          </div>
-          <div id="consoleLogOutput" style="min-height:240px;max-height:400px;overflow-y:auto;white-space:pre-wrap;line-height:1.5;color:#cad5e2">[System] Initializing server console...
-[System] Session active. Type a command below.</div>
-          <form id="consoleCommandForm" style="display:flex;gap:8px;margin-top:12px">
-            <input type="text" id="consoleCommandInput" placeholder="Enter server command (e.g. status, list)..." style="flex:1;background:#141a24;border:1px solid #252f3f;border-radius:10px;padding:8px 14px;color:#fff;font-family:var(--mono);font-size:13px">
-            <button type="submit" class="btn s accent">Send</button>
-          </form>
-        </div>
-      </div>
-
       <div id="detailTabResources" class="detail-pane" style="display:none">
         <div class="grid g3" style="gap:16px">
           <div class="card">
             <span class="muted" style="font-size:12px">Memory Allocation</span>
             <div id="gaugeRamValue" style="font:800 24px/1.2 var(--font);margin:8px 0">—</div>
-            <div style="background:var(--s2);height:8px;border-radius:4px;overflow:hidden"><div id="gaugeRamBar" style="background:var(--accent);height:100%;width:0%"></div></div>
+            <small class="truth-note">Purchased limit, not live utilization.</small>
           </div>
           <div class="card">
             <span class="muted" style="font-size:12px">CPU Share Limit</span>
             <div id="gaugeCpuValue" style="font:800 24px/1.2 var(--font);margin:8px 0">—</div>
-            <div style="background:var(--s2);height:8px;border-radius:4px;overflow:hidden"><div id="gaugeCpuBar" style="background:var(--accent);height:100%;width:0%"></div></div>
+            <small class="truth-note">Configured CPU limit, not measured usage.</small>
           </div>
           <div class="card">
-            <span class="muted" style="font-size:12px">Storage Space</span>
+            <span class="muted" style="font-size:12px">Storage Allocation</span>
             <div id="gaugeDiskValue" style="font:800 24px/1.2 var(--font);margin:8px 0">—</div>
-            <div style="background:var(--s2);height:8px;border-radius:4px;overflow:hidden"><div id="gaugeDiskBar" style="background:var(--accent);height:100%;width:0%"></div></div>
+            <small class="truth-note">Purchased storage, not current disk use.</small>
           </div>
         </div>
       </div>

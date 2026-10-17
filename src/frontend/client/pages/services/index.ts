@@ -8,6 +8,7 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { toast } from '../../../petal/index.js';
 import { powerService } from '../dashboard/index.js';
+import { capabilitiesStore } from '../../../core/state/capabilities.js';
 
 export async function renderServiceDetail(serviceId: string): Promise<void> {
   if (!serviceId) return;
@@ -43,19 +44,24 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
     }
 
     const runningNow = runtime === 'RUNNING';
+    const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
+    const powerActions = document.getElementById('detailPowerActions');
+    if (powerActions && !providerReady) {
+      powerActions.innerHTML = '<span class="badge warn">Provider controls unavailable</span>';
+    }
     const restartBtn = document.getElementById('detailRestartBtn') as HTMLButtonElement | null;
     const stopBtn = document.getElementById('detailStopBtn') as HTMLButtonElement | null;
     const startBtn = document.getElementById('detailStartBtn') as HTMLButtonElement | null;
 
-    if (restartBtn) {
+    if (restartBtn && providerReady) {
       restartBtn.disabled = !runningNow;
       restartBtn.onclick = () => powerService(service.id, 'RESTART', restartBtn);
     }
-    if (stopBtn) {
+    if (stopBtn && providerReady) {
       stopBtn.disabled = !runningNow;
       stopBtn.onclick = () => powerService(service.id, 'STOP', stopBtn);
     }
-    if (startBtn) {
+    if (startBtn && providerReady) {
       startBtn.disabled = runningNow;
       startBtn.onclick = () => powerService(service.id, 'START', startBtn);
     }
@@ -87,18 +93,12 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
     const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
 
     const gaugeRamVal = document.getElementById('gaugeRamValue');
-    const gaugeRamBar = document.getElementById('gaugeRamBar');
     const gaugeCpuVal = document.getElementById('gaugeCpuValue');
-    const gaugeCpuBar = document.getElementById('gaugeCpuBar');
     const gaugeDiskVal = document.getElementById('gaugeDiskValue');
-    const gaugeDiskBar = document.getElementById('gaugeDiskBar');
 
     if (gaugeRamVal) gaugeRamVal.textContent = `${(ramMb / 1024).toFixed(1)} GB`;
-    if (gaugeRamBar) gaugeRamBar.style.width = '100%';
     if (gaugeCpuVal) gaugeCpuVal.textContent = `${cpuPct}%`;
-    if (gaugeCpuBar) gaugeCpuBar.style.width = `${Math.min(100, cpuPct / 2)}%`;
     if (gaugeDiskVal) gaugeDiskVal.textContent = `${(diskMb / 1024).toFixed(0)} GB`;
-    if (gaugeDiskBar) gaugeDiskBar.style.width = '100%';
 
     // Audit Timeline
     const timeline = document.getElementById('detailAuditTimeline');
@@ -120,22 +120,6 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
       }
     }
 
-    // Honest console status: No fake interactive responses
-    const consoleOutput = document.getElementById('consoleLogOutput');
-    const consoleForm = document.getElementById('consoleCommandForm');
-    const consoleInput = document.getElementById('consoleCommandInput') as HTMLInputElement | null;
-    const consoleSendBtn = consoleForm?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
-
-    if (consoleOutput) {
-      consoleOutput.textContent = `[SYSTEM] Interactive server console is currently unavailable.\n[SECURITY] Direct provider-backed console execution requires verified WebSocket node telemetry.\n[AUDIT] Authenticated operational commands are logged directly in the audit trail.`;
-    }
-    if (consoleInput) {
-      consoleInput.placeholder = 'Console unavailable — provider WebSocket unconfigured';
-      consoleInput.disabled = true;
-    }
-    if (consoleSendBtn) {
-      consoleSendBtn.disabled = true;
-    }
   } catch (error: any) {
     toast(error.message, 'bad');
   }
