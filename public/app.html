@@ -406,39 +406,31 @@
 
     <!-- SETTINGS & TEAM SECTION -->
     <section id="section-settings" class="view-section" style="display:none">
-      <div class="grid g2">
-        <div class="card" style="padding:24px">
-          <h2 style="font:700 18px var(--font);margin-bottom:16px">Account & Tenant Profile</h2>
-          <dl class="kv" style="margin:0;font-size:13.5px">
+      <div class="hd" style="margin-bottom:14px">
+        <div class="tx"><span class="pill">Settings</span><h2>Account &amp; Settings</h2></div>
+      </div>
+      <div class="g g2">
+        <div class="card" style="padding:20px">
+          <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Profile</h3></div></div>
+          <dl class="kv">
             <dt>Name</dt>
-            <dd id="profName">Loading...</dd>
+            <dd id="profName">Loading…</dd>
             <dt>Workspace</dt>
-            <dd id="profWorkspace">Loading...</dd>
+            <dd id="profWorkspace">Loading…</dd>
             <dt>Email</dt>
-            <dd id="profEmail">Loading...</dd>
+            <dd id="profEmail">Loading…</dd>
             <dt>Role</dt>
-            <dd id="profRole"><span class="badge accent">OWNER</span></dd>
+            <dd id="profRole"><span class="pill acc">OWNER</span></dd>
             <dt>Email status</dt>
-            <dd><span class="badge good">Verified</span></dd>
+            <dd><span class="pill good">Verified</span></dd>
           </dl>
         </div>
 
-        <div class="card" style="padding:24px">
-          <h2 style="font:700 18px var(--font);margin-bottom:16px">Security & Platform Invariants</h2>
-          <div style="display:flex;flex-direction:column;gap:12px;font-size:13px;color:var(--ink2)">
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span class="badge good s">PASS</span>
-              <div><b>Argon2id Authentication:</b> Memory-hard password hashing with cryptographically secure session IDs.</div>
-            </div>
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span class="badge good s">PASS</span>
-              <div><b>Anti-SSRF Blacklist:</b> DNS resolution strictly blocking loopback (127.0.0.1) and AWS metadata (169.254.169.254).</div>
-            </div>
-            <div style="display:flex;align-items:flex-start;gap:10px">
-              <span class="badge good s">PASS</span>
-              <div><b>Transactional Outbox:</b> All side-effects committed atomically before external worker dispatch.</div>
-            </div>
-          </div>
+        <div class="card" style="padding:20px">
+          <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Security invariants</h3></div></div>
+          <div class="li"><span class="tile good sm"></span><span class="tx"><b>Argon2id Authentication</b><small>Memory-hard password hashing with cryptographically secure session IDs.</small></span><span class="pill good">PASS</span></div>
+          <div class="li"><span class="tile good sm"></span><span class="tx"><b>Anti-SSRF Blacklist</b><small>DNS resolution strictly blocking loopback and metadata endpoints.</small></span><span class="pill good">PASS</span></div>
+          <div class="li"><span class="tile good sm"></span><span class="tx"><b>Transactional Outbox</b><small>All side-effects committed atomically before external worker dispatch.</small></span><span class="pill good">PASS</span></div>
         </div>
       </div>
     </section>

@@ -2418,22 +2418,10 @@ ${node.textContent || ""}
         revokeOthers.textContent = otherCount ? `Sign out ${otherCount} other ${otherCount === 1 ? "device" : "devices"}` : "No other devices";
       }
       host.innerHTML = sessions.map(
-        (session) => `
-      <div class="z-ssr">
-        <span class="ico-b ${session.isCurrent ? "good" : ""}">${hero("device")}</span>
-        <div class="tx">
-          <b>${esc(describeDevice(session.userAgent))}${session.isCurrent ? '<span class="badge good s">This device</span>' : ""}</b>
-          <small>
-            ${esc(describeAddress(session.ipAddress))} \xB7 Last active ${esc(formatDate(session.lastActiveAt))}<br>
-            Signed in ${esc(formatDate(session.createdAt))} \xB7 Expires ${esc(formatDate(session.expiresAt))}
-          </small>
-        </div>
-        ${session.isCurrent ? "" : `<button class="btn xs badt" data-revoke-session="${esc(session.id)}">Sign out</button>`}
-      </div>
-    `
+        (session) => `<div class="li"><span class="tile ${session.isCurrent ? "good" : ""} sm">${hero("device", "s")}</span><span class="tx"><b>${esc(describeDevice(session.userAgent))}${session.isCurrent ? ' <span class="pill good">This device</span>' : ""}</b><small>${esc(describeAddress(session.ipAddress))} \xB7 Last active ${esc(formatDate(session.lastActiveAt))}</small></span>${session.isCurrent ? "" : `<button class="btn xs sec" style="color:var(--bad)" data-revoke-session="${esc(session.id)}">Sign out</button>`}</div>`
       ).join("");
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load sessions</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   async function loadMfa() {
@@ -2442,21 +2430,11 @@ ${node.textContent || ""}
     host.innerHTML = renderSkeleton("profile", "Loading two-step verification");
     try {
       const status = await api("/api/v1/auth/mfa");
-      host.innerHTML = status.enabled ? `
-      <div class="mfa-state">
-        <span class="badge good">Enabled</span>
-        <div><b>Authenticator app</b><small>${status.recoveryCodesRemaining} recovery ${status.recoveryCodesRemaining === 1 ? "code" : "codes"} remaining</small></div>
-      </div>
-      <button class="btn sec s" type="button" data-mfa-disable>Disable</button>
-    ` : `
-      <div class="mfa-state">
-        <span class="badge">Off</span>
-        <div><b>Add an authenticator app</b><small>You\u2019ll use a six-digit code when signing in.</small></div>
-      </div>
-      <button class="btn s" type="button" data-mfa-enable>Set up</button>
-    `;
+      const shieldIco = hero("shield", "s");
+      const codeWord = status.recoveryCodesRemaining === 1 ? "code" : "codes";
+      host.innerHTML = status.enabled ? `<div class="li"><span class="tile good sm">${shieldIco}</span><span class="tx"><b>Authenticator app</b><small>${status.recoveryCodesRemaining} recovery ${codeWord} remaining</small></span><span class="pill good">Enabled</span><button class="btn sec s" type="button" data-mfa-disable>Disable</button></div>` : `<div class="li"><span class="tile sm">${shieldIco}</span><span class="tx"><b>Add an authenticator app</b><small>Set up a six-digit code when signing in.</small></span><span class="pill">Off</span><button class="btn s" type="button" data-mfa-enable>Set up</button></div>`;
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load MFA status</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   function showMfaPasswordStep() {
@@ -2597,9 +2575,7 @@ ${node.textContent || ""}
     if (!host) return;
     host.innerHTML = `
     <form class="mfa-form" data-mfa-disable-form>
-      <div class="state-message warn">
-        ${hero("warning")}<span>Disabling this removes the second sign-in step and every unused recovery code.</span>
-      </div>
+      <div class="alert warn"><div><b>Warning</b><span>Disabling this removes the second sign-in step and every unused recovery code.</span></div></div>
       <div class="field">
         <label for="mfaDisablePassword">Current password</label>
         <div class="inp"><input id="mfaDisablePassword" name="password" type="password" autocomplete="current-password" required></div>
@@ -2664,12 +2640,12 @@ ${node.textContent || ""}
     try {
       const data = await api("/api/v1/account/members");
       if (!data.members || !data.members.length) {
-        host.innerHTML = `<div class="state-message"><span>No team members found.</span></div>`;
+        host.innerHTML = `<div class="alert"><div><span>No team members found.</span></div></div>`;
         return;
       }
       host.innerHTML = `
-      <div class="z-scroll" style="margin-top:8px">
-        <table class="tbl">
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="tbl rsp">
           <thead>
             <tr>
               <th>Member</th>
@@ -2683,12 +2659,10 @@ ${node.textContent || ""}
         (m) => `
               <tr class="mobile-record">
                 <td data-label="Member"><b>${esc(m.name)}</b><br><small class="muted">${esc(m.email)}</small></td>
-                <td data-label="Role"><span class="badge ${m.role === "OWNER" ? "accent" : "info"} s">${esc(
-          m.role
-        )}</span></td>
+                <td data-label="Role"><span class="pill ${m.role === "OWNER" ? "acc" : "info"}">${esc(m.role)}</span></td>
                 <td data-label="Joined" class="muted">${formatDate(m.createdAt)}</td>
                 <td data-label="Action" class="r">
-                  ${m.isOwner ? '<span class="badge good s">Workspace Owner</span>' : `<button class="btn badt xs" type="button" data-revoke-member="${esc(m.id)}">Remove</button>`}
+                  ${m.isOwner ? '<span class="pill good">Owner</span>' : `<button class="btn xs sec" style="color:var(--bad)" type="button" data-revoke-member="${esc(m.id)}">Remove</button>`}
                 </td>
               </tr>
             `
@@ -2698,7 +2672,7 @@ ${node.textContent || ""}
       </div>
     `;
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad"><span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load team</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   async function loadEmailStatus() {
@@ -2708,17 +2682,17 @@ ${node.textContent || ""}
       const status = await api(
         "/api/v1/email/status"
       );
-      const modeBadges = {
-        disabled: '<span class="badge warn s">DISABLED (Zero fake delivery)</span>',
-        sandbox: '<span class="badge info s">SANDBOX (Local receipts active)</span>',
-        live: '<span class="badge good s">LIVE TRANSPORT</span>'
+      const modePills = {
+        disabled: '<span class="pill warn">DISABLED</span>',
+        sandbox: '<span class="pill info">SANDBOX</span>',
+        live: '<span class="pill good">LIVE</span>'
       };
       host.innerHTML = `
-      <div class="li card s2"><span class="ico-b">${hero("paper")}</span><span class="tx"><b>Transport mode</b><span>Current transactional email provider state</span></span>${modeBadges[status.mode] || status.mode}</div>
-      <div class="li card s2"><span class="ico-b">${hero("document")}</span><span class="tx"><b>Outbox queue</b><span>${status.pendingCount} pending \xB7 ${status.sentCount} sent \xB7 ${status.failedCount} failed</span></span></div>
+      <div class="li"><span class="tile sm">${hero("paper", "s")}</span><span class="tx"><b>Transport mode</b><small>Current transactional email provider state</small></span>${modePills[status.mode] || `<span class="pill">${esc(status.mode)}</span>`}</div>
+      <div class="li"><span class="tile sm">${hero("document", "s")}</span><span class="tx"><b>Outbox queue</b><small>${status.pendingCount} pending \xB7 ${status.sentCount} sent \xB7 ${status.failedCount} failed</small></span></div>
     `;
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad"><span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load email status</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   function restoreMfaScanStep() {
