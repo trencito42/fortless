@@ -52,4 +52,11 @@
 - Authenticated browser screenshot comparison across desktop, portrait and landscape remains pending.
 - Accessibility pass, notification focus/dismiss polish and dead-code cleanup remain pending.
 
+## Mobile dashboard correction
+
+- Replaced the compressed desktop header with a compact mobile route bar: mark, title and notifications; global search remains available from the More sheet.
+- Added viewport-edge shell containment to prevent desktop canvas gutters.
+- Re-composed the Petal dashboard welcome, empty state and downstream panels specifically for portrait phones.
+- Dashboard panels use a horizontal snap track on phones; metrics remain a compact two-by-two grid.
+
 Latest automated evidence: `npm run build` passes; full suite status is recorded after the current route-test update in `VISUAL_QA.md`.

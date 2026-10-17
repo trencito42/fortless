@@ -23,7 +23,7 @@ export async function renderHome(): Promise<void> {
   const failures = [serviceResult, ticketResult, invoiceResult, auditResult].filter((item) => item.status === 'rejected').length;
 
   host.innerHTML = `${failures ? `<div class="state-message warn">${hero('warning')}<span>${failures} dashboard source${failures === 1 ? '' : 's'} could not be loaded. Available records are shown below.</span></div>` : ''}
-    <div class="dashboard-welcome"><div><span class="badge accent s">Workspace overview</span><h2>Your infrastructure at a glance.</h2><p>Real account, service, billing and support records—without simulated telemetry.</p></div><div class="row wrap"><a class="btn sec s" href="/app/support/new" data-app-route="ticket-new">${hero('support', 's')}Open ticket</a><a class="btn s" href="/app/deploy" data-app-route="deploy">${hero('plus', 's')}Deploy service</a></div></div>
+    <div class="dashboard-welcome"><div><span class="badge accent s">Workspace overview</span><h2>Your workspace, at a glance.</h2><p>Services, billing, support and security activity from your account.</p></div><div class="row wrap"><a class="btn sec s" href="/app/support/new" data-app-route="ticket-new">${hero('support', 's')}Open ticket</a><a class="btn s" href="/app/deploy" data-app-route="deploy">${hero('plus', 's')}Deploy service</a></div></div>
     <div class="grid g4 keep2 dashboard-metrics">
       ${metric('Active services', services.filter((item) => item.contract_status === 'ACTIVE').length, 'servers', 'good')}
       ${metric('Total services', services.length, 'cube', 'accent')}
