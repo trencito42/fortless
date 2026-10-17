@@ -2063,7 +2063,7 @@ ${node.textContent || ""}
     <td data-label="Issued" class="muted">${esc(formatDate(invoice.created_at))}</td>
     <td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
     <td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
-    <td data-label="Status"><span class="badge ${badgeClass} s">${esc(invoice.status)}</span></td>
+    <td data-label="Status"><span class="pill ${badgeClass}">${esc(invoice.status)}</span></td>
     <td data-label="Record" class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download>${hero("document", "xs")}Receipt</a></td>
   </tr>`;
   }
@@ -2094,9 +2094,9 @@ ${node.textContent || ""}
       const summary = document.getElementById("invoiceSummary");
       if (summary) {
         summary.innerHTML = `
-        <div><small>Paid</small><b>${money(paid, currency)}</b></div>
-        <div><small>Pending</small><b>${money(pending, currency)}</b></div>
-        <div><small>Invoices</small><b>${invoices.length}</b></div>
+        <div class="mt"><small>Paid</small><b>${money(paid, currency)}</b></div>
+        <div class="mt"><small>Pending</small><b>${money(pending, currency)}</b></div>
+        <div class="mt"><small>Invoices</small><b>${invoices.length}</b></div>
       `;
       }
       filterBilling();
@@ -2106,37 +2106,21 @@ ${node.textContent || ""}
         try {
           const { subscriptions } = await api("/api/v1/subscriptions");
           if (!subscriptions.length) {
-            subHost.innerHTML = '<div class="state-message">No active subscriptions.</div>';
+            subHost.innerHTML = renderEmptyState({ icon: "document", title: "No active subscriptions", message: "Active recurring services will appear here." });
           } else {
-            subHost.innerHTML = `
-            <div class="col" style="gap:8px">
-              ${subscriptions.map((sub) => {
+            subHost.innerHTML = subscriptions.map((sub) => {
               const isCancelScheduled = sub.status === "CANCEL_SCHEDULED";
               const isCanceled = sub.status === "CANCELED" || sub.status === "TERMINATED";
-              return `
-                    <article class="li card s2" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px">
-                      <div>
-                        <b>${esc(sub.serviceName)}</b>
-                        <span class="badge s ${sub.status === "ACTIVE" ? "good" : "warn"}">${esc(sub.status)}</span>
-                        <div class="muted" style="font-size:12px;margin-top:4px">
-                          ${money(sub.renewalPriceMinorUnits, sub.currency)} / ${esc(sub.billingInterval.toLowerCase())} \xB7 Renews ${formatDate(sub.nextRenewalDate)}
-                        </div>
-                      </div>
-                      <div class="actions">
-                        ${isCanceled ? '<span class="badge s">Cancelled</span>' : isCancelScheduled ? '<span class="badge warn s">Cancellation Scheduled</span>' : `<button type="button" class="btn badt s" data-cancel-sub="${esc(sub.id)}">Cancel subscription</button>`}
-                      </div>
-                    </article>
-                  `;
-            }).join("")}
-            </div>
-          `;
+              const tone = sub.status === "ACTIVE" ? "good" : "warn";
+              return `<div class="li"><span class="tile ${tone} sm">${hero("server", "s")}</span><span class="tx"><b>${esc(sub.serviceName)}</b><small>${money(sub.renewalPriceMinorUnits, sub.currency)} / ${esc(sub.billingInterval.toLowerCase())} \xB7 Renews ${formatDate(sub.nextRenewalDate)}</small></span><span class="row" style="gap:8px;flex-shrink:0"><span class="pill ${tone}">${esc(sub.status)}</span>${isCanceled ? '<span class="pill">Cancelled</span>' : isCancelScheduled ? '<span class="pill warn">Cancel scheduled</span>' : `<button type="button" class="btn s sec" style="color:var(--bad)" data-cancel-sub="${esc(sub.id)}">Cancel</button>`}</span></div>`;
+            }).join("");
           }
         } catch (err) {
-          subHost.innerHTML = `<div class="state-message bad">${esc(err.message)}</div>`;
+          subHost.innerHTML = `<div class="alert bad"><div><b>Failed to load subscriptions</b><span>${esc(err.message)}</span></div></div>`;
         }
       }
     } catch (error) {
-      host.innerHTML = `<tr><td colspan="6"><div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div></td></tr>`;
+      host.innerHTML = `<tr><td colspan="6"><div class="alert bad"><div><b>Failed to load billing records</b><span>${esc(error.message)}</span></div></div></td></tr>`;
     }
   }
   async function cancelSubscription(subId, button) {
