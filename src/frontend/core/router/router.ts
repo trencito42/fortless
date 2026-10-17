@@ -128,9 +128,10 @@ export class Router {
   }
 
   private updateActiveLinks(activeId: string): void {
+    const navId = activeId === 'service-detail' ? 'services' : activeId === 'ticket-detail' || activeId === 'ticket-new' ? 'tickets' : activeId;
     document.querySelectorAll<HTMLElement>('[data-app-route], [data-route]').forEach((el) => {
       const rId = el.dataset.appRoute || el.dataset.route;
-      if (rId === activeId) {
+      if (rId === navId) {
         el.setAttribute('aria-current', 'page');
         el.classList.add('act');
       } else {
@@ -138,5 +139,11 @@ export class Router {
         el.classList.remove('act');
       }
     });
+    const more = document.getElementById('mobileMoreBtn');
+    if (more) {
+      const isOverflowRoute = ['domains', 'billing', 'audit', 'settings'].includes(navId);
+      more.toggleAttribute('aria-current', isOverflowRoute);
+      more.classList.toggle('act', isOverflowRoute);
+    }
   }
 }

@@ -16,10 +16,16 @@
   <aside class="side">
     <a href="/" class="brand"><span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true" style="width:20px;height:20px;display:block"></span>fortless</a>
 
+    <div class="navlabel">Overview</div>
+    <nav class="nav">
+      <a href="/app" id="nav-dashboard" data-app-route="dashboard" aria-current="page">
+        <svg class="ic" aria-hidden="true"><use href="#i-home-01"/></svg><span>Dashboard</span>
+      </a>
+    </nav>
     <div class="navlabel">Infrastructure</div>
     <nav class="nav">
       <!-- HugeIcons stroke-rounded free set -->
-      <a href="/app" id="nav-servers" data-app-route="servers" aria-current="page">
+      <a href="/app/services" id="nav-servers" data-app-route="services">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6C4 4.89543 4.89543 4 6 4H18C19.1046 4 20 4.89543 20 6V9C20 10.1046 19.1046 11 18 11H6C4.89543 11 4 10.1046 4 9V6Z"/><path d="M4 15C4 13.8954 4.89543 13 6 13H18C19.1046 13 20 13.8954 20 15V18C20 19.1046 19.1046 20 18 20H6C4.89543 20 4 19.1046 4 18V15Z"/><path d="M7 7.5H7.5"/><path d="M7 16.5H7.5"/></svg>
         <span>Servers & Instances</span>
       </a>
@@ -74,27 +80,40 @@
 
   <!-- MOBILE TABBAR -->
   <nav class="tabbar" aria-label="Main navigation">
-    <a href="/app" id="tab-servers" data-app-route="servers" aria-current="page">
+    <a href="/app" id="tab-dashboard" data-app-route="dashboard" aria-current="page">
+      <svg class="ic s" aria-hidden="true"><use href="#i-home-01"/></svg>
+      Home
+    </a>
+    <a href="/app/services" id="tab-servers" data-app-route="services">
       <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M6 7h.01M6 17h.01"/></svg>
-      Servers
+      Services
     </a>
     <a href="/app/deploy" id="tab-deploy" data-app-route="deploy">
       <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4V20M4 12H20"/></svg>
       Deploy
     </a>
-    <a href="/app/billing" id="tab-billing" data-app-route="billing">
-      <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9C2 7.34315 3.34315 6 5 6H19C20.6569 6 22 7.34315 22 9V15C22 16.6569 20.6569 18 19 18H5C3.34315 18 2 16.6569 2 15V9Z"/><path d="M2 10L22 10"/><path d="M6 14H8M10 14H12"/></svg>
-      Billing
-    </a>
     <a href="/app/support" id="tab-tickets" data-app-route="tickets">
       <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h8M8 14h5"/></svg>
       Tickets
     </a>
-    <a href="/app/settings" id="tab-settings" data-app-route="settings">
-      <svg class="ic s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5C13.933 15.5 15.5 13.933 15.5 12C15.5 10.067 13.933 8.5 12 8.5C10.067 8.5 8.5 10.067 8.5 12C8.5 13.933 10.067 15.5 12 15.5Z"/><path d="M12 3V5M12 19V21M3 12H5M19 12H21M5.636 5.636L7.05 7.05M16.95 16.95L18.364 18.364M18.364 5.636L16.95 7.05M7.05 16.95L5.636 18.364"/></svg>
+    <button type="button" id="mobileMoreBtn" aria-haspopup="dialog" aria-controls="mobileNavSheet" aria-expanded="false">
+      <svg class="ic s" aria-hidden="true"><use href="#i-menu-01"/></svg>
       More
-    </a>
+    </button>
   </nav>
+
+  <div id="mobileNavSheet" class="mobile-nav-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="mobileNavTitle">
+    <div class="mobile-nav-panel">
+      <div class="mobile-nav-head"><div><small>FORTLESS</small><h2 id="mobileNavTitle">Navigate</h2></div><button class="btn sq sec" type="button" data-close-mobile-nav aria-label="Close navigation"><svg class="ic s" aria-hidden="true"><use href="#i-cancel-01"/></svg></button></div>
+      <nav aria-label="All customer areas">
+        <a href="/app/domains" data-app-route="domains"><span class="ico-b"><svg class="ic"><use href="#i-globe"/></svg></span><span class="tx"><b>Domains & DNS</b><small>Search and manage zones</small></span></a>
+        <a href="/app/billing" data-app-route="billing"><span class="ico-b"><svg class="ic"><use href="#i-credit-card"/></svg></span><span class="tx"><b>Invoices & Billing</b><small>Invoices and subscriptions</small></span></a>
+        <a href="/app/activity" data-app-route="audit"><span class="ico-b"><svg class="ic"><use href="#i-shield-01"/></svg></span><span class="tx"><b>Audit Trail</b><small>Account security activity</small></span></a>
+        <a href="/app/settings" data-app-route="settings"><span class="ico-b"><svg class="ic"><use href="#i-settings-01"/></svg></span><span class="tx"><b>Security & Team</b><small>MFA, sessions and access</small></span></a>
+      </nav>
+      <div class="mobile-nav-actions"><button class="btn sec" type="button" data-cmd><svg class="ic s"><use href="#i-search-01"/></svg>Search everything</button><button class="btn sec" type="button" id="mobileThemeBtn"><svg class="ic s"><use href="#i-moon-01"/></svg>Change theme</button></div>
+    </div>
+  </div>
 
   <!-- MAIN VIEW CONTAINER -->
   <main class="main">
@@ -140,7 +159,13 @@
     </header>
 
     <!-- CONTENT SECTIONS -->
-    <section id="section-servers" class="view-section">
+    <section id="section-dashboard" class="view-section">
+      <div id="dashboardOverview" class="page-stack">
+        <div class="state-message"><span>Loading workspace overview…</span></div>
+      </div>
+    </section>
+
+    <section id="section-services" class="view-section" style="display:none">
       <div class="grid g4 keep2" style="margin-bottom:24px">
         <div class="card"><div class="stat"><span class="k">Active services</span><div id="statRunning" class="v">0</div></div></div>
         <div class="card"><div class="stat"><span class="k">Total services</span><div id="statTotal" class="v">0</div></div></div>
@@ -162,7 +187,7 @@
     <!-- SERVICE DETAIL -->
     <section id="section-service-detail" class="view-section" style="display:none">
       <div class="breadcrumb-bar" style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px">
-        <a href="/app" data-app-route="servers" style="color:var(--accent);font-weight:600">Services</a>
+        <a href="/app/services" data-app-route="services" style="color:var(--accent);font-weight:600">Services</a>
         <span class="muted">/</span>
         <b id="detailBreadcrumbName">Loading service…</b>
       </div>
@@ -473,19 +498,32 @@
 
     <!-- TICKETS SECTION -->
     <section id="section-tickets" class="view-section" style="display:none">
-      <div class="card flat" style="padding:24px">
+      <div class="card flat support-center" style="padding:24px">
         <div class="section-card-head">
           <div class="tx">
             <h2 style="font:700 18px var(--font)">Support conversations</h2>
             <p style="color:var(--ink2);font-size:13.5px">Account-scoped ticket threads. No response-time or staffing claim is implied.</p>
           </div>
-          <button id="newTicketBtn" class="btn s" style="font-size:13px;font-weight:700">Open New Ticket</button>
+          <a href="/app/support/new" data-app-route="ticket-new" class="btn s" style="font-size:13px;font-weight:700"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>Open ticket</a>
+        </div>
+        <div class="support-toolbar">
+          <div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="ticketSearch" type="search" placeholder="Search tickets" aria-label="Search support tickets"></div>
+          <div class="seg s support-status" role="radiogroup" aria-label="Filter by ticket status">
+            <label><input type="radio" name="ticketStatus" value="ALL" checked><span>All</span></label>
+            <label><input type="radio" name="ticketStatus" value="OPEN"><span>Open</span></label>
+            <label><input type="radio" name="ticketStatus" value="RESOLVED"><span>Resolved</span></label>
+            <label><input type="radio" name="ticketStatus" value="CLOSED"><span>Closed</span></label>
+          </div>
+          <small id="ticketResultCount" class="muted"></small>
         </div>
         <div id="ticketsList">
           <div style="text-align:center;padding:30px;color:var(--ink2)">Loading support threads...</div>
         </div>
       </div>
     </section>
+
+    <section id="section-ticket-new" class="view-section" style="display:none"><div id="newTicketPage"></div></section>
+    <section id="section-ticket-detail" class="view-section" style="display:none"><div id="ticketDetailPage"></div></section>
 
     <!-- AUDIT SECTION -->
     <section id="section-audit" class="view-section" style="display:none">
@@ -558,86 +596,6 @@
     </div>
     <div class="res" id="cmd-res"></div>
     <div class="foot"><span><kbd class="kbd">↑</kbd> <kbd class="kbd">↓</kbd> navigate</span><span><kbd class="kbd">↵</kbd> open</span></div>
-  </div>
-</div>
-
-<!-- TICKET DETAIL MODAL -->
-<div id="ticketModal" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="modalTicketSubject">
-  <div class="modal lg">
-    <div class="row">
-      <div class="tx grow">
-        <h3 id="modalTicketSubject">Ticket details</h3>
-        <small id="modalTicketMeta" class="muted"></small>
-      </div>
-      <button class="btn ghost sq s" type="button" onclick="closeTicketModal()" aria-label="Close ticket">✕</button>
-    </div>
-    <div id="modalTicketMessages" class="message-list"></div>
-    <div id="modalTicketAttachments" class="att-list" style="margin:8px 0"></div>
-    <div class="field">
-      <label for="modalTicketReply">Reply (supports Markdown)</label>
-      <div class="inp ta"><textarea id="modalTicketReply" placeholder="Write a reply… Supports **bold**, `code`, lists"></textarea></div>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
-        <label class="btn sec s" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-          <svg class="ic xs" aria-hidden="true"><use href="#i-attachment-01"/></svg>
-          <span>Attach file</span>
-          <input type="file" id="ticketReplyFileInput" style="display:none">
-        </label>
-        <span id="ticketReplyFileLabel" class="muted" style="font-size:12px"></span>
-      </div>
-      <div class="foot" style="margin-top:10px">
-        <button class="btn sec" type="button" onclick="closeTicketModal()">Close</button>
-        <button id="sendReplyBtn" class="btn" type="button">Send reply</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- CREATE TICKET MODAL -->
-<div id="newTicketModal" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="newTicketTitle">
-  <div class="modal">
-    <div class="modal-head">
-      <div class="tx"><h3 id="newTicketTitle">Open support ticket</h3><small class="muted">Describe the problem and its current impact.</small></div>
-      <button class="btn ghost sq s" type="button" data-close-new-ticket aria-label="Close dialog">✕</button>
-    </div>
-    <form id="createTicketForm" class="col" style="gap:16px" novalidate>
-      <div class="field">
-        <label for="ticketSubject">Subject</label>
-        <div class="inp">
-          <input type="text" id="ticketSubject" required minlength="3" maxlength="160" autocomplete="off" placeholder="e.g. Question about node latency">
-        </div>
-      </div>
-      <div class="field">
-        <span class="lbl" id="ticketPriorityLabel">Priority</span>
-        <div class="seg block" role="radiogroup" aria-labelledby="ticketPriorityLabel">
-          <label><input type="radio" name="ticketPriority" value="LOW"><span>Low</span></label>
-          <label><input type="radio" name="ticketPriority" value="NORMAL" checked><span>Normal</span></label>
-          <label><input type="radio" name="ticketPriority" value="HIGH"><span>High</span></label>
-          <label><input type="radio" name="ticketPriority" value="URGENT"><span>Urgent</span></label>
-        </div>
-      </div>
-      <div class="field">
-        <label for="ticketMessage">Detailed Message (supports Markdown)</label>
-        <div class="inp ta">
-          <textarea id="ticketMessage" required minlength="5" maxlength="10000" placeholder="What happened, when did it start, and what is affected?"></textarea>
-        </div>
-        <div id="ticketFormError" class="err" role="alert" hidden></div>
-      </div>
-      <div class="field">
-        <label>Attachment (optional, max 5MB)</label>
-        <div style="display:flex;align-items:center;gap:10px">
-          <label class="btn sec s" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-            <svg class="ic xs" aria-hidden="true"><use href="#i-attachment-01"/></svg>
-            <span>Choose file</span>
-            <input type="file" id="newTicketFileInput" style="display:none">
-          </label>
-          <span id="newTicketFileLabel" class="muted" style="font-size:12px"></span>
-        </div>
-      </div>
-      <div class="foot">
-        <button type="button" class="btn sec" data-close-new-ticket>Cancel</button>
-        <button type="submit" class="btn" id="submitTicketBtn">Open ticket</button>
-      </div>
-    </form>
   </div>
 </div>
 

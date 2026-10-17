@@ -11,10 +11,13 @@ import { ApiError, SessionExpiredError, StepUpRequiredError } from '../src/front
 describe('Category N: Modular Frontend Architecture & Petal Integration', () => {
   describe('Router & Route Definitions', () => {
     it('CLIENT_ROUTES contains all canonical customer management routes', () => {
-      expect(CLIENT_ROUTES.servers!.path).toBe('/app');
+      expect(CLIENT_ROUTES.dashboard!.path).toBe('/app');
+      expect(CLIENT_ROUTES.services!.path).toBe('/app/services');
       expect(CLIENT_ROUTES.deploy!.path).toBe('/app/deploy');
       expect(CLIENT_ROUTES.billing!.path).toBe('/app/billing');
       expect(CLIENT_ROUTES.tickets!.path).toBe('/app/support');
+      expect(CLIENT_ROUTES['ticket-new']!.path).toBe('/app/support/new');
+      expect(CLIENT_ROUTES['ticket-detail']!.pattern?.test('/app/support/tkt_123')).toBe(true);
       expect(CLIENT_ROUTES.audit!.path).toBe('/app/activity');
       expect(CLIENT_ROUTES.settings!.path).toBe('/app/settings');
       expect(CLIENT_ROUTES['service-detail']!.path).toBe('/app/services/:id');

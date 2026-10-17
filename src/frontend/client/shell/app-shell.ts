@@ -39,6 +39,7 @@ export class AppShell {
 
   public installHeroicons(): void {
     const targets: [string, string][] = [
+      ['#nav-dashboard .ic, #tab-dashboard .ic', 'home'],
       ['#nav-servers .ic, #tab-servers .ic', 'servers'],
       ['#nav-deploy .ic, #tab-deploy .ic', 'plus'],
       ['#nav-billing .ic, #tab-billing .ic', 'credit'],
@@ -56,11 +57,6 @@ export class AppShell {
       });
     });
 
-    document
-      .querySelectorAll('#ticketModal button[onclick*="close"], #newTicketModal [data-close-new-ticket][aria-label]')
-      .forEach((button) => {
-        button.innerHTML = hero('x', 's');
-      });
   }
 
   public installResponsiveComposition(): void {
@@ -85,7 +81,7 @@ export class AppShell {
   }
 
   public rewriteTruthfulCopy(): void {
-    const sH2 = document.querySelector('#section-servers .card.flat h2');
+    const sH2 = document.querySelector('#section-services .card.flat h2');
     if (sH2) sH2.textContent = 'Services';
 
     const tH2 = document.querySelector('#section-tickets h2');
@@ -300,7 +296,7 @@ export class AppShell {
               ${
                 n.linkUrl
                   ? `<a href="${esc(n.linkUrl)}" data-app-route="${
-                      n.linkUrl.includes('services') ? 'service-detail' : 'servers'
+                      n.linkUrl.includes('services') ? 'service-detail' : 'dashboard'
                     }" style="font-size:11px;color:var(--accent);font-weight:600">View details →</a>`
                   : ''
               }

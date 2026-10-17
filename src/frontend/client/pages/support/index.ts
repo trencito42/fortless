@@ -1,258 +1,170 @@
-/**
- * Customer Portal — Support & Ticketing Page Module
- * Route: /app/support
- */
+/** Customer Portal — dedicated support list, create and conversation routes. */
 
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { formatBytes } from '../../../core/utils/formatting.js';
 import { renderMarkdown } from '../../../core/utils/markdown.js';
-import { hero, renderEmptyState, toast } from '../../../petal/index.js';
+import { editorMarkdown, hero, petalRichTextEditor, renderEmptyState, resetEditor, toast } from '../../../petal/index.js';
 
-let activeTicketId: string | null = null;
+type Navigate = (path: string) => void;
+type Ticket = { id: string; subject: string; priority: string; status: string; created_at: string; updated_at: string; message_count?: number };
+type Attachment = { id: string; filename: string; byte_size: number; message_id?: string | null; created_at?: string };
 
-export function getActiveTicketId(): string | null {
-  return activeTicketId;
+let ticketCache: Ticket[] = [];
+
+function priorityTone(value: string): string {
+  return value === 'URGENT' ? 'bad' : value === 'HIGH' ? 'warn' : value === 'LOW' ? '' : 'info';
 }
 
-export function setActiveTicketId(id: string | null): void {
-  activeTicketId = id;
+function statusTone(value: string): string {
+  return ['OPEN', 'WAITING_STAFF'].includes(value) ? 'info' : value === 'RESOLVED' ? 'good' : '';
+}
+
+function ticketRow(ticket: Ticket): string {
+  const search = `${ticket.subject} ${ticket.id} ${ticket.status} ${ticket.priority}`.toLowerCase();
+  return `<a class="z-cv support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}">
+    <span class="ico-b ${priorityTone(ticket.priority) || 'accent'}">${hero('support')}</span>
+    <span class="tx"><b>${esc(ticket.subject)}<small>${esc(formatDate(ticket.updated_at || ticket.created_at))}</small></b><span>${esc(ticket.id)} · ${Number(ticket.message_count || 0)} message${Number(ticket.message_count || 0) === 1 ? '' : 's'}</span></span>
+    <span class="badge ${priorityTone(ticket.priority)} s">${esc(ticket.priority)}</span>
+    <span class="badge ${statusTone(ticket.status)} s">${esc(ticket.status.replace('_', ' '))}</span>
+    ${hero('chevron', 's')}
+  </a>`;
 }
 
 export async function renderTickets(): Promise<void> {
   const host = document.getElementById('ticketsList');
   if (!host) return;
-
   host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading support conversations…</span></div>`;
-
   try {
-    const { tickets } = await api<{ tickets: any[] }>('/api/v1/tickets');
-    host.className = 'col';
-    host.style.gap = '8px';
-
+    const { tickets } = await api<{ tickets: Ticket[] }>('/api/v1/tickets');
+    ticketCache = tickets;
     if (!tickets.length) {
-      host.innerHTML = renderEmptyState({
-        icon: 'support',
-        title: 'No support conversations',
-        message: 'When you open a ticket, its account-scoped thread will appear here.',
-        actionHtml: `<button class="btn s tint" type="button" data-open-ticket>${hero('plus', 's')}Open ticket</button>`,
-      });
+      host.innerHTML = renderEmptyState({ icon: 'support', title: 'No support conversations', message: 'Open a ticket when you need help with an account or service.', actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new">${hero('plus', 's')}Open ticket</a>` });
       return;
     }
-
-    host.innerHTML = tickets
-      .map((ticket) => {
-        const priorityClass = ticket.priority === 'URGENT' ? 'bad' : ticket.priority === 'HIGH' ? 'warn' : '';
-        const stateClass = ['OPEN', 'WAITING_STAFF'].includes(ticket.status)
-          ? 'info'
-          : ticket.status === 'RESOLVED'
-          ? 'good'
-          : '';
-        return `
-          <button type="button" class="li card s2" data-ticket-id="${esc(ticket.id)}">
-            <span class="ico-b ${priorityClass || 'accent'}">${hero('support')}</span>
-            <span class="tx">
-              <b>${esc(ticket.subject)}</b>
-              <span>${esc(formatDate(ticket.updated_at || ticket.created_at))}</span>
-            </span>
-            <span class="badge ${priorityClass} s">${esc(ticket.priority)}</span>
-            <span class="badge ${stateClass} s">${esc(ticket.status)}</span>
-          </button>
-        `;
-      })
-      .join('');
+    host.className = 'z-cl support-ticket-list';
+    host.innerHTML = tickets.map(ticketRow).join('');
+    filterTickets();
   } catch (error: any) {
     host.innerHTML = `<div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div>`;
   }
 }
 
-export async function openTicketModal(id: string): Promise<void> {
-  activeTicketId = id;
-  const modal = document.getElementById('ticketModal');
-  const host = document.getElementById('modalTicketMessages');
-  const attHost = document.getElementById('modalTicketAttachments');
+export function filterTickets(): void {
+  const query = (document.getElementById('ticketSearch') as HTMLInputElement | null)?.value.trim().toLowerCase() || '';
+  const status = (document.querySelector<HTMLInputElement>('input[name="ticketStatus"]:checked')?.value || 'ALL').toUpperCase();
+  let visible = 0;
+  document.querySelectorAll<HTMLElement>('.support-ticket-row').forEach((row) => {
+    const rowStatus = row.dataset.ticketStatus || '';
+    const matches = (!query || (row.dataset.ticketSearch || '').includes(query)) && (status === 'ALL' || (status === 'OPEN' ? ['OPEN', 'WAITING_STAFF', 'WAITING_CUSTOMER'].includes(rowStatus) : rowStatus === status));
+    row.hidden = !matches;
+    if (matches) visible++;
+  });
+  const count = document.getElementById('ticketResultCount');
+  if (count) count.textContent = ticketCache.length ? `${visible} of ${ticketCache.length} conversations` : '';
+}
 
-  if (modal) modal.hidden = false;
-  if (host) host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading conversation…</span></div>`;
-  if (attHost) attHost.innerHTML = '';
+function fileDrop(inputId: string, labelId: string): string {
+  return `<div class="field"><span class="lbl">Attachment <small class="muted">optional · max 5 MB</small></span><label class="drop support-drop" tabindex="0" role="button" for="${inputId}">${hero('document', 'l')}<b>Drop a file here or browse</b><small>PNG, JPEG, GIF, WebP, PDF, text, JSON or ZIP</small><input id="${inputId}" type="file" accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/markdown,application/pdf,application/json,application/zip" hidden><span id="${labelId}" class="support-file-label"></span></label></div>`;
+}
 
-  const replyFile = document.getElementById('ticketReplyFileInput') as HTMLInputElement | null;
-  if (replyFile) replyFile.value = '';
-  const replyLabel = document.getElementById('ticketReplyFileLabel');
-  if (replyLabel) replyLabel.textContent = '';
+export function renderNewTicket(): void {
+  const host = document.getElementById('newTicketPage');
+  if (!host) return;
+  host.innerHTML = `<div class="support-form-layout">
+    <form id="createTicketPageForm" class="card support-form" novalidate>
+      <div class="section-card-head"><span class="ico-b accent">${hero('support')}</span><div class="tx"><h2>Tell us what happened</h2><p>Include the affected service, timing and current impact. Markdown is stored safely.</p></div></div>
+      <div class="field"><label for="ticketSubject">Subject</label><div class="inp"><input id="ticketSubject" name="subject" required minlength="3" maxlength="160" autocomplete="off" placeholder="e.g. Instance cannot start"></div></div>
+      <fieldset class="field"><legend class="lbl">Priority</legend><div class="seg block support-priority" role="radiogroup">${['LOW', 'NORMAL', 'HIGH', 'URGENT'].map((value) => `<label><input type="radio" name="ticketPriority" value="${value}"${value === 'NORMAL' ? ' checked' : ''}><span>${value[0]}${value.slice(1).toLowerCase()}</span></label>`).join('')}</div></fieldset>
+      <div class="field"><span class="lbl">Detailed message</span>${petalRichTextEditor('newTicketEditor', 'Detailed message', 'Describe what happened, when it started, and what is affected…')}</div>
+      ${fileDrop('newTicketFileInput', 'newTicketFileLabel')}
+      <div id="ticketFormError" class="err" role="alert" hidden></div>
+      <div class="support-form-actions"><a class="btn sec" href="/app/support" data-app-route="tickets">Cancel</a><button type="submit" class="btn" id="submitTicketBtn">${hero('paper', 's')}Open ticket</button></div>
+    </form>
+    <aside class="card support-help"><span class="ico-b info">${hero('document')}</span><h3>Useful details</h3><ul><li>Service name or identifier</li><li>When the issue started</li><li>Exact error message</li><li>Steps already attempted</li></ul><p class="truth-note">Do not include passwords, recovery codes or private keys.</p></aside>
+  </div>`;
+}
 
+function attachmentMarkup(ticketId: string, attachments: Attachment[]): string {
+  if (!attachments.length) return '';
+  return `<div class="att-list">${attachments.map((att) => `<a href="/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip">${hero('document', 'xs')}<span class="name">${esc(att.filename)}</span><span class="sz">${formatBytes(att.byte_size)}</span></a>`).join('')}</div>`;
+}
+
+export async function renderTicketDetail(id: string): Promise<void> {
+  const host = document.getElementById('ticketDetailPage');
+  if (!host) return;
+  host.innerHTML = `<div class="state-message">${hero('refresh')}<span>Loading conversation…</span></div>`;
   try {
-    const data = await api<{ ticket: any; messages: any[]; attachments?: any[] }>(
-      `/api/v1/tickets/${encodeURIComponent(id)}`
-    );
-
-    const subEl = document.getElementById('modalTicketSubject');
-    const metaEl = document.getElementById('modalTicketMeta');
-    if (subEl) subEl.textContent = data.ticket.subject;
-    if (metaEl) metaEl.textContent = `${data.ticket.priority} · ${data.ticket.status}`;
-
-    if (host) {
-      host.className = 'message-list';
-      host.innerHTML =
-        data.messages
-          .map(
-            (item) => `
-          <div class="message ${item.is_staff ? 'staff' : ''}">
-            <small>${esc(item.is_staff ? item.author_name || 'Support' : 'You')} · ${esc(formatDate(item.created_at))}</small>
-            <div class="bubble">${renderMarkdown(item.body)}</div>
-          </div>
-        `
-          )
-          .join('') || '<div class="muted">No messages.</div>';
-    }
-
-    if (attHost && data.attachments && data.attachments.length) {
-      attHost.innerHTML =
-        `<small class="muted" style="display:block;margin-bottom:6px">Attachments (${data.attachments.length}):</small>` +
-        data.attachments
-          .map(
-            (att) => `
-            <a href="/api/v1/tickets/${encodeURIComponent(id)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip">
-              ${hero('document', 'xs')}
-              <span class="name">${esc(att.filename)}</span>
-              <span class="sz">${formatBytes(att.byte_size)}</span>
-            </a>
-          `
-          )
-          .join('');
-    }
+    const data = await api<{ ticket: Ticket; messages: any[]; attachments: Attachment[] }>(`/api/v1/tickets/${encodeURIComponent(id)}`);
+    const closed = data.ticket.status === 'CLOSED';
+    host.innerHTML = `<nav class="support-breadcrumb" aria-label="Breadcrumb"><a href="/app/support" data-app-route="tickets">Support</a>${hero('chevron', 'xs')}<span>${esc(data.ticket.id)}</span></nav>
+      <div class="support-thread-layout">
+        <article class="card support-thread">
+          <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="badge ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="badge ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace('_', ' '))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} · Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
+          <div class="support-messages">${data.messages.map((message) => `<article class="support-message ${message.is_staff ? 'staff' : 'customer'}"><div class="support-message-author"><span class="av s">${esc((message.author_name || (message.is_staff ? 'Support' : 'You')).slice(0, 2).toUpperCase())}</span><div><b>${esc(message.is_staff ? message.author_name || 'Fortless support' : message.author_name || 'You')}</b><small>${message.is_staff ? 'Fortless support' : 'Customer'} · ${esc(formatDate(message.created_at))}</small></div></div><div class="support-message-body">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></article>`).join('')}</div>
+          ${closed ? `<div class="state-message warn">${hero('warning')}<span>This ticket is closed. New replies are disabled.</span></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor('ticketReplyEditor', 'Ticket reply', 'Write a reply…')}${fileDrop('ticketReplyFileInput', 'ticketReplyFileLabel')}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero('paper', 's')}Send reply</button></div></form>`}
+        </article>
+        <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="badge ${statusTone(data.ticket.status)} s">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="badge ${priorityTone(data.ticket.priority)} s">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>
+      </div>`;
   } catch (error: any) {
-    if (host) host.innerHTML = `<div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div>`;
+    host.innerHTML = `<div class="state-message bad">${hero('warning')}<span>${esc(error.message)}</span></div><a class="btn sec s" href="/app/support" data-app-route="tickets">Back to support</a>`;
   }
 }
 
-export async function sendReply(): Promise<void> {
-  if (!activeTicketId) return;
-  const field = document.getElementById('modalTicketReply') as HTMLTextAreaElement | null;
-  const body = field?.value.trim() || '';
-  const fileInput = document.getElementById('ticketReplyFileInput') as HTMLInputElement | null;
-  const btn = document.getElementById('sendReplyBtn') as HTMLButtonElement | null;
-
-  if (!body && (!fileInput || !fileInput.files || !fileInput.files.length)) return;
-  if (btn) btn.disabled = true;
-
-  try {
-    if (body) {
-      await api(`/api/v1/tickets/${encodeURIComponent(activeTicketId)}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
-      });
-    }
-
-    if (fileInput && fileInput.files?.[0]) {
-      const file = fileInput.files[0];
-      const reader = new FileReader();
-      await new Promise<void>((resolve, reject) => {
-        reader.onload = async () => {
-          try {
-            const base64 = String(reader.result || '').split(',')[1];
-            await api(`/api/v1/tickets/${encodeURIComponent(activeTicketId!)}/attachments`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                filename: file.name,
-                contentType: file.type || 'application/octet-stream',
-                dataBase64: base64,
-              }),
-            });
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      fileInput.value = '';
-      const replyFileLabel = document.getElementById('ticketReplyFileLabel');
-      if (replyFileLabel) replyFileLabel.textContent = '';
-    }
-
-    if (field) field.value = '';
-    toast('Reply added.', 'good');
-    await openTicketModal(activeTicketId);
-  } catch (error: any) {
-    toast(error.message, 'bad');
-  } finally {
-    if (btn) btn.disabled = false;
-  }
+async function fileAsBase64(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '').split(',')[1] || ''); reader.onerror = () => reject(reader.error || new Error('Could not read the selected file.')); reader.readAsDataURL(file); });
 }
 
-export async function createTicket(event: Event): Promise<void> {
+async function uploadAttachment(ticketId: string, file: File, messageId?: string): Promise<void> {
+  const dataBase64 = await fileAsBase64(file);
+  await api(`/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream', dataBase64, messageId }) });
+}
+
+export async function createTicket(event: Event, navigate: Navigate): Promise<void> {
   event.preventDefault();
-  const form = event.currentTarget as HTMLFormElement;
-  const errorHost = document.getElementById('ticketFormError') as HTMLElement;
+  const form = event.target as HTMLFormElement;
+  const subject = (form.elements.namedItem('subject') as HTMLInputElement).value.trim();
+  const priority = String(new FormData(form).get('ticketPriority') || 'NORMAL');
+  const message = editorMarkdown('newTicketEditor');
+  const file = (document.getElementById('newTicketFileInput') as HTMLInputElement | null)?.files?.[0];
+  const error = document.getElementById('ticketFormError')!;
   const submit = document.getElementById('submitTicketBtn') as HTMLButtonElement;
-  const subject = (document.getElementById('ticketSubject') as HTMLInputElement).value.trim();
-  const messageBody = (document.getElementById('ticketMessage') as HTMLTextAreaElement).value.trim();
-  const priority = (new FormData(form).get('ticketPriority') as string) || 'NORMAL';
-  const fileInput = document.getElementById('newTicketFileInput') as HTMLInputElement | null;
-
-  errorHost.hidden = true;
-  if (subject.length < 3 || messageBody.length < 5) {
-    errorHost.textContent = 'Add a clear subject and at least five characters of detail.';
-    errorHost.hidden = false;
-    return;
-  }
-
-  const payload = { subject, priority, message: messageBody };
+  error.hidden = true;
+  if (subject.length < 3 || message.length < 5) { error.textContent = 'Add a clear subject and at least five characters of detail.'; error.hidden = false; return; }
   submit.disabled = true;
-  submit.classList.add('load');
-
   try {
-    const created = await api<{ ticketId: string }>('/api/v1/tickets', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    const created = await api<{ ticketId: string; messageId: string }>('/api/v1/tickets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, priority, message }) });
+    if (file) { try { await uploadAttachment(created.ticketId, file, created.messageId); } catch (uploadError: any) { toast(`Ticket opened, but attachment failed: ${uploadError.message}`, 'warn'); navigate(`/app/support/${created.ticketId}`); return; } }
+    form.reset(); resetEditor('newTicketEditor'); toast('Ticket opened.', 'good'); navigate(`/app/support/${created.ticketId}`);
+  } catch (requestError: any) { error.textContent = requestError.message; error.hidden = false; }
+  finally { submit.disabled = false; }
+}
 
-    if (fileInput && fileInput.files?.[0]) {
-      const file = fileInput.files[0];
-      const reader = new FileReader();
-      await new Promise<void>((resolve, reject) => {
-        reader.onload = async () => {
-          try {
-            const base64 = String(reader.result || '').split(',')[1];
-            await api(`/api/v1/tickets/${encodeURIComponent(created.ticketId)}/attachments`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                filename: file.name,
-                contentType: file.type || 'application/octet-stream',
-                dataBase64: base64,
-              }),
-            });
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      fileInput.value = '';
-      const newFileLabel = document.getElementById('newTicketFileLabel');
-      if (newFileLabel) newFileLabel.textContent = '';
-    }
+export async function sendReply(event: Event): Promise<void> {
+  event.preventDefault();
+  const form = event.target as HTMLFormElement;
+  const ticketId = form.dataset.ticketId || '';
+  const message = editorMarkdown('ticketReplyEditor');
+  const fileInput = document.getElementById('ticketReplyFileInput') as HTMLInputElement | null;
+  const file = fileInput?.files?.[0];
+  const error = document.getElementById('ticketReplyError')!;
+  const submit = document.getElementById('sendReplyBtn') as HTMLButtonElement;
+  error.hidden = true;
+  if (!message && !file) { error.textContent = 'Write a reply or choose an attachment.'; error.hidden = false; return; }
+  submit.disabled = true;
+  let messageId: string | undefined;
+  try {
+    if (message) { const response = await api<{ messageId: string }>(`/api/v1/tickets/${encodeURIComponent(ticketId)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: message }) }); messageId = response.messageId; resetEditor('ticketReplyEditor'); }
+    if (file) { try { await uploadAttachment(ticketId, file, messageId); } catch (uploadError: any) { error.textContent = `${message ? 'Reply was saved, but ' : ''}attachment failed: ${uploadError.message}`; error.hidden = false; toast('Attachment upload failed.', 'warn'); return; } }
+    resetEditor('ticketReplyEditor'); if (fileInput) fileInput.value = ''; toast('Reply added.', 'good'); await renderTicketDetail(ticketId);
+  } catch (requestError: any) { error.textContent = requestError.message; error.hidden = false; }
+  finally { submit.disabled = false; }
+}
 
-    const newTicketModal = document.getElementById('newTicketModal');
-    if (newTicketModal) newTicketModal.hidden = true;
-    form.reset();
-    toast('Ticket opened.', 'good');
-    await renderTickets();
-    await openTicketModal(created.ticketId);
-  } catch (error: any) {
-    errorHost.textContent = error.message;
-    errorHost.hidden = false;
-  } finally {
-    submit.disabled = false;
-    submit.classList.remove('load');
-  }
+export function updateFileLabel(input: HTMLInputElement): void {
+  const labelId = input.id === 'newTicketFileInput' ? 'newTicketFileLabel' : 'ticketReplyFileLabel';
+  const label = document.getElementById(labelId);
+  const file = input.files?.[0];
+  if (label) label.textContent = file ? `${file.name} · ${formatBytes(file.size)}` : '';
 }

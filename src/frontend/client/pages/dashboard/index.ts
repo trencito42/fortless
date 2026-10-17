@@ -1,13 +1,13 @@
 /**
- * Customer Portal — Services Dashboard Page Module
- * Route: /app
+ * Customer Portal — Services Inventory Page Module
+ * Route: /app/services
  */
 
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
-import { hero, spark, renderEmptyState, toast } from '../../../petal/index.js';
+import { hero, renderEmptyState, toast } from '../../../petal/index.js';
 
-export async function renderDashboard(): Promise<void> {
+export async function renderServices(): Promise<void> {
   const host = document.getElementById('serversContainer');
   if (!host) return;
 
@@ -28,18 +28,6 @@ export async function renderDashboard(): Promise<void> {
     if (statTotal) statTotal.textContent = String(services.length);
     if (statRam) statRam.textContent = `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`;
     if (statCpu) statCpu.textContent = `${cpu}%`;
-
-    // Render Petal sparklines
-    document.querySelectorAll('#section-servers .stat .spark').forEach((s) => s.remove());
-    const sRunning = spark([Math.max(0, running - 1), running, running, running], 'var(--good)');
-    const sTotal = spark([Math.max(0, services.length - 1), services.length, services.length], 'var(--accent)');
-    const sRam = spark([Math.max(0, memory * 0.8), memory * 0.9, memory], 'var(--violet)');
-    const sCpu = spark([Math.max(0, cpu * 0.7), cpu * 0.85, cpu], 'var(--warn)');
-
-    statRunning?.insertAdjacentHTML('afterend', sRunning);
-    statTotal?.insertAdjacentHTML('afterend', sTotal);
-    statRam?.insertAdjacentHTML('afterend', sRam);
-    statCpu?.insertAdjacentHTML('afterend', sCpu);
 
     if (!services.length) {
       host.innerHTML = renderEmptyState({
@@ -116,7 +104,7 @@ export async function powerService(id: string, action: string, button: HTMLButto
       body: JSON.stringify({ action }),
     });
     toast(`Runtime state: ${data.runtimeState}`, 'good');
-    await renderDashboard();
+    await renderServices();
   } catch (error: any) {
     toast(error.message, 'bad');
     button.disabled = false;

@@ -7,10 +7,16 @@ export interface RouteDefinition {
 }
 
 export const CLIENT_ROUTES: Record<string, RouteDefinition> = {
-  servers: {
-    id: 'servers',
+  dashboard: {
+    id: 'dashboard',
     path: '/app',
-    title: 'Services · FORTLESS',
+    title: 'Dashboard · FORTLESS',
+    subtitle: 'Workspace overview and current account activity.',
+  },
+  services: {
+    id: 'services',
+    path: '/app/services',
+    title: 'Servers & Instances · FORTLESS',
     subtitle: 'Provider-observed runtime records for this account.',
   },
   deploy: {
@@ -37,6 +43,19 @@ export const CLIENT_ROUTES: Record<string, RouteDefinition> = {
     title: 'Support Conversations · FORTLESS',
     subtitle: 'Account-scoped support conversations. No response-time or staffing claim is implied.',
   },
+  'ticket-new': {
+    id: 'ticket-new',
+    path: '/app/support/new',
+    title: 'Open Support Ticket · FORTLESS',
+    subtitle: 'Create an account-scoped support conversation.',
+  },
+  'ticket-detail': {
+    id: 'ticket-detail',
+    path: '/app/support/:id',
+    title: 'Support Conversation · FORTLESS',
+    subtitle: 'Account-scoped support conversation.',
+    pattern: /^\/app\/support\/(?<id>[^/]+)$/,
+  },
   audit: {
     id: 'audit',
     path: '/app/activity',
@@ -54,7 +73,7 @@ export const CLIENT_ROUTES: Record<string, RouteDefinition> = {
     path: '/app/services/:id',
     title: 'Service Detail · FORTLESS',
     subtitle: 'Node and connection telemetry.',
-    pattern: /^\/app\/services\/([^/]+)$/,
+    pattern: /^\/app\/services\/(?<id>[^/]+)$/,
   },
 };
 

@@ -102,9 +102,10 @@
       return null;
     }
     updateActiveLinks(activeId) {
+      const navId = activeId === "service-detail" ? "services" : activeId === "ticket-detail" || activeId === "ticket-new" ? "tickets" : activeId;
       document.querySelectorAll("[data-app-route], [data-route]").forEach((el) => {
         const rId = el.dataset.appRoute || el.dataset.route;
-        if (rId === activeId) {
+        if (rId === navId) {
           el.setAttribute("aria-current", "page");
           el.classList.add("act");
         } else {
@@ -112,15 +113,27 @@
           el.classList.remove("act");
         }
       });
+      const more = document.getElementById("mobileMoreBtn");
+      if (more) {
+        const isOverflowRoute = ["domains", "billing", "audit", "settings"].includes(navId);
+        more.toggleAttribute("aria-current", isOverflowRoute);
+        more.classList.toggle("act", isOverflowRoute);
+      }
     }
   };
 
   // src/frontend/core/router/routes.ts
   var CLIENT_ROUTES = {
-    servers: {
-      id: "servers",
+    dashboard: {
+      id: "dashboard",
       path: "/app",
-      title: "Services \xB7 FORTLESS",
+      title: "Dashboard \xB7 FORTLESS",
+      subtitle: "Workspace overview and current account activity."
+    },
+    services: {
+      id: "services",
+      path: "/app/services",
+      title: "Servers & Instances \xB7 FORTLESS",
       subtitle: "Provider-observed runtime records for this account."
     },
     deploy: {
@@ -147,6 +160,19 @@
       title: "Support Conversations \xB7 FORTLESS",
       subtitle: "Account-scoped support conversations. No response-time or staffing claim is implied."
     },
+    "ticket-new": {
+      id: "ticket-new",
+      path: "/app/support/new",
+      title: "Open Support Ticket \xB7 FORTLESS",
+      subtitle: "Create an account-scoped support conversation."
+    },
+    "ticket-detail": {
+      id: "ticket-detail",
+      path: "/app/support/:id",
+      title: "Support Conversation \xB7 FORTLESS",
+      subtitle: "Account-scoped support conversation.",
+      pattern: /^\/app\/support\/(?<id>[^/]+)$/
+    },
     audit: {
       id: "audit",
       path: "/app/activity",
@@ -164,7 +190,7 @@
       path: "/app/services/:id",
       title: "Service Detail \xB7 FORTLESS",
       subtitle: "Node and connection telemetry.",
-      pattern: /^\/app\/services\/([^/]+)$/
+      pattern: /^\/app\/services\/(?<id>[^/]+)$/
     }
   };
 
@@ -327,36 +353,6 @@
     const path = heroPaths[name] || heroPaths.cube;
     const classes = ["ic", size, "hero-icon"].filter(Boolean).join(" ");
     return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
-  }
-
-  // src/frontend/petal/components/sparklines.ts
-  function smooth(points) {
-    if (!points || points.length < 2) return "";
-    const first = points[0];
-    if (!first) return "";
-    let d = `M${first[0]} ${first[1]}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[i - 1] || points[i];
-      const b = points[i];
-      const c = points[i + 1];
-      const e = points[i + 2] || c;
-      d += `C${b[0] + (c[0] - a[0]) / 6} ${b[1] + (c[1] - a[1]) / 6} ${c[0] - (e[0] - b[0]) / 6} ${c[1] - (e[1] - b[1]) / 6} ${c[0]} ${c[1]}`;
-    }
-    return d;
-  }
-  function spark(vals, color = "var(--accent)", fill = true) {
-    if (!vals || vals.length < 2) return "";
-    const W = 120;
-    const H = 36;
-    const mx = Math.max(...vals);
-    const mn = Math.min(...vals);
-    const n = vals.length;
-    const points = vals.map((v, i) => [
-      i / (n - 1) * W,
-      H - 4 - (v - mn) / (mx - mn || 1) * (H - 10)
-    ]);
-    const d = smooth(points);
-    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${fill === false ? "" : `<path d="${d}L${W} ${H}L0 ${H}Z" fill="${color}" opacity=".12"/>`}<path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
   }
 
   // src/frontend/core/utils/dom.ts
@@ -621,6 +617,109 @@
     }
   };
 
+  // src/frontend/petal/components/rich-text-editor.ts
+  var tool = (command, icon, label) => `<button type="button" class="btn sq s ghost" data-rcmd="${esc(command)}" aria-label="${esc(label)}" title="${esc(label)}"><svg class="ic s" aria-hidden="true"><use href="#i-${esc(icon)}"/></svg></button>`;
+  function petalRichTextEditor(id, label, placeholder) {
+    return `<div class="rte" data-rte="${esc(id)}">
+    <div class="rtb" data-rtb role="toolbar" aria-label="${esc(label)} formatting">
+      ${tool("bold", "text-bold", "Bold")}
+      ${tool("italic", "text-italic", "Italic")}
+      <i aria-hidden="true"></i>
+      ${tool("insertUnorderedList", "left-to-right-list-bullet", "Bulleted list")}
+      ${tool("formatBlock:blockquote", "quote", "Quote")}
+      ${tool("formatBlock:pre", "source-code", "Code block")}
+      <i aria-hidden="true"></i>
+      ${tool("createLink", "link-02", "Add link")}
+    </div>
+    <div id="${esc(id)}" class="rta" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(label)}" data-placeholder="${esc(placeholder)}" spellcheck="true"><p><br></p></div>
+  </div>`;
+  }
+  function safeHref(value) {
+    try {
+      const url = new URL(value, window.location.origin);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      return value.startsWith("/") ? `${url.pathname}${url.search}${url.hash}` : url.href;
+    } catch {
+      return null;
+    }
+  }
+  function inlineMarkdown(node) {
+    if (node.nodeType === Node.TEXT_NODE) return (node.textContent || "").replace(/([\\`*_\[\]])/g, "\\$1");
+    if (!(node instanceof HTMLElement)) return "";
+    const body = Array.from(node.childNodes).map(inlineMarkdown).join("");
+    switch (node.tagName) {
+      case "B":
+      case "STRONG":
+        return `**${body}**`;
+      case "I":
+      case "EM":
+        return `*${body}*`;
+      case "CODE":
+        return `\`${body.replace(/`/g, "\\`")}\``;
+      case "A": {
+        const href = safeHref(node.getAttribute("href") || "");
+        return href ? `[${body}](${href})` : body;
+      }
+      case "BR":
+        return "\n";
+      default:
+        return body;
+    }
+  }
+  function blockMarkdown(node) {
+    if (node.nodeType === Node.TEXT_NODE) return inlineMarkdown(node);
+    if (!(node instanceof HTMLElement)) return "";
+    if (node.tagName === "UL" || node.tagName === "OL") {
+      return Array.from(node.children).map((li, index) => `${node.tagName === "OL" ? `${index + 1}.` : "-"} ${inlineMarkdown(li).trim()}`).join("\n");
+    }
+    if (node.tagName === "BLOCKQUOTE") return inlineMarkdown(node).split("\n").map((line) => `> ${line}`).join("\n");
+    if (node.tagName === "PRE") return `\`\`\`
+${node.textContent || ""}
+\`\`\``;
+    return inlineMarkdown(node).trim();
+  }
+  function editorMarkdown(id) {
+    const editor = document.getElementById(id);
+    if (!editor) return "";
+    return Array.from(editor.childNodes).map(blockMarkdown).filter(Boolean).join("\n\n").trim();
+  }
+  function resetEditor(id) {
+    const editor = document.getElementById(id);
+    if (editor) editor.innerHTML = "<p><br></p>";
+  }
+  function installRichTextEditors(root = document) {
+    const onMouseDown = (event) => {
+      const button = event.target.closest("[data-rcmd]");
+      if (button && root.contains(button)) event.preventDefault();
+    };
+    const onClick = (event) => {
+      const button = event.target.closest("[data-rcmd]");
+      if (!button || !root.contains(button)) return;
+      const editor = button.closest("[data-rte]")?.querySelector(".rta");
+      if (!editor) return;
+      editor.focus();
+      const command = button.dataset.rcmd || "";
+      if (command === "createLink") {
+        const requested = window.prompt("Paste an https:// link");
+        const href = requested ? safeHref(requested.trim()) : null;
+        if (href) document.execCommand("createLink", false, href);
+        return;
+      }
+      if (command.includes(":")) {
+        const [name, value] = command.split(":", 2);
+        if (name) document.execCommand(name, false, value || "");
+      } else {
+        document.execCommand(command, false);
+      }
+    };
+    root.addEventListener("mousedown", onMouseDown);
+    root.addEventListener("click", onClick);
+    return () => {
+      root.removeEventListener("mousedown", onMouseDown);
+      root.removeEventListener("click", onClick);
+    };
+  }
+
   // src/frontend/core/utils/dates.ts
   function formatDate(value) {
     if (!value) return "\u2014";
@@ -736,6 +835,7 @@
     }
     installHeroicons() {
       const targets = [
+        ["#nav-dashboard .ic, #tab-dashboard .ic", "home"],
         ["#nav-servers .ic, #tab-servers .ic", "servers"],
         ["#nav-deploy .ic, #tab-deploy .ic", "plus"],
         ["#nav-billing .ic, #tab-billing .ic", "credit"],
@@ -750,9 +850,6 @@
         document.querySelectorAll(selector).forEach((node) => {
           node.outerHTML = hero(icon, node.classList.contains("s") ? "s" : "");
         });
-      });
-      document.querySelectorAll('#ticketModal button[onclick*="close"], #newTicketModal [data-close-new-ticket][aria-label]').forEach((button) => {
-        button.innerHTML = hero("x", "s");
       });
     }
     installResponsiveComposition() {
@@ -776,7 +873,7 @@
       }
     }
     rewriteTruthfulCopy() {
-      const sH2 = document.querySelector("#section-servers .card.flat h2");
+      const sH2 = document.querySelector("#section-services .card.flat h2");
       if (sH2) sH2.textContent = "Services";
       const tH2 = document.querySelector("#section-tickets h2");
       if (tH2) tH2.textContent = "Support conversations";
@@ -965,7 +1062,7 @@
                 <small class="faint" style="font-size:11px">${formatDate(n.createdAt)}</small>
               </div>
               <p style="font-size:12px;color:var(--ink2);margin:0 0 6px">${esc(n.message)}</p>
-              ${n.linkUrl ? `<a href="${esc(n.linkUrl)}" data-app-route="${n.linkUrl.includes("services") ? "service-detail" : "servers"}" style="font-size:11px;color:var(--accent);font-weight:600">View details \u2192</a>` : ""}
+              ${n.linkUrl ? `<a href="${esc(n.linkUrl)}" data-app-route="${n.linkUrl.includes("services") ? "service-detail" : "dashboard"}" style="font-size:11px;color:var(--accent);font-weight:600">View details \u2192</a>` : ""}
             </div>
           `
             ).join("");
@@ -976,8 +1073,73 @@
     }
   };
 
+  // src/frontend/core/utils/formatting.ts
+  function money(minorUnits, currency = "EUR") {
+    const val = Number(minorUnits) || 0;
+    return new Intl.NumberFormat(void 0, {
+      style: "currency",
+      currency
+    }).format(val / 100);
+  }
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i] || "B"}`;
+  }
+  function compactId(value) {
+    const text = String(value || "\u2014");
+    return text.length > 22 ? `${text.slice(0, 10)}\u2026${text.slice(-6)}` : text;
+  }
+
+  // src/frontend/client/pages/home/index.ts
+  async function renderHome() {
+    const host = document.getElementById("dashboardOverview");
+    if (!host) return;
+    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading workspace overview\u2026</span></div>`;
+    const [serviceResult, ticketResult, invoiceResult, auditResult] = await Promise.allSettled([
+      api("/api/v1/services"),
+      api("/api/v1/tickets"),
+      api("/api/v1/invoices"),
+      api("/api/v1/audit")
+    ]);
+    const services = serviceResult.status === "fulfilled" ? serviceResult.value.services : [];
+    const tickets = ticketResult.status === "fulfilled" ? ticketResult.value.tickets : [];
+    const invoices = invoiceResult.status === "fulfilled" ? invoiceResult.value.invoices : [];
+    const logs = auditResult.status === "fulfilled" ? auditResult.value.logs : [];
+    const openTickets = tickets.filter((item) => !["RESOLVED", "CLOSED"].includes(item.status));
+    const outstanding = invoices.filter((item) => ["DRAFT", "OPEN", "PENDING", "OVERDUE"].includes(item.status));
+    const currency = invoices[0]?.currency || "EUR";
+    const outstandingTotal = outstanding.reduce((sum, item) => sum + Number(item.total_minor_units || 0), 0);
+    const failures = [serviceResult, ticketResult, invoiceResult, auditResult].filter((item) => item.status === "rejected").length;
+    host.innerHTML = `${failures ? `<div class="state-message warn">${hero("warning")}<span>${failures} dashboard source${failures === 1 ? "" : "s"} could not be loaded. Available records are shown below.</span></div>` : ""}
+    <div class="dashboard-welcome"><div><span class="badge accent s">Workspace overview</span><h2>Your infrastructure at a glance.</h2><p>Real account, service, billing and support records\u2014without simulated telemetry.</p></div><div class="row wrap"><a class="btn sec s" href="/app/support/new" data-app-route="ticket-new">${hero("support", "s")}Open ticket</a><a class="btn s" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}Deploy service</a></div></div>
+    <div class="grid g4 keep2 dashboard-metrics">
+      ${metric("Active services", services.filter((item) => item.contract_status === "ACTIVE").length, "servers", "good")}
+      ${metric("Total services", services.length, "cube", "accent")}
+      ${metric("Open tickets", openTickets.length, "support", openTickets.length ? "warn" : "good")}
+      ${metric("Outstanding", money(outstandingTotal, currency), "credit", outstandingTotal ? "warn" : "good")}
+    </div>
+    ${!services.length ? `<div class="card dashboard-onboarding">${renderEmptyState({ icon: "servers", title: "Start with your first service", message: "Browse the real catalog. Checkout remains unavailable until payment and provider verification pass.", actionHtml: `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>` })}</div>` : ""}
+    <div class="dashboard-columns">
+      ${panel("My services", "Provider-observed contract and runtime state.", "/app/services", "View all services", services.slice(0, 4).map((item) => `<a class="li card s2" href="/app/services/${esc(item.id)}" data-app-route="service-detail"><span class="ico-b ${item.runtime_state === "RUNNING" ? "good" : "info"}">${hero("servers")}</span><span class="tx"><b>${esc(item.plan_name || "Hosting service")}</b><span>${esc(item.node_name || item.node_id || "No node assigned")}</span></span><span class="badge s">${esc(item.contract_status)}</span>${hero("chevron", "s")}</a>`).join("") || emptyLine("No services yet"))}
+      ${panel("Support", "Recent account conversations.", "/app/support", "View support", tickets.slice(0, 4).map((item) => `<a class="li card s2" href="/app/support/${esc(item.id)}" data-app-route="ticket-detail"><span class="ico-b accent">${hero("support")}</span><span class="tx"><b>${esc(item.subject)}</b><span>${esc(formatDate(item.updated_at || item.created_at))}</span></span><span class="badge s">${esc(item.status)}</span></a>`).join("") || emptyLine("No support conversations"))}
+      ${panel("Billing", "Latest issued account records.", "/app/billing", "View billing", invoices.slice(0, 4).map((item) => `<div class="li card s2"><span class="ico-b">${hero("document")}</span><span class="tx"><b>${esc(item.invoice_number || "Draft invoice")}</b><span>${esc(formatDate(item.created_at))}</span></span><b>${money(item.total_minor_units, item.currency)}</b><span class="badge s">${esc(item.status)}</span></div>`).join("") || emptyLine("No billing records"))}
+      ${panel("Recent activity", "Security-relevant account events.", "/app/activity", "View activity", logs.slice(0, 4).map((item) => `<div class="li card s2"><span class="ico-b">${hero("shield")}</span><span class="tx"><b>${esc(String(item.action || "").replaceAll(".", " \xB7 "))}</b><span>${esc(formatDate(item.created_at))}</span></span></div>`).join("") || emptyLine("No recent activity"))}
+    </div>`;
+  }
+  function metric(label, value, icon, tone) {
+    return `<div class="card metric-card"><div><span class="metric-label">${esc(label)}</span><strong class="metric-value">${esc(String(value))}</strong></div><span class="ico-b ${tone}">${hero(icon)}</span></div>`;
+  }
+  function emptyLine(text) {
+    return `<div class="state-message"><span>${esc(text)}</span></div>`;
+  }
+  function panel(title, description, href, action, body) {
+    return `<section class="card dashboard-panel"><div class="section-card-head"><div class="tx"><h3>${esc(title)}</h3><p>${esc(description)}</p></div><a class="btn sec xs" href="${href}" data-app-route>${esc(action)}</a></div><div class="col" style="gap:7px">${body}</div></section>`;
+  }
+
   // src/frontend/client/pages/dashboard/index.ts
-  async function renderDashboard() {
+  async function renderServices() {
     const host = document.getElementById("serversContainer");
     if (!host) return;
     host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading services\u2026</span></div>`;
@@ -994,15 +1156,6 @@
       if (statTotal) statTotal.textContent = String(services.length);
       if (statRam) statRam.textContent = `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`;
       if (statCpu) statCpu.textContent = `${cpu}%`;
-      document.querySelectorAll("#section-servers .stat .spark").forEach((s) => s.remove());
-      const sRunning = spark([Math.max(0, running - 1), running, running, running], "var(--good)");
-      const sTotal = spark([Math.max(0, services.length - 1), services.length, services.length], "var(--accent)");
-      const sRam = spark([Math.max(0, memory * 0.8), memory * 0.9, memory], "var(--violet)");
-      const sCpu = spark([Math.max(0, cpu * 0.7), cpu * 0.85, cpu], "var(--warn)");
-      statRunning?.insertAdjacentHTML("afterend", sRunning);
-      statTotal?.insertAdjacentHTML("afterend", sTotal);
-      statRam?.insertAdjacentHTML("afterend", sRam);
-      statCpu?.insertAdjacentHTML("afterend", sCpu);
       if (!services.length) {
         host.innerHTML = renderEmptyState({
           icon: "servers",
@@ -1065,7 +1218,7 @@
         body: JSON.stringify({ action })
       });
       toast(`Runtime state: ${data.runtimeState}`, "good");
-      await renderDashboard();
+      await renderServices();
     } catch (error) {
       toast(error.message, "bad");
       button.disabled = false;
@@ -1181,25 +1334,6 @@
     } catch (error) {
       toast(error.message, "bad");
     }
-  }
-
-  // src/frontend/core/utils/formatting.ts
-  function money(minorUnits, currency = "EUR") {
-    const val = Number(minorUnits) || 0;
-    return new Intl.NumberFormat(void 0, {
-      style: "currency",
-      currency
-    }).format(val / 100);
-  }
-  function formatBytes(bytes) {
-    if (!bytes || bytes <= 0) return "0 B";
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i] || "B"}`;
-  }
-  function compactId(value) {
-    const text = String(value || "\u2014");
-    return text.length > 22 ? `${text.slice(0, 10)}\u2026${text.slice(-6)}` : text;
   }
 
   // src/frontend/client/pages/deploy/index.ts
@@ -1753,9 +1887,22 @@
   }
 
   // src/frontend/client/pages/support/index.ts
-  var activeTicketId = null;
-  function setActiveTicketId(id) {
-    activeTicketId = id;
+  var ticketCache = [];
+  function priorityTone(value) {
+    return value === "URGENT" ? "bad" : value === "HIGH" ? "warn" : value === "LOW" ? "" : "info";
+  }
+  function statusTone(value) {
+    return ["OPEN", "WAITING_STAFF"].includes(value) ? "info" : value === "RESOLVED" ? "good" : "";
+  }
+  function ticketRow(ticket) {
+    const search = `${ticket.subject} ${ticket.id} ${ticket.status} ${ticket.priority}`.toLowerCase();
+    return `<a class="z-cv support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}">
+    <span class="ico-b ${priorityTone(ticket.priority) || "accent"}">${hero("support")}</span>
+    <span class="tx"><b>${esc(ticket.subject)}<small>${esc(formatDate(ticket.updated_at || ticket.created_at))}</small></b><span>${esc(ticket.id)} \xB7 ${Number(ticket.message_count || 0)} message${Number(ticket.message_count || 0) === 1 ? "" : "s"}</span></span>
+    <span class="badge ${priorityTone(ticket.priority)} s">${esc(ticket.priority)}</span>
+    <span class="badge ${statusTone(ticket.status)} s">${esc(ticket.status.replace("_", " "))}</span>
+    ${hero("chevron", "s")}
+  </a>`;
   }
   async function renderTickets() {
     const host = document.getElementById("ticketsList");
@@ -1763,200 +1910,173 @@
     host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading support conversations\u2026</span></div>`;
     try {
       const { tickets } = await api("/api/v1/tickets");
-      host.className = "col";
-      host.style.gap = "8px";
+      ticketCache = tickets;
       if (!tickets.length) {
-        host.innerHTML = renderEmptyState({
-          icon: "support",
-          title: "No support conversations",
-          message: "When you open a ticket, its account-scoped thread will appear here.",
-          actionHtml: `<button class="btn s tint" type="button" data-open-ticket>${hero("plus", "s")}Open ticket</button>`
-        });
+        host.innerHTML = renderEmptyState({ icon: "support", title: "No support conversations", message: "Open a ticket when you need help with an account or service.", actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new">${hero("plus", "s")}Open ticket</a>` });
         return;
       }
-      host.innerHTML = tickets.map((ticket) => {
-        const priorityClass = ticket.priority === "URGENT" ? "bad" : ticket.priority === "HIGH" ? "warn" : "";
-        const stateClass = ["OPEN", "WAITING_STAFF"].includes(ticket.status) ? "info" : ticket.status === "RESOLVED" ? "good" : "";
-        return `
-          <button type="button" class="li card s2" data-ticket-id="${esc(ticket.id)}">
-            <span class="ico-b ${priorityClass || "accent"}">${hero("support")}</span>
-            <span class="tx">
-              <b>${esc(ticket.subject)}</b>
-              <span>${esc(formatDate(ticket.updated_at || ticket.created_at))}</span>
-            </span>
-            <span class="badge ${priorityClass} s">${esc(ticket.priority)}</span>
-            <span class="badge ${stateClass} s">${esc(ticket.status)}</span>
-          </button>
-        `;
-      }).join("");
+      host.className = "z-cl support-ticket-list";
+      host.innerHTML = tickets.map(ticketRow).join("");
+      filterTickets();
     } catch (error) {
       host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
     }
   }
-  async function openTicketModal(id) {
-    activeTicketId = id;
-    const modal = document.getElementById("ticketModal");
-    const host = document.getElementById("modalTicketMessages");
-    const attHost = document.getElementById("modalTicketAttachments");
-    if (modal) modal.hidden = false;
-    if (host) host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading conversation\u2026</span></div>`;
-    if (attHost) attHost.innerHTML = "";
-    const replyFile = document.getElementById("ticketReplyFileInput");
-    if (replyFile) replyFile.value = "";
-    const replyLabel = document.getElementById("ticketReplyFileLabel");
-    if (replyLabel) replyLabel.textContent = "";
+  function filterTickets() {
+    const query = document.getElementById("ticketSearch")?.value.trim().toLowerCase() || "";
+    const status = (document.querySelector('input[name="ticketStatus"]:checked')?.value || "ALL").toUpperCase();
+    let visible = 0;
+    document.querySelectorAll(".support-ticket-row").forEach((row) => {
+      const rowStatus = row.dataset.ticketStatus || "";
+      const matches = (!query || (row.dataset.ticketSearch || "").includes(query)) && (status === "ALL" || (status === "OPEN" ? ["OPEN", "WAITING_STAFF", "WAITING_CUSTOMER"].includes(rowStatus) : rowStatus === status));
+      row.hidden = !matches;
+      if (matches) visible++;
+    });
+    const count = document.getElementById("ticketResultCount");
+    if (count) count.textContent = ticketCache.length ? `${visible} of ${ticketCache.length} conversations` : "";
+  }
+  function fileDrop(inputId, labelId) {
+    return `<div class="field"><span class="lbl">Attachment <small class="muted">optional \xB7 max 5 MB</small></span><label class="drop support-drop" tabindex="0" role="button" for="${inputId}">${hero("document", "l")}<b>Drop a file here or browse</b><small>PNG, JPEG, GIF, WebP, PDF, text, JSON or ZIP</small><input id="${inputId}" type="file" accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/markdown,application/pdf,application/json,application/zip" hidden><span id="${labelId}" class="support-file-label"></span></label></div>`;
+  }
+  function renderNewTicket() {
+    const host = document.getElementById("newTicketPage");
+    if (!host) return;
+    host.innerHTML = `<div class="support-form-layout">
+    <form id="createTicketPageForm" class="card support-form" novalidate>
+      <div class="section-card-head"><span class="ico-b accent">${hero("support")}</span><div class="tx"><h2>Tell us what happened</h2><p>Include the affected service, timing and current impact. Markdown is stored safely.</p></div></div>
+      <div class="field"><label for="ticketSubject">Subject</label><div class="inp"><input id="ticketSubject" name="subject" required minlength="3" maxlength="160" autocomplete="off" placeholder="e.g. Instance cannot start"></div></div>
+      <fieldset class="field"><legend class="lbl">Priority</legend><div class="seg block support-priority" role="radiogroup">${["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => `<label><input type="radio" name="ticketPriority" value="${value}"${value === "NORMAL" ? " checked" : ""}><span>${value[0]}${value.slice(1).toLowerCase()}</span></label>`).join("")}</div></fieldset>
+      <div class="field"><span class="lbl">Detailed message</span>${petalRichTextEditor("newTicketEditor", "Detailed message", "Describe what happened, when it started, and what is affected\u2026")}</div>
+      ${fileDrop("newTicketFileInput", "newTicketFileLabel")}
+      <div id="ticketFormError" class="err" role="alert" hidden></div>
+      <div class="support-form-actions"><a class="btn sec" href="/app/support" data-app-route="tickets">Cancel</a><button type="submit" class="btn" id="submitTicketBtn">${hero("paper", "s")}Open ticket</button></div>
+    </form>
+    <aside class="card support-help"><span class="ico-b info">${hero("document")}</span><h3>Useful details</h3><ul><li>Service name or identifier</li><li>When the issue started</li><li>Exact error message</li><li>Steps already attempted</li></ul><p class="truth-note">Do not include passwords, recovery codes or private keys.</p></aside>
+  </div>`;
+  }
+  function attachmentMarkup(ticketId, attachments) {
+    if (!attachments.length) return "";
+    return `<div class="att-list">${attachments.map((att) => `<a href="/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip">${hero("document", "xs")}<span class="name">${esc(att.filename)}</span><span class="sz">${formatBytes(att.byte_size)}</span></a>`).join("")}</div>`;
+  }
+  async function renderTicketDetail(id) {
+    const host = document.getElementById("ticketDetailPage");
+    if (!host) return;
+    host.innerHTML = `<div class="state-message">${hero("refresh")}<span>Loading conversation\u2026</span></div>`;
     try {
-      const data = await api(
-        `/api/v1/tickets/${encodeURIComponent(id)}`
-      );
-      const subEl = document.getElementById("modalTicketSubject");
-      const metaEl = document.getElementById("modalTicketMeta");
-      if (subEl) subEl.textContent = data.ticket.subject;
-      if (metaEl) metaEl.textContent = `${data.ticket.priority} \xB7 ${data.ticket.status}`;
-      if (host) {
-        host.className = "message-list";
-        host.innerHTML = data.messages.map(
-          (item) => `
-          <div class="message ${item.is_staff ? "staff" : ""}">
-            <small>${esc(item.is_staff ? item.author_name || "Support" : "You")} \xB7 ${esc(formatDate(item.created_at))}</small>
-            <div class="bubble">${renderMarkdown(item.body)}</div>
-          </div>
-        `
-        ).join("") || '<div class="muted">No messages.</div>';
-      }
-      if (attHost && data.attachments && data.attachments.length) {
-        attHost.innerHTML = `<small class="muted" style="display:block;margin-bottom:6px">Attachments (${data.attachments.length}):</small>` + data.attachments.map(
-          (att) => `
-            <a href="/api/v1/tickets/${encodeURIComponent(id)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip">
-              ${hero("document", "xs")}
-              <span class="name">${esc(att.filename)}</span>
-              <span class="sz">${formatBytes(att.byte_size)}</span>
-            </a>
-          `
-        ).join("");
-      }
+      const data = await api(`/api/v1/tickets/${encodeURIComponent(id)}`);
+      const closed = data.ticket.status === "CLOSED";
+      host.innerHTML = `<nav class="support-breadcrumb" aria-label="Breadcrumb"><a href="/app/support" data-app-route="tickets">Support</a>${hero("chevron", "xs")}<span>${esc(data.ticket.id)}</span></nav>
+      <div class="support-thread-layout">
+        <article class="card support-thread">
+          <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="badge ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="badge ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} \xB7 Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
+          <div class="support-messages">${data.messages.map((message) => `<article class="support-message ${message.is_staff ? "staff" : "customer"}"><div class="support-message-author"><span class="av s">${esc((message.author_name || (message.is_staff ? "Support" : "You")).slice(0, 2).toUpperCase())}</span><div><b>${esc(message.is_staff ? message.author_name || "Fortless support" : message.author_name || "You")}</b><small>${message.is_staff ? "Fortless support" : "Customer"} \xB7 ${esc(formatDate(message.created_at))}</small></div></div><div class="support-message-body">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></article>`).join("")}</div>
+          ${closed ? `<div class="state-message warn">${hero("warning")}<span>This ticket is closed. New replies are disabled.</span></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor("ticketReplyEditor", "Ticket reply", "Write a reply\u2026")}${fileDrop("ticketReplyFileInput", "ticketReplyFileLabel")}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero("paper", "s")}Send reply</button></div></form>`}
+        </article>
+        <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="badge ${statusTone(data.ticket.status)} s">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="badge ${priorityTone(data.ticket.priority)} s">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>
+      </div>`;
     } catch (error) {
-      if (host) host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div><a class="btn sec s" href="/app/support" data-app-route="tickets">Back to support</a>`;
     }
   }
-  async function sendReply() {
-    if (!activeTicketId) return;
-    const field = document.getElementById("modalTicketReply");
-    const body = field?.value.trim() || "";
-    const fileInput = document.getElementById("ticketReplyFileInput");
-    const btn = document.getElementById("sendReplyBtn");
-    if (!body && (!fileInput || !fileInput.files || !fileInput.files.length)) return;
-    if (btn) btn.disabled = true;
-    try {
-      if (body) {
-        await api(`/api/v1/tickets/${encodeURIComponent(activeTicketId)}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ body })
-        });
-      }
-      if (fileInput && fileInput.files?.[0]) {
-        const file = fileInput.files[0];
-        const reader = new FileReader();
-        await new Promise((resolve, reject) => {
-          reader.onload = async () => {
-            try {
-              const base64 = String(reader.result || "").split(",")[1];
-              await api(`/api/v1/tickets/${encodeURIComponent(activeTicketId)}/attachments`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  filename: file.name,
-                  contentType: file.type || "application/octet-stream",
-                  dataBase64: base64
-                })
-              });
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        fileInput.value = "";
-        const replyFileLabel = document.getElementById("ticketReplyFileLabel");
-        if (replyFileLabel) replyFileLabel.textContent = "";
-      }
-      if (field) field.value = "";
-      toast("Reply added.", "good");
-      await openTicketModal(activeTicketId);
-    } catch (error) {
-      toast(error.message, "bad");
-    } finally {
-      if (btn) btn.disabled = false;
-    }
+  async function fileAsBase64(file) {
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+      reader.onerror = () => reject(reader.error || new Error("Could not read the selected file."));
+      reader.readAsDataURL(file);
+    });
   }
-  async function createTicket(event) {
+  async function uploadAttachment(ticketId, file, messageId) {
+    const dataBase64 = await fileAsBase64(file);
+    await api(`/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename: file.name, contentType: file.type || "application/octet-stream", dataBase64, messageId }) });
+  }
+  async function createTicket(event, navigate) {
     event.preventDefault();
-    const form = event.currentTarget;
-    const errorHost = document.getElementById("ticketFormError");
+    const form = event.target;
+    const subject = form.elements.namedItem("subject").value.trim();
+    const priority = String(new FormData(form).get("ticketPriority") || "NORMAL");
+    const message = editorMarkdown("newTicketEditor");
+    const file = document.getElementById("newTicketFileInput")?.files?.[0];
+    const error = document.getElementById("ticketFormError");
     const submit = document.getElementById("submitTicketBtn");
-    const subject = document.getElementById("ticketSubject").value.trim();
-    const messageBody = document.getElementById("ticketMessage").value.trim();
-    const priority = new FormData(form).get("ticketPriority") || "NORMAL";
-    const fileInput = document.getElementById("newTicketFileInput");
-    errorHost.hidden = true;
-    if (subject.length < 3 || messageBody.length < 5) {
-      errorHost.textContent = "Add a clear subject and at least five characters of detail.";
-      errorHost.hidden = false;
+    error.hidden = true;
+    if (subject.length < 3 || message.length < 5) {
+      error.textContent = "Add a clear subject and at least five characters of detail.";
+      error.hidden = false;
       return;
     }
-    const payload = { subject, priority, message: messageBody };
     submit.disabled = true;
-    submit.classList.add("load");
     try {
-      const created = await api("/api/v1/tickets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (fileInput && fileInput.files?.[0]) {
-        const file = fileInput.files[0];
-        const reader = new FileReader();
-        await new Promise((resolve, reject) => {
-          reader.onload = async () => {
-            try {
-              const base64 = String(reader.result || "").split(",")[1];
-              await api(`/api/v1/tickets/${encodeURIComponent(created.ticketId)}/attachments`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  filename: file.name,
-                  contentType: file.type || "application/octet-stream",
-                  dataBase64: base64
-                })
-              });
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        fileInput.value = "";
-        const newFileLabel = document.getElementById("newTicketFileLabel");
-        if (newFileLabel) newFileLabel.textContent = "";
+      const created = await api("/api/v1/tickets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject, priority, message }) });
+      if (file) {
+        try {
+          await uploadAttachment(created.ticketId, file, created.messageId);
+        } catch (uploadError) {
+          toast(`Ticket opened, but attachment failed: ${uploadError.message}`, "warn");
+          navigate(`/app/support/${created.ticketId}`);
+          return;
+        }
       }
-      const newTicketModal = document.getElementById("newTicketModal");
-      if (newTicketModal) newTicketModal.hidden = true;
       form.reset();
+      resetEditor("newTicketEditor");
       toast("Ticket opened.", "good");
-      await renderTickets();
-      await openTicketModal(created.ticketId);
-    } catch (error) {
-      errorHost.textContent = error.message;
-      errorHost.hidden = false;
+      navigate(`/app/support/${created.ticketId}`);
+    } catch (requestError) {
+      error.textContent = requestError.message;
+      error.hidden = false;
     } finally {
       submit.disabled = false;
-      submit.classList.remove("load");
     }
+  }
+  async function sendReply(event) {
+    event.preventDefault();
+    const form = event.target;
+    const ticketId = form.dataset.ticketId || "";
+    const message = editorMarkdown("ticketReplyEditor");
+    const fileInput = document.getElementById("ticketReplyFileInput");
+    const file = fileInput?.files?.[0];
+    const error = document.getElementById("ticketReplyError");
+    const submit = document.getElementById("sendReplyBtn");
+    error.hidden = true;
+    if (!message && !file) {
+      error.textContent = "Write a reply or choose an attachment.";
+      error.hidden = false;
+      return;
+    }
+    submit.disabled = true;
+    let messageId;
+    try {
+      if (message) {
+        const response = await api(`/api/v1/tickets/${encodeURIComponent(ticketId)}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ body: message }) });
+        messageId = response.messageId;
+        resetEditor("ticketReplyEditor");
+      }
+      if (file) {
+        try {
+          await uploadAttachment(ticketId, file, messageId);
+        } catch (uploadError) {
+          error.textContent = `${message ? "Reply was saved, but " : ""}attachment failed: ${uploadError.message}`;
+          error.hidden = false;
+          toast("Attachment upload failed.", "warn");
+          return;
+        }
+      }
+      resetEditor("ticketReplyEditor");
+      if (fileInput) fileInput.value = "";
+      toast("Reply added.", "good");
+      await renderTicketDetail(ticketId);
+    } catch (requestError) {
+      error.textContent = requestError.message;
+      error.hidden = false;
+    } finally {
+      submit.disabled = false;
+    }
+  }
+  function updateFileLabel(input) {
+    const labelId = input.id === "newTicketFileInput" ? "newTicketFileLabel" : "ticketReplyFileLabel";
+    const label = document.getElementById(labelId);
+    const file = input.files?.[0];
+    if (label) label.textContent = file ? `${file.name} \xB7 ${formatBytes(file.size)}` : "";
   }
 
   // src/frontend/client/pages/activity/index.ts
@@ -2391,16 +2511,19 @@
   var appShell = new AppShell();
   function updateNavigationChrome(routeName) {
     const titles = {
-      servers: ["Services", "Actual service records and provider-observed runtime state for this account."],
+      dashboard: ["Dashboard", "Workspace, infrastructure, billing and support at a glance."],
+      services: ["Servers & Instances", "Actual service records and provider-observed runtime state for this account."],
       "service-detail": ["Service Detail", "Detailed configuration, provider allocation, and operational logs."],
       deploy: ["Configure a service", "Catalog preview; ordering remains disabled until payment and infrastructure providers are verified."],
       domains: ["Domains & DNS", "Authoritative domain zones, registrar search, and RFC compliant DNS records."],
       billing: ["Billing", "Draft and issued documents recorded for this account."],
       tickets: ["Support", "Open and review account-scoped support conversations."],
+      "ticket-new": ["Open support ticket", "Start an account-scoped support conversation."],
+      "ticket-detail": ["Support conversation", "Review the full thread and send a secure reply."],
       audit: ["Activity", "Account-scoped audit events recorded by the current implementation."],
       settings: ["Account & security", "Identity, tenant and implementation status."]
     };
-    const titleEntry = titles[routeName] ?? titles.servers;
+    const titleEntry = titles[routeName] ?? titles.dashboard;
     const viewTitle = document.getElementById("viewTitle");
     const viewSubtitle = document.getElementById("viewSubtitle");
     if (viewTitle) viewTitle.textContent = titleEntry[0];
@@ -2409,16 +2532,20 @@
     if (catalogAction) {
       catalogAction.hidden = routeName === "deploy" || routeName === "service-detail";
     }
-    const sectionKeys = ["servers", "service-detail", "deploy", "domains", "billing", "tickets", "audit", "settings"];
+    const sectionKeys = ["dashboard", "services", "service-detail", "deploy", "domains", "billing", "tickets", "ticket-new", "ticket-detail", "audit", "settings"];
     sectionKeys.forEach((key) => {
       const section = document.getElementById(`section-${key}`);
       if (section) section.style.display = key === routeName ? "block" : "none";
     });
   }
   var router = new Router(CLIENT_ROUTES);
-  router.register("servers", async () => {
-    updateNavigationChrome("servers");
-    await renderDashboard();
+  router.register("dashboard", async () => {
+    updateNavigationChrome("dashboard");
+    await renderHome();
+  });
+  router.register("services", async () => {
+    updateNavigationChrome("services");
+    await renderServices();
   });
   router.register("service-detail", async (ctx) => {
     updateNavigationChrome("service-detail");
@@ -2441,6 +2568,14 @@
     updateNavigationChrome("tickets");
     await renderTickets();
   });
+  router.register("ticket-new", async () => {
+    updateNavigationChrome("ticket-new");
+    renderNewTicket();
+  });
+  router.register("ticket-detail", async (ctx) => {
+    updateNavigationChrome("ticket-detail");
+    if (ctx.params.id) await renderTicketDetail(ctx.params.id);
+  });
   router.register("audit", async () => {
     updateNavigationChrome("audit");
     await renderActivity();
@@ -2450,27 +2585,11 @@
     await renderSettings();
   });
   function bindDelegatedEvents() {
-    document.getElementById("refreshServersBtn")?.addEventListener("click", renderDashboard);
+    document.getElementById("refreshServersBtn")?.addEventListener("click", renderServices);
     document.getElementById("refreshInvoicesBtn")?.addEventListener("click", renderBilling);
     document.getElementById("refreshAuditBtn")?.addEventListener("click", renderActivity);
     document.getElementById("doDeployBtn")?.addEventListener("click", beginCheckout);
-    document.getElementById("newTicketBtn")?.addEventListener("click", () => {
-      const m = document.getElementById("newTicketModal");
-      if (m) m.hidden = false;
-    });
-    document.getElementById("sendReplyBtn")?.addEventListener("click", sendReply);
-    document.getElementById("createTicketForm")?.addEventListener("submit", createTicket);
     document.getElementById("revokeOtherSessionsBtn")?.addEventListener("click", revokeOtherSessions);
-    document.getElementById("newTicketFileInput")?.addEventListener("change", (e) => {
-      const f = e.target.files?.[0];
-      const lbl = document.getElementById("newTicketFileLabel");
-      if (lbl) lbl.textContent = f ? `${f.name} (${formatBytes(f.size)})` : "";
-    });
-    document.getElementById("ticketReplyFileInput")?.addEventListener("change", (e) => {
-      const f = e.target.files?.[0];
-      const lbl = document.getElementById("ticketReplyFileLabel");
-      if (lbl) lbl.textContent = f ? `${f.name} (${formatBytes(f.size)})` : "";
-    });
     document.getElementById("themeToggleBtn")?.addEventListener("click", () => appShell.toggleTheme());
     document.getElementById("logoutBtn")?.addEventListener("click", async () => {
       try {
@@ -2481,6 +2600,23 @@
     });
     document.addEventListener("click", (event) => {
       const target = event.target;
+      if (target.closest("#mobileMoreBtn")) {
+        const sheet = document.getElementById("mobileNavSheet");
+        const trigger = document.getElementById("mobileMoreBtn");
+        if (sheet) sheet.hidden = false;
+        trigger?.setAttribute("aria-expanded", "true");
+        return;
+      }
+      if (target.closest("[data-close-mobile-nav]") || target.id === "mobileNavSheet") {
+        const sheet = document.getElementById("mobileNavSheet");
+        if (sheet) sheet.hidden = true;
+        document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
+        return;
+      }
+      if (target.closest("#mobileThemeBtn")) {
+        appShell.toggleTheme();
+        return;
+      }
       if (target.closest("#globalSearchTrigger, [data-cmd]")) {
         appShell.cmd.open();
         return;
@@ -2489,6 +2625,9 @@
       if (routeLink && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         const href = routeLink.getAttribute("href") || "/app";
+        const sheet = document.getElementById("mobileNavSheet");
+        if (sheet) sheet.hidden = true;
+        document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
         router.navigate(href);
         return;
       }
@@ -2571,11 +2710,6 @@
         });
         return;
       }
-      const ticket = target.closest("[data-ticket-id]");
-      if (ticket) {
-        openTicketModal(ticket.dataset.ticketId);
-        return;
-      }
       const auditRow = target.closest(".z-aut");
       if (auditRow) {
         const row = auditRow.closest(".z-aur");
@@ -2603,12 +2737,6 @@
       if (copyRecovery) {
         navigator.clipboard.writeText(copyRecovery.dataset.copyRecovery).then(() => toast("Recovery codes copied.", "good"));
       }
-      if (target.closest("[data-close-new-ticket]")) {
-        const m = document.getElementById("newTicketModal");
-        const err = document.getElementById("ticketFormError");
-        if (m) m.hidden = true;
-        if (err) err.hidden = true;
-      }
       if (target.closest("#openInviteModalBtn")) {
         const m = document.getElementById("inviteMemberModal");
         if (m) m.hidden = false;
@@ -2634,6 +2762,14 @@
     });
     document.addEventListener("submit", (event) => {
       const target = event.target;
+      if (target.id === "createTicketPageForm") {
+        createTicket(event, (path) => router.navigate(path));
+        return;
+      }
+      if (target.id === "ticketReplyForm") {
+        sendReply(event);
+        return;
+      }
       if (target.matches("[data-mfa-enroll-form]")) {
         event.preventDefault();
         beginMfaEnrollment(target);
@@ -2693,6 +2829,14 @@
         filterActivity();
         return;
       }
+      if (target.id === "ticketSearch") {
+        filterTickets();
+        return;
+      }
+      if (target.id === "newTicketFileInput" || target.id === "ticketReplyFileInput") {
+        updateFileLabel(target);
+        return;
+      }
       if (target.matches("[data-mfa-digit]")) {
         target.value = target.value.replace(/\D/g, "").slice(-1);
         if (target.value) {
@@ -2703,30 +2847,28 @@
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        const ticketModal = document.getElementById("ticketModal");
-        const newTicketModal = document.getElementById("newTicketModal");
-        if (ticketModal) ticketModal.hidden = true;
-        if (newTicketModal) newTicketModal.hidden = true;
-        setActiveTicketId(null);
+        const sheet = document.getElementById("mobileNavSheet");
+        if (sheet && !sheet.hidden) {
+          sheet.hidden = true;
+          document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
+          document.getElementById("mobileMoreBtn")?.focus();
+        }
       }
     });
-    window.closeTicketModal = () => {
-      const m = document.getElementById("ticketModal");
-      if (m) m.hidden = true;
-      setActiveTicketId(null);
-    };
-    window.closeNewTicketModal = () => {
-      const m = document.getElementById("newTicketModal");
-      if (m) m.hidden = true;
-    };
+    document.addEventListener("change", (event) => {
+      const target = event.target;
+      if (target.id === "newTicketFileInput" || target.id === "ticketReplyFileInput") updateFileLabel(target);
+      if (target.name === "ticketStatus") filterTickets();
+    });
   }
   async function init() {
     appShell.init();
+    installRichTextEditors(document);
     bindDelegatedEvents();
     const legacyRoute = window.location.hash.slice(1);
     if (legacyRoute) {
       const routePaths = {
-        servers: "/app",
+        servers: "/app/services",
         deploy: "/app/deploy",
         billing: "/app/billing",
         tickets: "/app/support",

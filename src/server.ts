@@ -314,7 +314,7 @@ export function buildServer(): FastifyInstance {
 
   app.get('/app/:view', async (req, reply) => {
     const { view } = req.params as { view: string };
-    const allowedViews = new Set(['deploy', 'billing', 'support', 'activity', 'settings', 'domains']);
+    const allowedViews = new Set(['services', 'deploy', 'billing', 'support', 'activity', 'settings', 'domains']);
     if (!allowedViews.has(view)) return reply.redirect('/app');
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(`/app/${view}`)}`);
     const appPath = path.join(publicDir, 'app.html');
@@ -327,10 +327,22 @@ export function buildServer(): FastifyInstance {
     const { id } = req.params as { id: string };
     const db = getDatabase();
     const service = db.prepare('SELECT id FROM services WHERE id = ? AND account_id = ?').get(id, req.auth.account.id);
-    if (!service) return reply.redirect('/app');
+    if (!service) return reply.redirect('/app/services');
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/app');
+  });
+
+  app.get('/app/support/:id', async (req, reply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    const { id } = req.params as { id: string };
+    if (id !== 'new') {
+      const ticket = getDatabase().prepare('SELECT id FROM tickets WHERE id = ? AND account_id = ?').get(id, req.auth.account.id);
+      if (!ticket) return reply.redirect('/app/support');
+    }
+    const appPath = path.join(publicDir, 'app.html');
+    if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
+    return reply.redirect('/app/support');
   });
 
   app.get('/login', async (req, reply) => {
@@ -1758,7 +1770,8 @@ export function buildServer(): FastifyInstance {
     const isStaff = Boolean(getStaffAccess(req.auth!.user.id, db) && req.auth!.session.mfaVerifiedAt);
 
     const clientPages = [
-      { id: 'nav-servers', title: 'Servers & Instances', category: 'Navigation', icon: 'server', path: '/app', shortcut: 'G S' },
+      { id: 'nav-dashboard', title: 'Dashboard', category: 'Navigation', icon: 'home-01', path: '/app', shortcut: 'G H' },
+      { id: 'nav-servers', title: 'Servers & Instances', category: 'Navigation', icon: 'server', path: '/app/services', shortcut: 'G S' },
       { id: 'nav-deploy', title: 'Deploy New Instance', category: 'Navigation', icon: 'rocket-01', path: '/app/deploy', shortcut: 'G D' },
       { id: 'nav-billing', title: 'Invoices & Billing', category: 'Navigation', icon: 'credit-card', path: '/app/billing', shortcut: 'G B' },
       { id: 'nav-tickets', title: 'Support Tickets', category: 'Navigation', icon: 'bubble-chat', path: '/app/support', shortcut: 'G T' },

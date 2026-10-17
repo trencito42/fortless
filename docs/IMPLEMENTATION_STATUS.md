@@ -28,7 +28,7 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | TOTP multi-factor authentication | `MOCK_ONLY` | Supplied Petal QR/OTP/backup component, six-cell challenge with paste/autofill/backspace handling, password-confirmed enrollment, AES-256-GCM protected secrets, restart-stable key material, restart-independent one-time recovery-code hashes, persistent attempt throttling, disable flow and audit events |
 | Recent step-up authentication | `MOCK_ONLY` | Password plus live TOTP produces session-scoped evidence valid for ten minutes; failed password/code attempts do not elevate the session; transparent modal step-up in Admin UI |
 | Native responsive app shell | `MOCK_ONLY` | Correct document/CSS layering, docked portrait tab bar, docked landscape rail, mobile record cards, bottom-sheet modals and safe-area handling |
-| Customer app routing | `MOCK_ONLY` | Real History API paths (`/app/settings`, `/app/billing`, `/app/support`, etc.), authenticated deep-link refresh, back/forward navigation and automatic migration from legacy hash URLs |
+| Customer app routing | `MOCK_ONLY` | `/app` dashboard, `/app/services`, scoped service detail, dedicated support list/new/detail and remaining History API routes; authenticated deep-link refresh and legacy hash migration |
 | Staff/admin guard | `MOCK_ONLY` | Persisted, revocable staff memberships with `OWNER`, `ADMINISTRATOR`, `BILLING`, `SUPPORT`, `INFRASTRUCTURE`, and `AUDITOR` roles; permissions and MFA are checked from the database on every document/API request |
 
 ## Phase 2 — Production Infrastructure & Reliable Jobs
@@ -48,8 +48,9 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | Staff owner bootstrap | `MOCK_ONLY` | `npm run staff:bootstrap-owner` CLI requires verified email, confirmed TOTP MFA; enforces `--force --reason` protection |
 | Phishing-resistant WebAuthn | `MOCK_ONLY` | FIDO2/WebAuthn registration and authentication, anti-replay challenge lifecycle, ES256 signature verification, authenticator counter validation |
 | Universal Petal Command Palette | `MOCK_ONLY` | `Ctrl+K` / `⌘K` global palette across customer and admin shells, scoped `/api/v1/search` with multi-tenant isolation, Arrow/Enter navigation |
-| Ticketing with Markdown & Attachments | `MOCK_ONLY` | Customer and staff thread management, XSS-safe Markdown rendering, multi-tenant file attachments with SHA256 integrity, 5MB limit, MIME whitelist |
-| Native Petal SVG Charts | `MOCK_ONLY` | Cubic Bezier `smooth()` trend sparklines and gauge indicators driven by real server states |
+| Ticketing with Markdown & Attachments | `MOCK_ONLY` | Dedicated customer list/new/conversation pages, original Petal editor/drop controls adapted to safe Markdown, customer/staff thread management, multi-tenant attachments with SHA256 integrity, 5MB limit and MIME whitelist |
+| Native Petal SVG Charts | `MOCK_ONLY` | Chart primitives remain available, but customer pages do not render invented historical utilization series |
+| Client redesign documentation | `MOCK_ONLY` | `docs/frontend/CLIENT_AREA_REDESIGN.md`, component map, route spec, progress and visual QA matrix; rendered browser QA remains pending |
 | Admin Step-Up Challenge Modal | `MOCK_ONLY` | Transparent 403 `STEP_UP_REQUIRED` interception, TOTP challenge verify `/api/v1/auth/step-up`, seamless mutation retry |
 
 ## Fail-closed integrations
@@ -63,20 +64,7 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 ## Verification executed
 
 - `npx tsc --noEmit` — passed with 0 TypeScript compiler errors.
-- `npm test` — 72/72 passed across Categories A through M:
-  - Category A: Identity, Authentication & Multi-Tenant Isolation (11 tests).
-  - Category B: Catalog & Cryptographic Quote Invariants (9 tests).
-  - Category C: Checkout Idempotency & Payment Invariants (8 tests).
-  - Category D: Tenant-Safe Support Lifecycle (2 tests).
-  - Category E: Infrastructure Provisioning & Timeout Recovery Sagas (9 tests).
-  - Category F: Staff Read Models & RBAC (8 tests).
-  - Category G: Team Management, Password Change & Transactional Email Outbox (7 tests).
-  - Category H: Subscriptions, Notifications & Customer Observability (3 tests).
-  - Category I: Outbox Concurrency, Crash Recovery, and Resilient Worker Leasing (3 tests).
-  - Category J: Transactional Email Outbox & Transport Isolation (3 tests).
-  - Category K: Staff Owner Bootstrap Hardening & Recovery (4 tests).
-  - Category L: WebAuthn / Passkeys Phishing-Resistant MFA (3 tests).
-  - Category M: Petal Universal UI, Command Palette & Support Ticketing with Attachments (5 tests).
+- `npm test` — 128/128 passed across the modular frontend, identity, catalog, payments, support, provisioning, staff RBAC, team/email, subscriptions/notifications, workers, WebAuthn, attachments, domains/DNS, VPS, cPanel, web apps, AI guardrails, renewal/dunning, status and backup suites.
 - Separated `getDatabase()` connection acquisition from automatic schema migration runs.
 - Fixed Admin UI modal clipping on mobile and invisibility on desktop by correcting unclosed `<nav class="tabbar">` and adding Petal `.scrim` / `.modal` CSS.
 - Applied Migration 11 (`ticket attachments and multi-tenant file storage`) to SQLite database.
