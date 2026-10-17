@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <title>Verify email — Fortless</title>
+    <link rel="icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&display=swap"
+    />
+    <link rel="stylesheet" href="/assets/auth-ui.css" />
+  </head>
+  <body data-auth-page="verify">
+    <main class="auth-shell">
+      <section class="auth-main">
+        <a class="brand" href="/"
+          ><span class="brand-mark"
+            ><img src="/assets/fortless-icon.svg" alt="" /></span
+          >fortless</a
+        >
+        <div class="auth-card">
+          <span class="eyebrow">Email verification</span>
+          <h1>Confirming your address.</h1>
+          <p class="sub">This link is single-use and expires after 24 hours.</p>
+          <div id="formAlert" class="alert" role="status" hidden></div>
+          <form data-auth-form>
+            <button class="btn" type="submit">Verify email</button>
+          </form>
+          <p class="foot">
+            <a class="text-link" href="/login">Back to sign in</a>
+          </p>
+        </div>
+        <div class="status-line">
+          <span class="dot"></span>Account activation requires verification
+        </div>
+      </section>
+      <aside class="auth-art" aria-hidden="true">
+        <div class="art-grid"></div>
+        <div class="art-copy">
+          <h2>Confirm once.<br />Continue securely.</h2>
+          <p>
+            Your customer workspace becomes available only after address
+            ownership is verified.
+          </p>
+        </div>
+      </aside>
+    </main>
+    <script src="/assets/auth-ui.js"></script>
+  </body>
+</html>

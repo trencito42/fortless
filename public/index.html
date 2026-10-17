@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#eff1f5" />
+  <meta name="description" content="Fortless is building one streamlined place to host game servers, Discord bots, apps, websites and infrastructure. Explore the platform concept." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Fortless | Everything you host, in one place." />
+  <meta property="og:description" content="A unified hosting experience. Discover the Fortless platform concept." />
+  <title>Fortless — Everything you host, in one place.</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;650;700;750;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* Source-inspired foundations: same design tokens, typography, flat surfaces, pills and card radii as the provided Păun Panel files. */
+    :root {
+      --bg:#eff1f5; --s1:#ffffff; --s2:#f5f6fa; --s3:#e5e8ee; --s4:#d5dae3;
+      --ink:#0b1a2b; --ink2:#4a576a; --ink3:#5a687b; --on-ink:#ffffff;
+      --accent:#2a5fe8; --accent-bg:#e6edff; --on-accent:#ffffff;
+      --good:#0e6b35; --good-bg:#d6f5e0; --lime:#b9ff3d; --lime-ink:#0b1a12;
+      --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter Tight","Helvetica Neue",Arial,sans-serif;
+      --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      --ease:cubic-bezier(.2,.8,.2,1); --max:1240px; --overlay:rgba(5,10,18,.48);
+    }
+    [data-theme="dark"] {
+      color-scheme:dark;
+      --bg:#0a0e15; --s1:#141a24; --s2:#1b2330; --s3:#252f3f; --s4:#344156;
+      --ink:#eef2f7; --ink2:#a0adbd; --ink3:#8d9bae; --on-ink:#0a0e15;
+      --accent:#7aa2ff; --accent-bg:#1a2750; --on-accent:#0a0e15;
+      --good:#3ddc84; --good-bg:#123525;
+    }
+    @media(prefers-color-scheme:dark){
+      :root:not([data-theme="light"]){
+        color-scheme:dark;
+        --bg:#0a0e15; --s1:#141a24; --s2:#1b2330; --s3:#252f3f; --s4:#344156;
+        --ink:#eef2f7; --ink2:#a0adbd; --ink3:#8d9bae; --on-ink:#0a0e15;
+        --accent:#7aa2ff; --accent-bg:#1a2750; --on-accent:#0a0e15;
+        --good:#3ddc84; --good-bg:#123525;
+      }
+    }
+    *,*::before,*::after{box-sizing:border-box}
+    html{scroll-behavior:smooth;scroll-padding-top:100px;-webkit-text-size-adjust:100%}
+    body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+    a{color:inherit;text-decoration:none}button,input{font:inherit}button{cursor:pointer}p,h1,h2,h3,h4{margin:0}a,button{ -webkit-tap-highlight-color:transparent }
+    :focus-visible{outline:3px solid var(--accent);outline-offset:4px}
+    ::selection{background:var(--accent);color:var(--on-accent)}
+    .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+    .wrap{max-width:var(--max);margin:0 auto;padding-left:24px;padding-right:24px}
+    .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+    .ic{width:20px;height:20px;flex:none;display:block;fill:none;stroke:currentColor;stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round}
+    .ic.s{width:16px;height:16px}.ic.l{width:24px;height:24px}.ic.xl{width:30px;height:30px}
+    .muted{color:var(--ink2)}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:44px;padding:0 20px;border:0;border-radius:99px;background:var(--ink);color:var(--on-ink);font-weight:700;font-size:14px;white-space:nowrap;transition:filter .15s,transform .15s,background .15s}
+    .btn:hover{filter:brightness(1.12);transform:translateY(-1px)}.btn:active{transform:scale(.98)}
+    .btn.accent{background:var(--accent);color:var(--on-accent)}.btn.sec{background:var(--s3);color:var(--ink)}.btn.lime{background:var(--lime);color:var(--lime-ink)}
+    .btn.l{min-height:54px;padding:0 24px;font-size:15px}.btn.s{min-height:38px;padding:0 15px;font-size:13px}
+    .btn.white{background:#fff;color:#0b1a2b}.btn.soft{background:var(--s1);color:var(--ink)}
+    .badge{display:inline-flex;align-items:center;gap:7px;min-height:27px;padding:4px 11px;border-radius:99px;background:var(--s3);color:var(--ink2);font-size:11px;line-height:1.15;font-weight:800;white-space:nowrap}
+    .badge.lime{background:var(--lime);color:var(--lime-ink)}.badge.blue{background:var(--accent-bg);color:var(--accent)}.badge.light{background:rgba(255,255,255,.10);color:#dae5ef}
+    .card{background:var(--s1);border-radius:24px;padding:24px;min-width:0}
+    .eyebrow{display:flex;align-items:center;gap:9px;text-transform:uppercase;letter-spacing:.13em;font:700 11px/1.4 var(--mono);color:var(--ink3)}
+    .dot{width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
+    .text-link{display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:800;transition:gap .2s}.text-link:hover{gap:15px}
+    /* Navigation */
+    .site-header{position:sticky;top:0;z-index:50;background:var(--bg)}
+    .nav-inner{min-height:80px;display:flex;align-items:center;gap:34px}
+    .brand{display:inline-flex;align-items:center;gap:10px;flex:none;font:800 20px/1 var(--font);letter-spacing:-.04em}
+    .brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--ink);color:var(--on-ink)}
+    .brand-mark img{display:none!important}.brand-mark::before{content:"";width:21px;height:21px;background:var(--on-ink);mask:url('/assets/fortless-icon.svg') center/contain no-repeat;-webkit-mask:url('/assets/fortless-icon.svg') center/contain no-repeat}
+    .brand small{font:700 10px/1 var(--mono);letter-spacing:-.06em;color:var(--accent);align-self:flex-start;margin-left:1px}
+    .nav-links{display:flex;align-items:center;gap:30px;margin-left:auto}
+    .nav-links a{font-size:13.5px;font-weight:700;color:var(--ink2);transition:color .15s}
+    .nav-links a:hover,.nav-links a.active{color:var(--ink)}
+    .nav-acts{display:flex;align-items:center;gap:9px;margin-left:18px}
+    .icon-btn{width:42px;height:42px;display:grid;place-items:center;border:0;border-radius:50%;background:var(--s1);color:var(--ink)}
+    .icon-btn:hover{background:var(--s3)}
+    .menu-btn{display:none}
+    .scrim{position:fixed;inset:0;z-index:80;background:var(--overlay);display:flex;align-items:stretch;justify-content:flex-end;padding:0;animation:fade .2s ease both}
+    .scrim[hidden]{display:none}
+    .scrim .modal{width:min(440px,100%);height:100%;overflow:auto;background:var(--s1);border-radius:28px 0 0 28px;padding:24px;animation:slide .4s var(--ease) both;display:flex;flex-direction:column;gap:16px}
+    .mobile-menu-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+    .mobile-menu-links{display:flex;flex-direction:column;gap:5px;margin-top:28px}
+    .mobile-menu-links a{display:flex;align-items:center;justify-content:space-between;min-height:58px;padding:0 16px;border-radius:18px;background:var(--s2);font:800 20px/1 var(--font);letter-spacing:-.025em}
+    .mobile-menu-links a .ic{color:var(--ink3)}
+    .mobile-menu-actions{display:flex;flex-direction:column;gap:8px;margin-top:auto;padding-top:24px}
+    .mobile-menu-actions .btn{width:100%;min-height:50px}
+    @keyframes fade{from{opacity:0}}
+    @keyframes slide{from{transform:translateX(100%)}}
+    [data-auth-user]{display:none!important}
+    [data-authenticated="true"] [data-auth-guest]{display:none!important}
+    [data-authenticated="true"] .nav-acts [data-auth-user],
+    [data-authenticated="true"] .hero-ctas [data-auth-user],
+    [data-authenticated="true"] .closing-box [data-auth-user]{display:inline-flex!important}
+    [data-authenticated="true"] .mobile-menu-actions [data-auth-user],
+    [data-authenticated="true"] .footer-col [data-auth-user]{display:block!important}
+    [data-authenticated="true"] .mobile-menu-actions [data-auth-user]{display:flex!important}
+    /* Announcement */
+    .announce{padding-top:12px}
+    .announce-inner{display:flex;align-items:center;justify-content:center;gap:11px;min-height:40px;background:var(--ink);color:var(--on-ink);border-radius:99px;font-size:12px;font-weight:650;text-align:center;padding:7px 16px}
+    .announce-copy{display:flex;align-items:center;gap:5px}.announce-copy b{font-weight:750}.announce-copy small{font:inherit;color:inherit}
+    .announce .smallcaps{font:700 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.08em;background:var(--lime);color:var(--lime-ink);padding:7px 10px;border-radius:99px}
+    .announce a{display:inline-flex;align-items:center;gap:5px;text-decoration:underline;text-underline-offset:3px}
+    /* Hero */
+    .hero{padding-top:79px;padding-bottom:105px;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);align-items:center;gap:48px;min-height:680px}
+    .hero-copy{position:relative;z-index:1}
+    .hero-eyebrow{display:flex;align-items:center;gap:11px;margin-bottom:27px;font:700 11px/1.2 var(--mono);letter-spacing:.075em;text-transform:uppercase;color:var(--ink2)}
+    .hero-eyebrow .signal{height:9px;width:9px;border-radius:50%;background:var(--good)}
+    .hero h1{font:850 clamp(56px,5.9vw,91px)/.97 var(--font);letter-spacing:-.078em;max-width:780px}
+    .hero h1 .accent-word{color:var(--accent)}
+    .hero-description{max-width:465px;margin-top:27px;font-size:17px;line-height:1.7;color:var(--ink2);font-weight:500}
+    .hero-ctas{display:flex;align-items:center;flex-wrap:wrap;gap:11px;margin-top:34px}
+    .hero-note{display:flex;align-items:center;gap:10px;margin-top:23px;font-size:12.5px;color:var(--ink3)}
+    .hero-note .ic{color:var(--good)}
+    .preview{position:relative;min-width:0;}
+    .preview-shell{background:#0c1420;border-radius:29px;padding:16px;color:#f0f5fa;min-height:459px;position:relative;overflow:hidden}
+    .preview-top{display:flex;gap:7px;align-items:center;margin:0 0 14px;padding:0 6px;color:#a1b2c8;font:600 10px var(--mono)}
+    .preview-top span{height:8px;width:8px;border-radius:50%;background:#566475}.preview-top strong{margin-left:auto;font:600 10px var(--mono);color:#b9ff3d}
+    .preview-body{display:grid;grid-template-columns:62px minmax(0,1fr);gap:12px;min-height:408px}
+    .mock-side{background:#172233;border-radius:19px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:15px}
+    .mock-side .mark-small{border-radius:10px;width:34px;height:34px;display:grid;place-items:center;background:#b9ff3d;color:#0b1a12}
+    .mock-side .small-ic{color:#8495ac;display:grid;place-items:center;width:33px;height:33px;border-radius:10px}.mock-side .small-ic.selected{background:#34445c;color:#f5f8ff}
+    .mock-side .small-ic.bottom{margin-top:auto}
+    .mock-main{min-width:0;display:flex;flex-direction:column;gap:10px}
+    .mock-head{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:9px 4px 3px}
+    .mock-head h3{font:800 20px/1 var(--font);letter-spacing:-.04em;margin-top:5px}
+    .mock-head p{font:600 10px var(--mono);color:#8f9fb4}
+    .mock-avatar{background:#27364b;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-weight:750;font-size:11px;color:#d1e5ff}
+    .mock-service{border-radius:18px;background:#1d2a3b;padding:15px}
+    .mock-service-top{display:flex;align-items:center;gap:10px;min-width:0}
+    .mock-server-ico{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;background:#344867;color:#b4cdff}
+    .mock-service-name{font-weight:800;line-height:1.2;font-size:13px}.mock-service-domain{font:500 10px/1.7 var(--mono);color:#91a1b6}
+    .mock-status{margin-left:auto;background:#173e30;color:#7ceaac;padding:6px 10px;border-radius:99px;font:750 10px/1 var(--font);display:flex;align-items:center;gap:6px}
+    .mock-status:before{content:'';width:6px;height:6px;background:currentColor;border-radius:50%}
+    .mock-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:17px}
+    .mock-metric{border-radius:12px;padding:10px;background:#2a394f}
+    .mock-metric .n{font:750 17px/1.25 var(--font);letter-spacing:-.04em;white-space:nowrap}
+    .mock-metric .k{font:600 9px/1.2 var(--mono);color:#90a4bc;margin-top:5px}
+    .mock-progress{margin-top:9px;background:#43526a;border-radius:50px;height:4px;overflow:hidden}.mock-progress i{display:block;height:100%;width:56%;background:#b9ff3d;border-radius:50px}
+    .mock-progress.p2 i{width:39%;background:#81a8ff}.mock-progress.p3 i{width:27%;background:#d3afed}
+    .mock-console{background:#131e2b;border-radius:17px;min-height:130px;padding:13px 15px;overflow:hidden;flex:1}
+    .mock-console-head{display:flex;align-items:center;justify-content:space-between;color:#a9b8ca;font:600 10px/1 var(--mono);margin-bottom:12px}
+    .mock-console-head .ic{color:#6f8096}
+    .term{font:500 10px/1.95 var(--mono);color:#879aaf;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .term .green{color:#96ecae}.term .blue{color:#8eaeff}.term .white{color:#e1e8ef}
+    .mock-floating{position:absolute;right:-24px;bottom:27px;width:221px;border-radius:19px;background:var(--s1);color:var(--ink);padding:16px;box-shadow:none}
+    .mock-floating-top{display:flex;align-items:center;gap:10px}.mock-floating-top .box-icon{background:var(--lime);border-radius:12px;padding:10px;display:grid;place-items:center;color:var(--lime-ink)}
+    .mock-floating h4{font-size:12px;font-weight:800}.mock-floating p{font-size:11px;color:var(--ink2);margin-top:3px}
+    .mock-floating-bottom{display:flex;gap:6px;margin-top:12px;align-items:center;font:700 10px var(--mono);color:var(--good)}
+    .preview-caption{text-align:center;color:var(--ink3);font:500 11px var(--mono);margin-top:16px}
+    /* Category strip */
+    .strip{background:var(--s1);border-radius:24px;min-height:100px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;padding:16px 24px;gap:12px}
+    .strip-item{display:flex;align-items:center;gap:14px;padding:12px 16px;min-width:0}
+    .strip-icon{display:grid;place-items:center;width:45px;height:45px;flex:none;border-radius:15px;background:var(--s2);color:var(--ink)}
+    .strip-item b{display:block;font-size:14px;font-weight:800;white-space:nowrap}.strip-item small{display:block;font-size:11.5px;color:var(--ink3);margin-top:2px}
+    /* Shared sections */
+    .section{padding-top:125px;padding-bottom:10px}
+    .section-head{display:flex;justify-content:space-between;align-items:end;gap:40px;margin-bottom:37px}
+    .section-head h2{font:850 clamp(37px,4.2vw,61px)/1.03 var(--font);letter-spacing:-.067em;max-width:730px;margin-top:17px}
+    .section-head p{color:var(--ink2);font-size:15px;line-height:1.65;max-width:315px;flex:none}
+    .filter-row{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:19px}
+    .filter{border:0;background:var(--s1);color:var(--ink2);border-radius:99px;padding:11px 17px;font-weight:700;font-size:12px;transition:background .15s,color .15s}
+    .filter[aria-pressed="true"]{background:var(--ink);color:var(--on-ink)}.filter:hover:not([aria-pressed="true"]){background:var(--s3)}
+    .service-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .service-card{background:var(--s1);border-radius:24px;padding:24px;min-height:267px;display:flex;flex-direction:column}
+    .service-card[hidden]{display:none}
+    .service-top{display:flex;align-items:flex-start;justify-content:space-between;gap:9px}
+    .service-icon{width:49px;height:49px;border-radius:16px;background:var(--s2);display:grid;place-items:center;color:var(--ink)}
+    .service-icon.blue{background:var(--accent-bg);color:var(--accent)}.service-icon.lime{background:var(--lime);color:var(--lime-ink)}
+    .service-card h3{font:800 24px/1.12 var(--font);letter-spacing:-.04em;margin-top:23px}
+    .service-card p{color:var(--ink2);line-height:1.55;font-size:13.5px;max-width:330px;margin-top:9px}
+    .service-bottom{margin-top:auto;padding-top:25px;display:flex;align-items:center;justify-content:space-between;color:var(--ink2)}
+    .service-bottom .mini{font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.055em}
+    /* Showcase */
+    .showcase-section{padding-top:134px}
+    .showcase-wrap{background:#0c1420;color:#f3f6fb;border-radius:32px;padding:58px 57px 52px;overflow:hidden}
+    .showcase-head{display:flex;justify-content:space-between;align-items:flex-end;gap:25px;margin-bottom:31px}
+    .showcase-head h2{font:850 clamp(34px,4vw,57px)/1.05 var(--font);letter-spacing:-.061em;max-width:590px;margin-top:15px}
+    .showcase-head p{color:#a4b2c4;font-size:14px;line-height:1.65;max-width:300px}
+    .demo{background:#1c293b;border-radius:22px;padding:15px;display:grid;grid-template-columns:200px minmax(0,1fr);gap:15px}
+    .demo-aside{display:flex;flex-direction:column;gap:7px}
+    .demo-aside-title{font:750 10px var(--mono);color:#8192aa;letter-spacing:.07em;text-transform:uppercase;padding:14px 12px 8px}
+    .demo-tab{background:transparent;border:0;color:#9aabc1;text-align:left;padding:13px;border-radius:13px;display:flex;align-items:center;gap:12px;font-weight:700;font-size:13px}
+    .demo-tab[aria-pressed=true]{background:#34445b;color:#fff}.demo-tab:hover{background:#29384e;color:#fff}
+    .demo-tab .ic{width:18px;height:18px}.demo-tab .tiny{font-size:10px;margin-left:auto;opacity:.7}
+    .demo-mini{margin-top:auto;background:#26364a;border-radius:17px;padding:15px;font-size:11px;color:#b9c6d5}
+    .demo-mini b{display:block;font-size:13px;color:#eef4fb;margin-bottom:5px}.demo-mini .ic{color:var(--lime);margin-bottom:8px}
+    .demo-content{background:#131e2c;border-radius:17px;padding:25px;min-width:0}
+    .demo-title-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+    .demo-title-row h3{font:800 27px/1 var(--font);letter-spacing:-.04em}
+    .demo-title-row p{font:500 11px var(--mono);color:#8494ac;margin-top:8px}
+    .demo-label{font:800 10px var(--mono);color:#92a4b9;letter-spacing:.04em;display:flex;align-items:center;gap:7px}
+    .demo-label .dot{background:var(--lime)}
+    .demo-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:27px}
+    .demo-stat{background:#213047;border-radius:14px;padding:17px}
+    .demo-stat small{font:650 10px var(--mono);color:#a2b3c9}.demo-stat b{display:block;font:800 24px/1.2 var(--font);letter-spacing:-.045em;margin-top:10px}
+    .demo-stat .gauge{margin-top:12px;background:#3a4c64;height:5px;border-radius:20px;overflow:hidden}.demo-stat .gauge i{display:block;width:43%;height:100%;background:var(--lime);border-radius:20px}
+    .demo-stat:nth-child(2) .gauge i{width:63%;background:#86abff}.demo-stat:nth-child(3) .gauge i{width:29%;background:#c6acff}
+    .demo-console{background:#0b1420;border-radius:14px;padding:17px;margin-top:12px;min-height:159px}
+    .demo-console-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;color:#8d9eb4;font:700 10px var(--mono);text-transform:uppercase;letter-spacing:.03em}
+    .demo-console-lines{font:500 11px/1.95 var(--mono);color:#a5b4c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .demo-console-lines .success{color:#9eedad}.demo-console-lines .highlight{color:#8fb3ff}
+    .demo-foot{display:flex;align-items:center;gap:8px;margin-top:15px;color:#8d9cb0;font:500 11px var(--mono)}
+    .demo-foot .ic{color:#b9ff3d}.demo-foot .right{margin-left:auto}
+    /* Features */
+    .feature-grid{display:grid;grid-template-columns:1.12fr .88fr;grid-template-rows:auto auto;gap:14px}
+    .feature-card{background:var(--s1);border-radius:24px;min-height:235px;padding:30px;position:relative;overflow:hidden}
+    .feature-card.major{grid-row:span 2;min-height:489px;background:var(--accent);color:var(--on-accent)}
+    .feature-card h3{font:800 28px/1.1 var(--font);letter-spacing:-.04em;margin-top:22px;max-width:430px}
+    .feature-card p{font-size:13.5px;line-height:1.65;color:var(--ink2);max-width:335px;margin-top:9px}
+    .feature-card.major h3{font-size:36px;max-width:370px}.feature-card.major p{color:var(--on-accent);opacity:.86}
+    .feature-card .feature-icon{height:44px;width:44px;border-radius:15px;background:var(--s2);display:grid;place-items:center}.feature-card.major .feature-icon{background:rgba(255,255,255,.19);color:#fff}
+    .feature-card.major .invoice-graphic{margin-top:32px;border-radius:18px;background:#fff;color:#11213a;padding:21px;max-width:460px;transform:rotate(-3deg);position:relative}
+    .invoice-head{display:flex;align-items:center;justify-content:space-between;font-size:13px;font-weight:800}.invoice-head .invoice-paid{color:#106a39;background:#daf7e2;padding:6px 10px;border-radius:99px;font-size:10px}
+    .invoice-total{margin-top:22px;font:850 29px/1 var(--font);letter-spacing:-.04em}.invoice-total small{font-size:12px;color:#748398;font-weight:600;letter-spacing:0}
+    .invoice-bar{background:#edf0f5;height:11px;border-radius:20px;margin-top:23px}.invoice-bar:before{content:'';display:block;width:67%;background:#bfc9dc;height:100%;border-radius:20px}
+    .invoice-bars{display:flex;gap:8px;margin-top:9px}.invoice-bars span{background:#edf0f5;border-radius:20px;height:9px;flex:1}.invoice-bars span:last-child{flex:.45}
+    .feature-line{margin-top:27px;display:flex;gap:7px;flex-wrap:wrap}.feature-tag{background:var(--s2);font:700 11px var(--mono);color:var(--ink2);padding:8px 11px;border-radius:50px}
+    /* Steps */
+    .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .step{background:var(--s1);border-radius:24px;padding:25px;min-height:240px;display:flex;flex-direction:column;align-items:flex-start}
+    .step-num{font:750 13px var(--mono);color:var(--accent);background:var(--accent-bg);border-radius:12px;padding:10px 12px}
+    .step h3{font:800 26px/1.1 var(--font);letter-spacing:-.04em;margin-top:auto}
+    .step p{color:var(--ink2);font-size:13px;line-height:1.6;margin-top:11px;max-width:290px}
+    /* Roadmap and FAQ */
+    .roadmap{background:var(--s1);border-radius:24px;padding:28px;display:grid;grid-template-columns:1fr 1fr;gap:35px}
+    .roadmap h3{font:800 23px/1.1 var(--font);letter-spacing:-.04em;margin-bottom:10px}.roadmap p{font-size:13px;line-height:1.6;color:var(--ink2)}
+    .roadmap-track{display:grid;gap:10px}.roadmap-item{display:flex;gap:12px;align-items:center;background:var(--s2);padding:13px;border-radius:14px;font-size:12px;font-weight:700}
+    .roadmap-item .n{background:var(--s3);border-radius:9px;padding:6px 9px;font:700 11px var(--mono)}.roadmap-item .phase{margin-left:auto;color:var(--ink3);font:650 10px var(--mono)}
+    .faq-list{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .faq{background:var(--s1);border-radius:19px;padding:0 22px;align-self:stretch}
+    .faq summary{list-style:none;display:flex;justify-content:space-between;gap:15px;align-items:center;padding:22px 0;cursor:pointer;font-weight:800;font-size:14px}
+    .faq summary::-webkit-details-marker{display:none}.faq summary .ic{transition:transform .2s;flex:none;color:var(--ink3)}.faq[open] summary .ic{transform:rotate(45deg)}
+    .faq p{color:var(--ink2);font-size:13.5px;line-height:1.7;margin:-3px 0 23px;max-width:520px}
+    /* CTA & footer */
+    .closing{padding-top:133px;padding-bottom:75px}
+    .closing-box{background:var(--lime);border-radius:30px;padding:56px;display:flex;align-items:end;gap:35px;justify-content:space-between;color:var(--lime-ink)}
+    .closing-box h2{font:850 clamp(36px,5vw,65px)/1 var(--font);max-width:700px;letter-spacing:-.068em;margin-top:18px}
+    .closing-box p{font-size:14px;color:#324724;max-width:525px;margin-top:17px;line-height:1.65}
+    .closing-box .eyebrow{color:#43592e}
+    .closing .btn{flex:none}
+    .site-footer{padding:0 0 38px}
+    .footer-inner{padding-top:30px;display:grid;grid-template-columns:1.5fr repeat(2,.6fr);gap:40px}
+    .footer-brand p{font-size:13px;color:var(--ink2);margin-top:16px;max-width:300px}
+    .footer-col b{display:block;margin-bottom:14px;font-size:12px}.footer-col a{display:block;color:var(--ink2);font-size:12px;margin-top:10px;font-weight:600}.footer-col a:hover{color:var(--ink)}
+    .footer-bottom{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:50px;font:550 11px var(--mono);color:var(--ink3)}
+    .footer-bottom .built{display:flex;align-items:center;gap:8px}
+    .launch-status{display:flex;align-items:center;gap:8px}.launch-status .dot{color:var(--good)}
+    /* Responsive */
+    @media (max-width:1160px){
+      .hero{gap:24px}.mock-floating{right:-5px}.strip-item{padding:9px 5px}
+      .nav-inner{gap:14px}.nav-links{gap:16px}.nav-acts{margin-left:4px}
+    }
+    @media (max-width:950px){
+      .nav-links{display:none}.menu-btn{display:grid}.nav-acts{margin-left:auto}
+      .hero{grid-template-columns:1fr;gap:55px;padding-top:65px;padding-bottom:60px;min-height:unset}.hero h1{max-width:780px;font-size:clamp(59px,9vw,84px)}
+      .preview{width:min(100%,650px);margin:auto}.preview-shell{min-height:430px}
+      .strip{grid-template-columns:repeat(2,1fr)}.strip-item{padding:10px}
+      .section-head{align-items:start;flex-direction:column;gap:15px}
+      .section-head p{max-width:620px}
+      .service-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .showcase-wrap{padding:35px}.showcase-head{align-items:start;flex-direction:column}
+      .closing-box{padding:38px;align-items:start;flex-direction:column}
+    }
+    @media (max-width:650px){
+      html{scroll-padding-top:75px}.wrap{padding-left:16px;padding-right:16px}
+      .nav-inner{min-height:68px}.nav-acts .access,[data-authenticated="true"] .nav-acts .access{display:none!important}
+      .scrim .modal{width:100%;border-radius:0;padding:calc(18px + env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) calc(18px + env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
+      .announce{padding-top:7px}.announce-inner{display:grid;grid-template-columns:minmax(0,1fr) auto;border-radius:20px;font-size:12px;justify-content:stretch;text-align:left;padding:12px;gap:11px;min-height:68px}.announce .smallcaps{grid-column:1;font-size:9px;padding:0;background:none;color:var(--lime);letter-spacing:.09em;align-self:end}.announce-copy{grid-column:1;min-width:0;display:block;line-height:1.28;align-self:start}.announce-copy b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.announce-copy small{display:block;color:color-mix(in srgb,var(--on-ink) 72%,transparent);white-space:normal;font-size:11px;margin-top:2px}.announce a{grid-column:2;grid-row:1/3;align-self:center;font-size:0;text-decoration:none;width:44px;height:44px;border-radius:14px;background:color-mix(in srgb,var(--on-ink) 12%,transparent);display:grid;place-items:center}.announce a .ic{width:19px;height:19px}
+      .hero{padding-top:52px;padding-bottom:45px;gap:42px}.hero h1{font-size:clamp(51px,12.4vw,75px);line-height:1.005}
+      .hero-description{font-size:15px;margin-top:20px}.hero-ctas{margin-top:25px}.hero-ctas .btn{min-height:49px;padding:0 19px}
+      .hero-eyebrow{margin-bottom:19px;font-size:10px}.hero-note{font-size:11px}
+      .preview{max-width:500px}.preview-shell{border-radius:22px;padding:10px;min-height:360px}.preview-body{grid-template-columns:43px minmax(0,1fr);gap:8px;min-height:320px}
+      .mock-side{padding:8px 4px;border-radius:12px;gap:11px}.mock-side .mark-small{width:30px;height:30px}.mock-side .small-ic{width:29px;height:29px}
+      .mock-head h3{font-size:17px}.mock-service{padding:10px;border-radius:13px}.mock-server-ico{width:34px;height:34px}
+      .mock-service-name{font-size:11px}.mock-service-domain{font-size:8px}.mock-status{font-size:8px;padding:6px 7px}
+      .mock-metrics{gap:5px;margin-top:12px}.mock-metric{padding:8px 6px;border-radius:9px}.mock-metric .n{font-size:12px}.mock-metric .k{font-size:8px}
+      .mock-console{min-height:110px;padding:10px}.term{font-size:8px}.mock-floating{display:none}
+      .preview-caption{margin-top:14px;font-size:10px}
+      .strip{display:flex;gap:8px;padding:10px;border-radius:20px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none}.strip::-webkit-scrollbar{display:none}.strip-item{flex:0 0 215px;gap:9px;padding:8px;scroll-snap-align:start}.strip-icon{width:38px;height:38px;border-radius:12px}.strip-icon .ic{width:19px;height:19px}.strip-item b{font-size:12px}.strip-item small{font-size:10px}
+      .section{padding-top:90px}.section-head{margin-bottom:25px}.section-head h2{font-size:clamp(37px,9vw,48px)}
+      .filter-row{flex-wrap:nowrap;overflow-x:auto;margin-right:-16px;padding-right:16px;scrollbar-width:none}.filter-row::-webkit-scrollbar{display:none}.filter{flex:none}
+      .service-grid,.feature-grid,.steps{display:flex;gap:10px;overflow-x:auto;margin-left:-16px;margin-right:-16px;padding:0 16px 9px;scroll-snap-type:x mandatory;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none}.service-grid::-webkit-scrollbar,.feature-grid::-webkit-scrollbar,.steps::-webkit-scrollbar{display:none}
+      .service-card{flex:0 0 min(84vw,330px);min-height:235px;padding:21px;scroll-snap-align:start}.service-card h3{margin-top:18px}.service-bottom{padding-top:15px}
+      .showcase-section{padding-top:88px}.showcase-wrap{padding:30px 17px 18px;border-radius:24px}.showcase-head h2{font-size:38px}.showcase-head{margin-bottom:22px}
+      .demo{grid-template-columns:1fr;padding:8px;gap:8px}.demo-aside{flex-direction:row;overflow-x:auto;align-items:center;gap:3px}.demo-aside-title{display:none}.demo-tab{padding:12px;white-space:nowrap;font-size:11px;gap:6px}.demo-tab .tiny{display:none}.demo-mini{display:none}
+      .demo-content{padding:16px}.demo-title-row h3{font-size:22px}.demo-stats{gap:6px;margin-top:21px}.demo-stat{padding:10px}.demo-stat b{font-size:18px}.demo-stat small{font-size:9px}.demo-console-lines{font-size:9px}
+      .feature-card{flex:0 0 min(84vw,340px);min-height:300px;padding:25px;scroll-snap-align:start}.feature-card.major{grid-row:auto;min-height:470px}.feature-card.major .invoice-graphic{margin-top:25px}
+      .step{flex:0 0 min(78vw,310px);min-height:210px;scroll-snap-align:start}.faq-list{grid-template-columns:1fr}.roadmap{grid-template-columns:1fr;padding:20px;gap:22px}
+      .closing{padding-top:92px;padding-bottom:55px}.closing-box{padding:30px 25px;border-radius:23px}.closing-box h2{font-size:43px}.closing .btn{min-height:48px}
+      .footer-inner{grid-template-columns:1fr 1fr;gap:25px}.footer-brand{grid-column:1/-1}.footer-bottom{margin-top:35px}
+    }
+    @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+  </style>
+</head>
+<body data-authenticated="__AUTH_STATE__">
+  <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+    <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="m12 2 9 5-9 5-9-5 9-5Zm-9 5v10l9 5 9-5V7M12 12v10"/></symbol>
+    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="14" rx="4"/><path d="M12 7V3m-2 0h4M7 14h.01M17 14h.01M8 18h8"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4m8-8 4 4-4 4m-3-11-2 14"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="3"/><path d="m6 9 4 3-4 3m7 0h5"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m0-13h12"/></symbol>
+    <symbol id="i-credit" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20M6 15h4"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-12h-7l0-8Z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v2"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 13a8.8 8.8 0 0 1-9.5-9.5A9 9 0 1 0 20.5 13Z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-disc" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 17v-6m4 6V7m4 10v-8"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 1v4m6-4v4M9 19v4m6-4v4M1 9h4m-4 6h4m14-6h4m-4 6h4"/></symbol>
+  </svg>
+  <header class="site-header" id="top">
+    <nav class="wrap nav-inner" aria-label="Primary navigation">
+      <a class="brand" href="#top" aria-label="Fortless home"><span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true"></span>fortless</a>
+      <div class="nav-links"><a href="#services">Hosting</a><a href="#platform">Platform</a><a href="#features">Why Fortless</a><a href="#faq">FAQ</a></div>
+      <div class="nav-acts">
+        <button class="icon-btn" id="themeToggle" type="button" aria-label="Switch color theme" title="Toggle light/dark mode"><svg class="ic s"><use href="#i-moon"/></svg></button>
+        <a class="btn s sec access" data-auth-guest href="/login">Sign in</a>
+        <a class="btn s accent access" data-auth-guest href="/register">Get started <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a>
+        <a class="btn s accent access" data-auth-user href="/app">Open dashboard <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a>
+        <button class="icon-btn menu-btn" id="menuToggle" type="button" aria-expanded="false" aria-controls="mobileMenu" aria-label="Toggle menu"><svg class="ic"><use href="#i-menu"/></svg></button>
+      </div>
+    </nav>
+    <div class="mobile-menu scrim" id="mobileMenu" hidden role="dialog" aria-modal="true" aria-label="Navigation menu"><div class="modal"><div class="mobile-menu-head"><a class="brand" href="#top"><span class="brand-mark"></span>fortless</a><button class="icon-btn" id="menuClose" type="button" aria-label="Close menu"><svg class="ic"><use href="#i-x"/></svg></button></div><nav class="mobile-menu-links" aria-label="Mobile navigation"><a href="#services">Hosting <svg class="ic"><use href="#i-arrow-up-right"/></svg></a><a href="#platform">Platform <svg class="ic"><use href="#i-arrow-up-right"/></svg></a><a href="#features">Why Fortless <svg class="ic"><use href="#i-arrow-up-right"/></svg></a><a href="#faq">FAQ <svg class="ic"><use href="#i-arrow-up-right"/></svg></a></nav><div class="mobile-menu-actions"><a class="btn sec" data-auth-guest href="/login">Sign in</a><a class="btn accent" data-auth-guest href="/register">Create account <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a><a class="btn accent" data-auth-user href="/app">Open dashboard <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a></div></div></div>
+  </header>
+  <main>
+    <div class="wrap announce"><div class="announce-inner"><span class="smallcaps">In development</span><span class="announce-copy"><b>Building Fortless</b><small>A better home for your infrastructure.</small></span><a href="#roadmap" aria-label="View launch roadmap">What's next <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a></div></div>
+    <section class="wrap hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="hero-eyebrow"><span class="signal"></span> One home for everything you run</div>
+        <h1 id="hero-title">Hosting,<br>minus the <span class="accent-word">hassle.</span></h1>
+        <p class="hero-description">Game servers, Discord bots, apps and more. One clean platform to launch, manage and grow everything you host.</p>
+        <div class="hero-ctas"><a class="btn l accent" data-auth-guest href="/register">Start for free <svg class="ic"><use href="#i-arrow-up-right"/></svg></a><a class="btn l soft" data-auth-guest href="/login">Sign in <svg class="ic"><use href="#i-arrow-right"/></svg></a><a class="btn l accent" data-auth-user href="/app">Open your dashboard <svg class="ic"><use href="#i-arrow-up-right"/></svg></a></div>
+        <div class="hero-note"><svg class="ic s"><use href="#i-check"/></svg> A preview of the Fortless experience. Services are not live yet.</div>
+      </div>
+      <div class="preview" aria-label="Illustrative preview of the proposed Fortless client dashboard">
+        <div class="preview-shell">
+          <div class="preview-top"><span></span><span></span><span></span><strong>FORTLESS / PREVIEW</strong></div>
+          <div class="preview-body">
+            <div class="mock-side"><span class="mark-small"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4.7"><path d="M6.5 20V5.5H19M7 12.5h9"/></svg></span><span class="small-ic selected"><svg class="ic s"><use href="#i-layout"/></svg></span><span class="small-ic"><svg class="ic s"><use href="#i-server"/></svg></span><span class="small-ic"><svg class="ic s"><use href="#i-credit"/></svg></span><span class="small-ic"><svg class="ic s"><use href="#i-shield"/></svg></span><span class="small-ic bottom"><svg class="ic s"><use href="#i-globe"/></svg></span></div>
+            <div class="mock-main">
+              <div class="mock-head"><div><p>DEMO WORKSPACE</p><h3>Overview</h3></div><div class="mock-avatar">FL</div></div>
+              <div class="mock-service">
+                <div class="mock-service-top"><span class="mock-server-ico"><svg class="ic"><use href="#i-cube"/></svg></span><div style="min-width:0"><div class="mock-service-name">my-minecraft-server</div><div class="mock-service-domain">game-server · example</div></div><span class="mock-status">Running</span></div>
+                <div class="mock-metrics">
+                  <div class="mock-metric"><div class="n mono">42%</div><div class="k">CPU</div><div class="mock-progress"></div></div>
+                  <div class="mock-metric"><div class="n mono">2.4 GB</div><div class="k">MEMORY</div><div class="mock-progress p2"></div></div>
+                  <div class="mock-metric"><div class="n mono">8.1 GB</div><div class="k">STORAGE</div><div class="mock-progress p3"></div></div>
+                </div>
+              </div>
+              <div class="mock-console"><div class="mock-console-head">Live console <svg class="ic s"><use href="#i-terminal"/></svg></div><div class="term"><span class="blue">[10:32:18]</span> Starting server instance...</div><div class="term"><span class="blue">[10:32:19]</span> Loading configuration</div><div class="term"><span class="blue">[10:32:21]</span> <span class="green">✓ Server started successfully</span></div><div class="term"><span class="white">&gt; </span><span class="green">Ready for connections_</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="mock-floating"><div class="mock-floating-top"><span class="box-icon"><svg class="ic"><use href="#i-zap"/></svg></span><div><h4>You're in control.</h4><p>Every service, one dashboard.</p></div></div><div class="mock-floating-bottom"><svg class="ic s"><use href="#i-check"/></svg> Simulated dashboard preview</div></div>
+        <p class="preview-caption">Interface concept · Illustrative data · No live infrastructure connected</p>
+      </div>
+    </section>
+    <div class="wrap"><div class="strip" aria-label="Hosting categories"><div class="strip-item"><span class="strip-icon"><svg class="ic"><use href="#i-cube"/></svg></span><span><b>Game hosting</b><small>Multiplayer, simplified</small></span></div><div class="strip-item"><span class="strip-icon"><svg class="ic"><use href="#i-bot"/></svg></span><span><b>Bot hosting</b><small>Always-on projects</small></span></div><div class="strip-item"><span class="strip-icon"><svg class="ic"><use href="#i-code"/></svg></span><span><b>App hosting</b><small>Build and deploy</small></span></div><div class="strip-item"><span class="strip-icon"><svg class="ic"><use href="#i-globe"/></svg></span><span><b>Web & cloud</b><small>One place to manage</small></span></div></div></div>
+    <section class="wrap section" id="services" aria-labelledby="services-title">
+      <div class="section-head"><div><div class="eyebrow"><span class="dot" style="color:var(--accent)"></span> WHAT YOU CAN HOST</div><h2 id="services-title">Whatever you're building,<br>give it a home.</h2></div><p>From a small community bot to your next big project. We're shaping a hosting platform that grows with what you create.</p></div>
+      <div class="filter-row" role="group" aria-label="Filter services"><button type="button" class="filter" data-filter="all" aria-pressed="true">All services</button><button type="button" class="filter" data-filter="gaming" aria-pressed="false">Gaming & bots</button><button type="button" class="filter" data-filter="web" aria-pressed="false">Web & applications</button><button type="button" class="filter" data-filter="cloud" aria-pressed="false">Infrastructure</button></div>
+      <div class="service-grid" id="serviceGrid">
+        <article class="service-card" data-category="gaming"><div class="service-top"><span class="service-icon lime"><svg class="ic l"><use href="#i-cube"/></svg></span><span class="badge blue">First wave</span></div><h3>Game servers.</h3><p>Keep your world online. Planned support for easy deployments, resource controls, backups and server management.</p><div class="service-bottom"><span class="mini">GAME HOSTING</span><svg class="ic"><use href="#i-arrow-up-right"/></svg></div></article>
+        <article class="service-card" data-category="gaming"><div class="service-top"><span class="service-icon blue"><svg class="ic l"><use href="#i-bot"/></svg></span><span class="badge blue">First wave</span></div><h3>Discord bots.</h3><p>Host the bots your community depends on. Designed for persistent processes, console access and manageable resources.</p><div class="service-bottom"><span class="mini">BOT HOSTING</span><svg class="ic"><use href="#i-arrow-up-right"/></svg></div></article>
+        <article class="service-card" data-category="web"><div class="service-top"><span class="service-icon"><svg class="ic l"><use href="#i-code"/></svg></span><span class="badge">Planned</span></div><h3>Applications.</h3><p>A home for your Node.js services and other projects, with deployment workflows and app-specific controls.</p><div class="service-bottom"><span class="mini">APP HOSTING</span><svg class="ic"><use href="#i-arrow-up-right"/></svg></div></article>
+        <article class="service-card" data-category="web"><div class="service-top"><span class="service-icon"><svg class="ic l"><use href="#i-globe"/></svg></span><span class="badge">Planned</span></div><h3>Websites.</h3><p>Web hosting without the control panel maze. One account for plans, files, domains and support.</p><div class="service-bottom"><span class="mini">WEB HOSTING</span><svg class="ic"><use href="#i-arrow-up-right"/></svg></div></article>
+        <article class="service-card" data-category="cloud"><div class="service-top"><span class="service-icon"><svg class="ic l"><use href="#i-server"/></svg></span><span class="badge">On the roadmap</span></div><h3>Virtual servers.</h3><p>More control for advanced workloads. VPS orchestration and lifecycle management are on the longer-term roadmap.</p><div class="service-bottom"><span class="mini">VPS & CLOUD</span><svg class="ic"><use href="#i-arrow-up-right"/></svg></div></article>
+        <article class="service-card" data-category="web"><div class="service-top"><span class="service-icon"><svg class="ic l"><use href="#i-disc"/></svg></span><span class="badge">Planned</span></div><h3>Domains.</h3><p>Search, register and manage domain names beside your hosting. One bill, one destination for the essentials.</p><div class="service-bottom"><span class="mini">DOMAIN SERVICES</span><svg class="ic"><use href="#i-arrow-up-right"/></svg></div></article>
+      </div>
+    </section>
+    <section class="wrap showcase-section" id="platform" aria-labelledby="platform-title">
+      <div class="showcase-wrap">
+        <div class="showcase-head"><div><div class="eyebrow" style="color:#a3b7cd"><span class="dot" style="color:var(--lime)"></span> THE PLATFORM, REIMAGINED</div><h2 id="platform-title">Everything you need.<br>None of the clutter.</h2></div><p>A single, considered workspace for your services. Here's an interactive concept of what managing them could feel like.</p></div>
+        <div class="demo" aria-label="Interactive dashboard concept">
+          <div class="demo-aside"><div class="demo-aside-title">Preview a service</div><button class="demo-tab" type="button" data-demo="game" aria-pressed="true"><svg class="ic"><use href="#i-cube"/></svg> Game server <span class="tiny">01</span></button><button class="demo-tab" type="button" data-demo="bot" aria-pressed="false"><svg class="ic"><use href="#i-bot"/></svg> Discord bot <span class="tiny">02</span></button><button class="demo-tab" type="button" data-demo="app" aria-pressed="false"><svg class="ic"><use href="#i-code"/></svg> Application <span class="tiny">03</span></button><div class="demo-mini"><svg class="ic"><use href="#i-shield"/></svg><b>One connected experience.</b>Manage your services from a single place.</div></div>
+          <div class="demo-content"><div class="demo-title-row"><div><div class="demo-label"><span class="dot"></span> ILLUSTRATIVE SERVICE</div><h3 id="demoTitle" style="margin-top:13px">survival-server</h3><p id="demoSubtitle">Game hosting / mc-demo-01</p></div><span class="badge light">UI concept</span></div><div class="demo-stats"><div class="demo-stat"><small>CPU USAGE</small><b id="demoCpu" class="mono">42%</b><div class="gauge"><i id="gaugeCpu"></i></div></div><div class="demo-stat"><small>MEMORY</small><b id="demoMemory" class="mono">2.4 GB</b><div class="gauge"><i id="gaugeMemory"></i></div></div><div class="demo-stat"><small>DISK</small><b id="demoDisk" class="mono">8.1 GB</b><div class="gauge"><i id="gaugeDisk"></i></div></div></div><div class="demo-console"><div class="demo-console-head"><span>Console output</span><svg class="ic s"><use href="#i-terminal"/></svg></div><div class="demo-console-lines" id="demoLogs" aria-live="polite"><div><span class="highlight">[10:32:18]</span> Booting container...</div><div><span class="highlight">[10:32:19]</span> Loading configuration...</div><div><span class="success">[OK]</span> Server is ready for connections.</div></div></div><div class="demo-foot"><svg class="ic s"><use href="#i-check"/></svg> Sample metrics only <span class="right">No backend connected</span></div></div>
+        </div>
+      </div>
+    </section>
+    <section class="wrap section" id="features" aria-labelledby="features-title">
+      <div class="section-head"><div><div class="eyebrow"><span class="dot" style="color:var(--accent)"></span> BUILT AROUND YOU</div><h2 id="features-title">Less panel hopping.<br>More getting things done.</h2></div><p>Good infrastructure shouldn't demand five dashboards, three passwords and a spreadsheet to keep track of it all.</p></div>
+      <div class="feature-grid">
+        <article class="feature-card major"><span class="feature-icon"><svg class="ic l"><use href="#i-credit"/></svg></span><h3>One account.<br>One place for billing.</h3><p>A unified view of orders, recurring services, invoices and renewals. Designed to keep the important details within reach.</p><div class="invoice-graphic" aria-label="Illustrative invoice interface"><div class="invoice-head"><span>Billing overview <span style="opacity:.5">/ DEMO</span></span><span class="invoice-paid">EXAMPLE</span></div><div class="invoice-total">All in one place <small>· planned experience</small></div><div class="invoice-bar"></div><div class="invoice-bars"><span></span><span></span></div><div style="display:flex;align-items:center;justify-content:space-between;margin-top:25px;font-size:11px;font-weight:700"><span>Hosting · Domains · Services</span><span>↗</span></div></div></article>
+        <article class="feature-card"><span class="feature-icon"><svg class="ic l"><use href="#i-zap"/></svg></span><h3>Set it up. Keep it moving.</h3><p>Automated provisioning, guided configuration and clear service states are core to the platform design.</p><div class="feature-line"><span class="feature-tag">Provisioning</span><span class="feature-tag">Lifecycle</span><span class="feature-tag">Backups</span></div></article>
+        <article class="feature-card"><span class="feature-icon"><svg class="ic l"><use href="#i-lock"/></svg></span><h3>Control without compromise.</h3><p>Account security, scoped permissions and traceable operations are built into the architecture from the start.</p><div class="feature-line"><span class="feature-tag">MFA</span><span class="feature-tag">Permissions</span><span class="feature-tag">Audit logs</span></div></article>
+      </div>
+    </section>
+    <section class="wrap section" id="how" aria-labelledby="how-title"><div class="section-head"><div><div class="eyebrow"><span class="dot" style="color:var(--accent)"></span> THE PLANNED WORKFLOW</div><h2 id="how-title">Three steps.<br>From idea to online.</h2></div><p>No mysterious setup dance. The intended experience makes getting started simple and managing your service even simpler.</p></div><div class="steps"><article class="step"><span class="step-num">01 / PICK</span><h3>Choose what fits.</h3><p>Find the right hosting category, select a plan and configure the resources you need.</p></article><article class="step"><span class="step-num">02 / SET UP</span><h3>Make it yours.</h3><p>Pick the location and options available for your service, with clear pricing before checkout.</p></article><article class="step"><span class="step-num">03 / MANAGE</span><h3>Run it from one place.</h3><p>After verified payment and provisioning, monitor and manage your service in Fortless.</p></article></div></section>
+    <section class="wrap section" id="roadmap" aria-labelledby="roadmap-title"><div class="section-head"><div><div class="eyebrow"><span class="dot" style="color:var(--accent)"></span> OUR DIRECTION</div><h2 id="roadmap-title">Start focused.<br>Build for everything.</h2></div><p>We're prioritizing a reliable core over rushing out dozens of half-finished hosting products.</p></div><div class="roadmap"><div><h3>Made to grow, not to sprawl.</h3><p>Fortless is being designed with one commercial layer and dedicated integrations for different hosting technologies. The roadmap is directional and may change before launch.</p></div><div class="roadmap-track"><div class="roadmap-item"><span class="n">01</span><span>Game & bot hosting</span><span class="phase">FIRST WAVE</span></div><div class="roadmap-item"><span class="n">02</span><span>Applications, websites & domains</span><span class="phase">PLANNED</span></div><div class="roadmap-item"><span class="n">03</span><span>VPS, advanced cloud & AI tools</span><span class="phase">EXPLORATORY</span></div></div></div></section>
+    <section class="wrap section" id="faq" aria-labelledby="faq-title"><div class="section-head"><div><div class="eyebrow"><span class="dot" style="color:var(--accent)"></span> GOOD TO KNOW</div><h2 id="faq-title">A few things,<br>cleared up.</h2></div><p>Real answers about where the platform stands right now.</p></div><div class="faq-list">
+      <details class="faq"><summary>Is Fortless available right now? <svg class="ic s"><use href="#i-plus"/></svg></summary><p>Not yet. This is a preview of the planned platform. Service availability, pricing and launch timing haven't been announced.</p></details>
+      <details class="faq"><summary>Which hosting services are first? <svg class="ic s"><use href="#i-plus"/></svg></summary><p>Game servers and Discord bot hosting are the current first-wave priorities. Other categories are planned or exploratory.</p></details>
+      <details class="faq"><summary>Will everything be in one dashboard? <svg class="ic s"><use href="#i-plus"/></svg></summary><p>That's the product goal: one account for purchases, billing, support and service access. Individual technical operations may still use specialized infrastructure behind the scenes.</p></details>
+      <details class="faq"><summary>Are the dashboard metrics real? <svg class="ic s"><use href="#i-plus"/></svg></summary><p>No. The visuals here are illustrative concepts, not connected infrastructure. They show design direction rather than an active customer environment.</p></details>
+      <details class="faq"><summary>Will there be VPS and domain registration? <svg class="ic s"><use href="#i-plus"/></svg></summary><p>Both are part of the intended roadmap. Launch timing depends on provider integrations, commercial arrangements and validation.</p></details>
+      <details class="faq"><summary>What about AI-powered features? <svg class="ic s"><use href="#i-plus"/></svg></summary><p>Assisted setup and troubleshooting are being considered, but no specific AI hosting product or capability has been committed to yet.</p></details>
+    </div></section>
+    <section class="wrap closing" aria-labelledby="closing-title"><div class="closing-box"><div><div class="eyebrow"><span class="dot"></span> THE NEXT GENERATION OF HOSTING</div><h2 id="closing-title">Make room for<br>what's next.</h2><p>From your first Discord bot to a whole ecosystem of services. Fortless is being built to make the infrastructure side feel effortless.</p></div><a class="btn l" data-auth-guest href="/register">Create your account <svg class="ic"><use href="#i-arrow-up-right"/></svg></a><a class="btn l" data-auth-user href="/app">Return to your dashboard <svg class="ic"><use href="#i-arrow-up-right"/></svg></a></div></section>
+  </main>
+  <footer class="wrap site-footer"><div class="footer-inner"><div class="footer-brand"><a class="brand" href="#top"><span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true"></span>fortless</a><p>Infrastructure for what you're building. A unified hosting platform, currently in development.</p></div><div class="footer-col"><b>Explore</b><a href="#services">Hosting services</a><a href="#platform">Platform preview</a><a href="#roadmap">Roadmap</a></div><div class="footer-col"><b>More</b><a href="#features">Why Fortless</a><a href="#how">How it works</a><a href="#faq">Questions & answers</a></div><div class="footer-col"><b>Account</b><a data-auth-guest href="/login">Sign in</a><a data-auth-guest href="/register">Create account</a><a data-auth-user href="/app">Dashboard</a></div></div><div class="footer-bottom"><span>© <span id="year">2026</span> Fortless. Product concept.</span><span class="launch-status"><span class="dot"></span> Platform in development</span></div></footer>
+  <script>
+    (()=>{
+      'use strict';
+      const root=document.documentElement;
+      const toggle=document.getElementById('themeToggle');
+      const themeIcon=toggle.querySelector('use');
+      function applyTheme(theme){root.dataset.theme=theme;themeIcon.setAttribute('href',theme==='dark'?'#i-sun':'#i-moon');toggle.setAttribute('aria-label',theme==='dark'?'Switch to light mode':'Switch to dark mode');document.querySelector('meta[name="theme-color"]').setAttribute('content',theme==='dark'?'#0a0e15':'#eff1f5')}
+      try{const saved=localStorage.getItem('fortless_theme');applyTheme(saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'))}catch(_){applyTheme('light')}
+      toggle.addEventListener('click',()=>{const current=root.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');const next=current==='dark'?'light':'dark';applyTheme(next);try{localStorage.setItem('fortless_theme',next)}catch(_){ }});
+      const menuToggle=document.getElementById('menuToggle'),menuClose=document.getElementById('menuClose'),mobileMenu=document.getElementById('mobileMenu');
+      let menuReturnFocus=null;
+      function setMenu(open){mobileMenu.hidden=!open;menuToggle.setAttribute('aria-expanded',String(open));document.body.style.overflow=open?'hidden':'';if(open){menuReturnFocus=document.activeElement;setTimeout(()=>menuClose.focus({preventScroll:true}),20)}else if(menuReturnFocus){menuReturnFocus.focus({preventScroll:true})}}
+      menuToggle.addEventListener('click',()=>setMenu(mobileMenu.hidden));
+      menuClose.addEventListener('click',()=>setMenu(false));
+      mobileMenu.addEventListener('click',event=>{if(event.target===mobileMenu)setMenu(false)});
+      mobileMenu.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>setMenu(false)));
+      document.addEventListener('keydown',event=>{if(mobileMenu.hidden)return;if(event.key==='Escape'){setMenu(false);return}if(event.key==='Tab'){const focusable=[...mobileMenu.querySelectorAll('a[href],button:not([disabled])')].filter(el=>el.offsetParent!==null);const first=focusable[0],last=focusable[focusable.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}}});
+      window.addEventListener('resize',()=>{if(innerWidth>950&&!mobileMenu.hidden)setMenu(false)});
+      document.querySelectorAll('.filter').forEach(button=>button.addEventListener('click',()=>{const category=button.dataset.filter;document.querySelectorAll('.filter').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));document.querySelectorAll('.service-card').forEach(card=>{card.hidden=category!=='all'&&card.dataset.category!==category})}));
+      const concepts={
+        game:{title:'survival-server',subtitle:'Game hosting / mc-demo-01',cpu:'42%',memory:'2.4 GB',disk:'8.1 GB',gauges:[42,60,27],lines:['[10:32:18] Booting container...','[10:32:19] Loading configuration...','[OK] Server is ready for connections.']},
+        bot:{title:'community-assistant',subtitle:'Bot hosting / bot-demo-02',cpu:'18%',memory:'340 MB',disk:'1.2 GB',gauges:[18,22,11],lines:['[10:43:02] Starting Node.js runtime...','[10:43:03] Registering application commands...','[OK] Bot process is running.']},
+        app:{title:'my-next-project',subtitle:'Application hosting / app-demo-03',cpu:'26%',memory:'512 MB',disk:'2.6 GB',gauges:[26,32,20],lines:['[11:10:05] Preparing application...','[11:10:07] Starting server process...','[OK] Application listening on port 3000.']}
+      };
+      const ids=['demoTitle','demoSubtitle','demoCpu','demoMemory','demoDisk'];
+      document.querySelectorAll('.demo-tab').forEach(button=>button.addEventListener('click',()=>{const d=concepts[button.dataset.demo];if(!d)return;document.querySelectorAll('.demo-tab').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));[d.title,d.subtitle,d.cpu,d.memory,d.disk].forEach((t,i)=>document.getElementById(ids[i]).textContent=t);['gaugeCpu','gaugeMemory','gaugeDisk'].forEach((id,i)=>{document.getElementById(id).style.width=d.gauges[i]+'%'});const logs=document.getElementById('demoLogs');logs.replaceChildren();d.lines.forEach((line,i)=>{let row=document.createElement('div');const token=document.createElement('span');token.className=i===2?'success':'highlight';token.textContent=line.slice(0,line.indexOf(']')+1);row.appendChild(token);row.appendChild(document.createTextNode(line.slice(line.indexOf(']')+1)));logs.appendChild(row)})}));
+      document.getElementById('year').textContent=String(new Date().getFullYear());
+    })();
+  </script>
+</body>
+</html>

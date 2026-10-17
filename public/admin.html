@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#eff1f5">
+  <title>FORTLESS — Operations</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
+  <link rel="stylesheet" href="/assets/admin-ui.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="side" aria-label="Operations navigation">
+      <a class="brand" href="/admin"><span class="brand-mark" aria-hidden="true"></span><span>fortless</span><span class="badge info s">OPS</span></a>
+      <p class="navlabel">Workspace</p>
+      <nav class="nav">
+        <a href="/admin" data-route="overview" id="nav-overview"><span class="ic" data-icon="home"></span>Overview</a>
+        <a href="/admin/accounts" data-route="accounts" id="nav-accounts"><span class="ic" data-icon="users"></span>Accounts</a>
+        <a href="/admin/services" data-route="services" id="nav-services"><span class="ic" data-icon="server"></span>Services</a>
+        <a href="/admin/tickets" data-route="tickets" id="nav-tickets"><span class="ic" data-icon="support"></span>Tickets</a>
+        <a href="/admin/audit" data-route="audit" id="nav-audit"><span class="ic" data-icon="shield"></span>Audit</a>
+        <a href="/admin/staff" data-route="staff" id="nav-staff"><span class="ic" data-icon="users"></span>Staff access</a>
+      </nav>
+      <div class="sidefoot">
+        <div class="me"><span class="av" id="userAvatar">OP</span><span><b id="userName">Operations</b><small id="staffRole">Staff · MFA</small></span></div>
+        <a class="back-link" href="/app"><span class="ic" data-icon="arrow"></span>Customer application</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="top">
+        <a class="mobile-brand" href="/admin" aria-label="Fortless operations home"><span class="brand-mark"></span></a>
+        <div class="top-copy"><h1 id="pageTitle">Operations overview</h1><p id="pageSubtitle">Real platform records, without simulated operational controls.</p></div>
+        <span class="badge warn"><span class="dot"></span>Read only</span>
+      </header>
+
+      <section class="page" id="page-overview">
+        <div class="metrics" id="overviewMetrics" aria-live="polite"></div>
+        <div class="split">
+          <article class="card"><div class="card-head"><div><h2>Release gates</h2><p>Provider-backed operations remain unavailable until verified.</p></div></div><div id="capabilityList" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Operational attention</h2><p>Queues and records requiring review.</p></div></div><div id="attentionList" class="stack"></div></article>
+        </div>
+      </section>
+
+      <section class="page" id="page-accounts">
+        <div class="card list-card"><div class="card-head"><div><h2>Customer accounts</h2><p>Ownership, membership and workload counts.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search name or email" data-search="accounts" aria-label="Search accounts"></div></div><div id="accountsList" class="records"></div></div>
+      </section>
+
+      <section class="page" id="page-services">
+        <div class="card list-card"><div class="card-head"><div><h2>Service inventory</h2><p>Contract and provider-observed state. No power controls here.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search service or account" data-search="services" aria-label="Search services"></div></div><div id="servicesList" class="records"></div></div>
+      </section>
+
+      <section class="page" id="page-tickets">
+        <div class="card list-card"><div class="card-head"><div><h2>Support queue</h2><p>Real customer threads ordered by priority and activity.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></div></div><div id="ticketsList" class="records"></div></div>
+      </section>
+
+      <section class="page" id="page-audit">
+        <div class="card list-card"><div class="card-head"><div><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action or resource" data-search="audit" aria-label="Search audit events"></div></div><div id="auditList" class="records"></div></div>
+      </section>
+
+      <section class="page" id="page-staff">
+        <div class="card list-card"><div class="card-head"><div><h2>Staff access</h2><p>Persisted roles, access status and MFA readiness.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search staff" data-search="staff" aria-label="Search staff"></div></div><div id="staffList" class="records"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <nav class="tabbar" aria-label="Mobile operations navigation">
+    <a href="/admin" data-route="overview"><span class="ic" data-icon="home"></span><span>Home</span></a>
+    <a href="/admin/accounts" data-route="accounts"><span class="ic" data-icon="users"></span><span>Accounts</span></a>
+    <a href="/admin/services" data-route="services"><span class="ic" data-icon="server"></span><span>Services</span></a>
+    <a href="/admin/tickets" data-route="tickets"><span class="ic" data-icon="support"></span><span>Tickets</span></a>
+    <a href="/admin/audit" data-route="audit"><span class="ic" data-icon="shield"></span><span>Audit</span></a>
+    <a href="/admin/staff" data-route="staff"><span class="ic" data-icon="users"></span><span>Team</span></a>
+  </nav>
+  <script src="/assets/admin-ui.js" defer></script>
+</body>
+</html>
