@@ -1847,7 +1847,7 @@ ${node.textContent || ""}
         });
       });
     } catch (err) {
-      host.innerHTML = `<div class="state-message" style="color:var(--bad)">Failed to load domains: ${esc(err.message)}</div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load zones</b><span>${esc(err.message)}</span></div></div>`;
     }
   }
   function filterZones() {
@@ -1877,24 +1877,11 @@ ${node.textContent || ""}
         host.innerHTML = '<div class="state-message">No matching TLDs found.</div>';
         return;
       }
-      host.innerHTML = `
-      <div class="z-ss domain-results">
-        ${res.results.map((item) => {
+      host.innerHTML = `<div class="col" style="gap:6px;margin-top:8px">${res.results.map((item) => {
         const isAvail = item.available && item.status === "AVAILABLE";
-        const badgeClass = isAvail ? "good" : "bad";
-        return `
-            <div class="z-ssr">
-              <span class="ico-b ${isAvail ? "good" : ""}"><svg class="ic"><use href="#i-globe"/></svg></span>
-              <div class="tx"><b>${esc(item.domain)} <span class="badge ${badgeClass} s">${esc(item.status)}</span></b><small>Catalog result \xB7 registrar checkout is not connected</small></div>
-              <div class="actions row">
-                ${item.annualPriceMinorUnits !== null ? `<span class="num" style="font-weight:700">${money(item.annualPriceMinorUnits, item.currency || "EUR")} <small class="muted">/yr</small></span>` : ""}
-                ${isAvail ? `<button type="button" class="btn sec s register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : `<span class="badge s">Unavailable</span>`}
-              </div>
-            </div>
-          `;
-      }).join("")}
-      </div>
-    `;
+        const tone = isAvail ? "good" : "bad";
+        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result \xB7 registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || "EUR")}<small class="muted">/yr</small></b>` : ""}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s sec register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ""}</span></div>`;
+      }).join("")}</div>`;
       host.querySelectorAll(".register-domain-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const domain = btn.dataset.domain;
@@ -1918,7 +1905,7 @@ ${node.textContent || ""}
         });
       });
     } catch (err) {
-      host.innerHTML = `<div class="state-message" style="color:var(--bad)">Search failed: ${esc(err.message)}</div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Search failed</b><span>${esc(err.message)}</span></div></div>`;
     }
   }
   async function openDnsEditor(zoneId, domainName) {
@@ -1995,7 +1982,7 @@ ${node.textContent || ""}
         });
       });
     } catch (err) {
-      host.innerHTML = `<div class="state-message" style="color:var(--bad)">Failed to load DNS records: ${esc(err.message)}</div>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load DNS records</b><span>${esc(err.message)}</span></div></div>`;
     }
   }
   function bindDomainEvents() {

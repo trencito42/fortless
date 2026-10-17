@@ -234,83 +234,60 @@
 
     <!-- DOMAINS & DNS SECTION -->
     <section id="section-domains" class="view-section" style="display:none">
-      <!-- Domain Search Hero -->
-      <div class="card flat" style="padding:24px;margin-bottom:20px">
-        <div class="section-card-head" style="margin-bottom:16px">
-          <div class="tx">
-            <h2 style="font:700 18px var(--font)">Domain catalog</h2>
-            <p style="color:var(--ink2);font-size:13.5px">Check the configured catalog and create authoritative DNS zones. Registrar purchasing is not enabled.</p>
-          </div>
+      <div class="hd" style="margin-bottom:14px">
+        <div class="tx">
+          <span class="pill acc">Domains</span>
+          <h2>Domains &amp; DNS</h2>
+          <p>Authoritative domain zones, DNS record management and catalog availability.</p>
         </div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px;padding:20px">
+        <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Domain catalog</h3><p>Check the configured catalog and create authoritative DNS zones. Registrar purchasing is not enabled.</p></div></div>
         <div class="row" style="gap:10px;margin-bottom:12px">
-          <div class="inp" style="flex:1">
-            <input id="domainSearchInput" type="text" placeholder="e.g. mycoolservice or mydomain.com" style="width:100%;height:44px;padding:0 14px;border:1px solid var(--s3);border-radius:12px;background:var(--s2);color:var(--ink);font:500 14px var(--font)">
-          </div>
-          <button id="domainSearchBtn" type="button" class="btn accent" style="height:44px;padding:0 22px">Search</button>
+          <label class="sch" style="flex:1">
+            <svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg>
+            <input id="domainSearchInput" type="text" placeholder="e.g. mycoolservice or mydomain.com" aria-label="Search domain">
+          </label>
+          <button id="domainSearchBtn" type="button" class="btn">Search</button>
         </div>
-        <div id="tldPricingChips" class="row wrap" style="gap:6px"></div>
+        <div id="tldPricingChips" class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
         <div id="domainSearchResults"></div>
       </div>
 
-      <!-- Active Domain Zones -->
-      <div class="card flat" style="padding:24px;margin-bottom:20px">
-        <div class="section-card-head">
-          <div class="tx">
-            <h2 style="font:700 18px var(--font)">Authoritative DNS Zones</h2>
-            <p style="color:var(--ink2);font-size:13.5px">Domain zones currently delegated to Fortless nameservers.</p>
-          </div>
-          <button id="refreshZonesBtn" type="button" class="btn sec s" style="font-size:12px">Refresh</button>
+      <div class="card" style="margin-bottom:12px;padding:20px">
+        <div class="ch" style="margin-bottom:14px">
+          <div class="tx"><h3>Authoritative DNS Zones</h3><p>Domain zones currently delegated to Fortless nameservers.</p></div>
+          <button id="refreshZonesBtn" type="button" class="ib s" aria-label="Refresh zones"><svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg></button>
         </div>
-        <div class="z-bar domain-toolbar"><div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="zoneSearch" type="search" placeholder="Filter domains" aria-label="Filter domain zones"></div><small id="zoneResultCount" class="muted"></small></div>
-        <div id="domainZonesContainer" style="margin-top:14px">
-          <div class="z-skb" role="status"><span class="sr">Loading domain zones</span><div class="skel" style="width:100%;height:32px;border-radius:10px"></div><div class="skel" style="width:100%;height:16px"></div><div class="skel" style="width:92%;height:16px"></div></div>
+        <div class="ch" style="margin-bottom:10px">
+          <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="zoneSearch" type="search" placeholder="Filter domains" aria-label="Filter domain zones"></label>
+          <small id="zoneResultCount" class="muted"></small>
+        </div>
+        <div id="domainZonesContainer">
+          <div class="sk" role="status" aria-label="Loading domain zones"><i></i><i></i><i></i></div>
         </div>
       </div>
 
-      <!-- DNS Zone Editor Card -->
-      <div id="dnsEditorCard" class="card flat" style="display:none;padding:24px">
-        <div class="section-card-head" style="margin-bottom:16px">
-          <div class="tx">
-            <h2 style="font:700 18px var(--font)">DNS Records — <span id="dnsEditorDomainTitle" style="color:var(--accent)"></span></h2>
-            <p style="color:var(--ink2);font-size:13.5px">Configure authoritative RFC-compliant resource records.</p>
-          </div>
-          <button id="closeDnsEditorBtn" type="button" class="btn sec s" style="font-size:12px">Close Editor</button>
+      <div id="dnsEditorCard" class="card" style="display:none;padding:20px">
+        <div class="ch" style="margin-bottom:14px">
+          <div class="tx"><h3>DNS Records — <span id="dnsEditorDomainTitle" style="color:var(--accent)"></span></h3><p>Configure authoritative RFC-compliant resource records.</p></div>
+          <button id="closeDnsEditorBtn" type="button" class="btn sec s">Close editor</button>
         </div>
 
-        <div id="dnsRecordsContainer" style="margin-bottom:24px">
-          <div class="state-message">Loading DNS records…</div>
+        <div id="dnsRecordsContainer" style="margin-bottom:20px">
+          <div class="sk" role="status" aria-label="Loading DNS records"><i></i><i></i><i></i></div>
         </div>
 
-        <!-- Add Record Sub-card -->
-        <div class="card s2" style="padding:18px">
-          <h3 style="font:700 15px var(--font);margin-bottom:12px">Add Resource Record</h3>
-          <form id="addDnsRecordForm" class="grid g4" style="gap:12px;align-items:flex-end">
-            <div>
-              <label for="dnsRecordType" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--ink2)">Type</label>
-              <select id="dnsRecordType" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--s3);border-radius:10px;background:var(--s1);color:var(--ink);font:500 13px var(--font)">
-                <option value="A">A (IPv4)</option>
-                <option value="AAAA">AAAA (IPv6)</option>
-                <option value="CNAME">CNAME (Alias)</option>
-                <option value="MX">MX (Mail)</option>
-                <option value="TXT">TXT (Text/SPF)</option>
-                <option value="SRV">SRV (Service)</option>
-                <option value="NS">NS (Nameserver)</option>
-              </select>
-            </div>
-            <div>
-              <label for="dnsRecordName" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--ink2)">Name (@ for root)</label>
-              <input id="dnsRecordName" type="text" placeholder="@" required style="width:100%;height:38px;padding:0 10px;border:1px solid var(--s3);border-radius:10px;background:var(--s1);color:var(--ink);font:500 13px var(--font)">
-            </div>
-            <div>
-              <label for="dnsRecordContent" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--ink2)">Target / Content</label>
-              <input id="dnsRecordContent" type="text" placeholder="192.0.2.1" required style="width:100%;height:38px;padding:0 10px;border:1px solid var(--s3);border-radius:10px;background:var(--s1);color:var(--ink);font:500 13px var(--font)">
-            </div>
+        <div class="card" style="padding:16px;background:var(--s2)">
+          <h4 style="font:700 14px var(--font);margin-bottom:12px">Add Resource Record</h4>
+          <form id="addDnsRecordForm" class="g g4 k2" style="gap:10px;align-items:flex-end">
+            <div class="fld"><label for="dnsRecordType">Type</label><div class="inp sel s"><select id="dnsRecordType"><option value="A">A (IPv4)</option><option value="AAAA">AAAA (IPv6)</option><option value="CNAME">CNAME (Alias)</option><option value="MX">MX (Mail)</option><option value="TXT">TXT (Text/SPF)</option><option value="SRV">SRV (Service)</option><option value="NS">NS (Nameserver)</option></select></div></div>
+            <div class="fld"><label for="dnsRecordName">Name</label><div class="inp"><input id="dnsRecordName" type="text" placeholder="@ for root" required></div></div>
+            <div class="fld"><label for="dnsRecordContent">Target / Content</label><div class="inp"><input id="dnsRecordContent" type="text" placeholder="192.0.2.1" required></div></div>
             <div class="row" style="gap:8px">
-              <div style="flex:1">
-                <label for="dnsRecordTtl" style="display:block;font-size:12px;font-weight:600;margin-bottom:4px;color:var(--ink2)">TTL (sec)</label>
-                <input id="dnsRecordTtl" type="number" value="3600" min="60" max="86400" style="width:100%;height:38px;padding:0 10px;border:1px solid var(--s3);border-radius:10px;background:var(--s1);color:var(--ink);font:500 13px var(--font)">
-              </div>
-              <button id="addDnsRecordBtn" type="submit" class="btn accent" style="height:38px;padding:0 16px;white-space:nowrap">Add Record</button>
+              <div class="fld" style="flex:1"><label for="dnsRecordTtl">TTL (sec)</label><div class="inp"><input id="dnsRecordTtl" type="number" value="3600" min="60" max="86400"></div></div>
+              <button id="addDnsRecordBtn" type="submit" class="btn pri" style="align-self:flex-end">Add record</button>
             </div>
           </form>
         </div>
