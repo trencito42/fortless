@@ -281,6 +281,27 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 11,
+    name: 'ticket attachments and multi-tenant file storage',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ticket_attachments (
+          id TEXT PRIMARY KEY,
+          ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+          message_id TEXT REFERENCES ticket_messages(id) ON DELETE CASCADE,
+          uploader_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+          filename TEXT NOT NULL,
+          content_type TEXT NOT NULL,
+          byte_size INTEGER NOT NULL,
+          file_hash TEXT NOT NULL,
+          storage_path TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket ON ticket_attachments(ticket_id);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

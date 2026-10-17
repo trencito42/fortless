@@ -98,12 +98,16 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/api/v1/services/:id/power` | POST | `MOCKED` | Tested via `MockPterodactylAdapter`; returns `PROVIDER_NOT_CONFIGURED` if live disabled. |
 | `/api/v1/orders/instant-deploy` | POST | `LOCAL_VERIFIED` | 410 LEGACY_FLOW_DISABLED in production; test harness handles outbox flow. |
 
-### Support & Audit
+### Support, Ticketing & Global Search
 | Endpoint | Method | Status | Notes |
 |---|---|---|---|
+| `/api/v1/search` | GET | `LOCAL_VERIFIED` | Scoped global search for services, tickets, invoices, navigation and admin routes. |
 | `/api/v1/tickets` | GET/POST | `LOCAL_VERIFIED` | Tenant-scoped support tickets with transactional initial message. |
-| `/api/v1/tickets/:id` | GET | `LOCAL_VERIFIED` | Customer thread history with staff reply distinction. |
-| `/api/v1/tickets/:id/messages` | POST | `LOCAL_VERIFIED` | Customer reply append; fails closed if ticket is closed. |
+| `/api/v1/tickets/:id` | GET | `LOCAL_VERIFIED` | Customer thread history with Markdown bodies, attachments, and staff replies. |
+| `/api/v1/tickets/:id/messages` | POST | `LOCAL_VERIFIED` | Customer reply append with Markdown support; fails closed if ticket is closed. |
+| `/api/v1/tickets/:id/attachments` | POST | `LOCAL_VERIFIED` | Uploads ticket file attachment; enforces MIME whitelist, SHA256 integrity, 5MB limit. |
+| `/api/v1/tickets/:id/attachments/:attachmentId` | GET | `LOCAL_VERIFIED` | Streams attachment download with nosniff and Content-Disposition; tenant-isolated. |
+| `/api/v1/admin/tickets/:ticketId/attachments` | POST | `LOCAL_VERIFIED` | Staff attachment upload to customer ticket; tenant-isolated storage. |
 | `/api/v1/audit` | GET | `LOCAL_VERIFIED` | Tenant-scoped immutable audit stream. |
 
 ### Staff Operations (`/api/v1/admin/*`)

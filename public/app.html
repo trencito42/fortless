@@ -777,6 +777,11 @@ button.li{width:100%;border:0;background:none;text-align:left}
         <h1 id="viewTitle" style="font:800 24px/1.2 var(--font);letter-spacing:-0.03em">Servers & Instances</h1>
         <p id="viewSubtitle">Services visible to this account.</p>
       </div>
+      <button class="search" type="button" data-cmd aria-label="Open command palette" style="margin:0 12px;max-width:320px;cursor:pointer">
+        <svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg>
+        <span>Search or jump to…</span>
+        <kbd class="kbd" style="font-size:11px">⌘K</kbd>
+      </button>
       <span class="grow"></span>
       <div class="app-top-actions">
         <div class="app-status">
@@ -1131,6 +1136,19 @@ button.li{width:100%;border:0;background:none;text-align:left}
   </main>
 </div>
 
+<!-- COMMAND PALETTE -->
+<div class="scrim" id="cmd" hidden>
+  <div class="cmd" role="dialog" aria-modal="true" aria-label="Command palette">
+    <div class="inp">
+      <svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg>
+      <input id="cmd-in" placeholder="Search pages, actions, and resources..." autocomplete="off" aria-label="Search">
+      <kbd class="kbd" style="font-size:11px">Esc</kbd>
+    </div>
+    <div class="res" id="cmd-res"></div>
+    <div class="foot"><span><kbd class="kbd">↑</kbd> <kbd class="kbd">↓</kbd> navigate</span><span><kbd class="kbd">↵</kbd> open</span></div>
+  </div>
+</div>
+
 <!-- TICKET DETAIL MODAL -->
 <div id="ticketModal" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="modalTicketSubject">
   <div class="modal lg">
@@ -1142,10 +1160,19 @@ button.li{width:100%;border:0;background:none;text-align:left}
       <button class="btn ghost sq s" type="button" onclick="closeTicketModal()" aria-label="Close ticket">✕</button>
     </div>
     <div id="modalTicketMessages" class="message-list"></div>
+    <div id="modalTicketAttachments" class="att-list" style="margin:8px 0"></div>
     <div class="field">
-      <label for="modalTicketReply">Reply</label>
-      <div class="inp ta"><textarea id="modalTicketReply" placeholder="Write a reply…"></textarea></div>
-      <div class="foot">
+      <label for="modalTicketReply">Reply (supports Markdown)</label>
+      <div class="inp ta"><textarea id="modalTicketReply" placeholder="Write a reply… Supports **bold**, `code`, lists"></textarea></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+        <label class="btn sec s" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+          <svg class="ic xs" aria-hidden="true"><use href="#i-attachment-01"/></svg>
+          <span>Attach file</span>
+          <input type="file" id="ticketReplyFileInput" style="display:none">
+        </label>
+        <span id="ticketReplyFileLabel" class="muted" style="font-size:12px"></span>
+      </div>
+      <div class="foot" style="margin-top:10px">
         <button class="btn sec" type="button" onclick="closeTicketModal()">Close</button>
         <button id="sendReplyBtn" class="btn" type="button">Send reply</button>
       </div>
@@ -1177,11 +1204,22 @@ button.li{width:100%;border:0;background:none;text-align:left}
         </div>
       </div>
       <div class="field">
-        <label for="ticketMessage">Detailed Message</label>
+        <label for="ticketMessage">Detailed Message (supports Markdown)</label>
         <div class="inp ta">
           <textarea id="ticketMessage" required minlength="5" maxlength="10000" placeholder="What happened, when did it start, and what is affected?"></textarea>
         </div>
         <div id="ticketFormError" class="err" role="alert" hidden></div>
+      </div>
+      <div class="field">
+        <label>Attachment (optional, max 5MB)</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <label class="btn sec s" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
+            <svg class="ic xs" aria-hidden="true"><use href="#i-attachment-01"/></svg>
+            <span>Choose file</span>
+            <input type="file" id="newTicketFileInput" style="display:none">
+          </label>
+          <span id="newTicketFileLabel" class="muted" style="font-size:12px"></span>
+        </div>
       </div>
       <div class="foot">
         <button type="button" class="btn sec" data-close-new-ticket>Cancel</button>

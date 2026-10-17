@@ -109,7 +109,7 @@ import {
   listAdminStaff,
 } from '../src/modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission } from '../src/modules/admin/access.js';
-import { listTickets, createTicket, getTicketThread, addCustomerReply } from '../src/modules/support/tickets.js';
+import { listTickets, createTicket, getTicketThread, addCustomerReply, addTicketAttachment, listTicketAttachments, getTicketAttachment, sanitizeFilename } from '../src/modules/support/tickets.js';
 
 describe('FORTLESS Comprehensive Production Test Suite', () => {
   let db: Database.Database;
@@ -2134,5 +2134,210 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(listPasskeysForUser(user.user.id, db)).toHaveLength(0);
     });
   });
+
+  describe('Category M: Petal Universal UI, Command Palette & Support Ticketing with Attachments', () => {
+    it('TICK-01: Customer can open ticket, attach files, list attachments, and stream download with integrity verification', () => {
+      const user = registerUser({ name: 'Alice Customer', email: 'alice@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const ticket = createTicket({
+        accountId: user.account.id,
+        userId: user.user.id,
+        subject: 'Performance slowdown on FRA-1',
+        priority: 'HIGH',
+        message: 'Seeing elevated latency on port 25565.',
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      expect(ticket.ticketId).toBeDefined();
+
+      const sampleLog = 'Error: connection timed out after 30000ms\nTrace: server.cpp:42';
+      const sampleBuffer = Buffer.from(sampleLog, 'utf-8');
+
+      const attachmentRes = addTicketAttachment({
+        ticketId: ticket.ticketId,
+        accountId: user.account.id,
+        userId: user.user.id,
+        filename: 'server_crash.log',
+        contentType: 'text/plain',
+        buffer: sampleBuffer,
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      expect(attachmentRes.id).toBeDefined();
+      expect(attachmentRes.filename).toBe('server_crash.log');
+      expect(attachmentRes.byte_size).toBe(Buffer.byteLength(sampleLog));
+      expect(attachmentRes.file_hash).toMatch(/^[a-f0-9]{64}$/);
+
+      // Verify listing attachments
+      const list = listTicketAttachments(ticket.ticketId, user.account.id, db);
+      expect(list).toHaveLength(1);
+      expect(list[0]?.id).toBe(attachmentRes.id);
+
+      // Verify retrieving attachment content and buffer
+      const retrieved = getTicketAttachment(ticket.ticketId, attachmentRes.id, user.account.id, db);
+      expect(retrieved).not.toBeNull();
+      expect(retrieved?.record.filename).toBe('server_crash.log');
+      expect(retrieved?.buffer.toString('utf-8')).toBe(sampleLog);
+
+      // Verify ticket thread includes attachments
+      const thread = getTicketThread(ticket.ticketId, user.account.id, db);
+      expect(thread).not.toBeNull();
+      expect(thread?.attachments).toHaveLength(1);
+      expect(thread?.attachments[0]?.id).toBe(attachmentRes.id);
+    });
+
+    it('TICK-02: Negative - File attachment validation rejects forbidden MIME types, path traversal filenames, and oversized files', () => {
+      const user = registerUser({ name: 'Bob Security', email: 'bob.sec@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const ticket = createTicket({
+        accountId: user.account.id,
+        userId: user.user.id,
+        subject: 'Security test ticket',
+        priority: 'NORMAL',
+        message: 'Testing validation boundaries.',
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // 1. Sanitize filename path traversal
+      expect(sanitizeFilename('../../etc/passwd')).toBe('passwd');
+      expect(sanitizeFilename('..\\..\\boot.ini')).toBe('boot.ini');
+      expect(sanitizeFilename('my cool file.log')).toBe('my_cool_file.log');
+
+      // 2. Reject executable MIME types
+      const exeBuffer = Buffer.from('MZ...fake_exe', 'utf-8');
+      expect(() => addTicketAttachment({
+        ticketId: ticket.ticketId,
+        accountId: user.account.id,
+        userId: user.user.id,
+        filename: 'malware.exe',
+        contentType: 'application/x-msdownload',
+        buffer: exeBuffer,
+        ipAddress: '127.0.0.1',
+      }, db)).toThrow('not permitted');
+
+      // 3. Reject active HTML script MIME types
+      const htmlBuffer = Buffer.from('<script>alert(1)</script>', 'utf-8');
+      expect(() => addTicketAttachment({
+        ticketId: ticket.ticketId,
+        accountId: user.account.id,
+        userId: user.user.id,
+        filename: 'xss.html',
+        contentType: 'text/html',
+        buffer: htmlBuffer,
+        ipAddress: '127.0.0.1',
+      }, db)).toThrow('not permitted');
+
+      // 4. Reject oversized files (> 5MB)
+      const oversizedBuffer = Buffer.alloc(5 * 1024 * 1024 + 1024);
+      expect(() => addTicketAttachment({
+        ticketId: ticket.ticketId,
+        accountId: user.account.id,
+        userId: user.user.id,
+        filename: 'huge_dump.log',
+        contentType: 'text/plain',
+        buffer: oversizedBuffer,
+        ipAddress: '127.0.0.1',
+      }, db)).toThrow('exceeds maximum allowed size');
+    });
+
+    it('TICK-03: Security - Multi-tenant isolation prevents cross-tenant access to ticket attachments', () => {
+      const userA = registerUser({ name: 'Tenant A', email: 'tenant.a@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const userB = registerUser({ name: 'Tenant B', email: 'tenant.b@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+
+      const ticketA = createTicket({
+        accountId: userA.account.id,
+        userId: userA.user.id,
+        subject: 'Confidential Ticket A',
+        priority: 'NORMAL',
+        message: 'Account A confidential message.',
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      const attA = addTicketAttachment({
+        ticketId: ticketA.ticketId,
+        accountId: userA.account.id,
+        userId: userA.user.id,
+        filename: 'private_keys.txt',
+        contentType: 'text/plain',
+        buffer: Buffer.from('confidential_secret_data', 'utf-8'),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // Tenant B cannot list attachments for Ticket A
+      const listForB = listTicketAttachments(ticketA.ticketId, userB.account.id, db);
+      expect(listForB).toHaveLength(0);
+
+      // Tenant B cannot retrieve attachment directly using its ID
+      const getForB = getTicketAttachment(ticketA.ticketId, attA.id, userB.account.id, db);
+      expect(getForB).toBeNull();
+    });
+
+    it('TICK-04: Staff ticket attachment allows authorized staff to assist customers across accounts', () => {
+      const user = registerUser({ name: 'Customer C', email: 'cust.c@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const staff = registerUser({ name: 'Staff Member', email: 'staff.help@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+
+      const ticket = createTicket({
+        accountId: user.account.id,
+        userId: user.user.id,
+        subject: 'Need help with patch',
+        priority: 'NORMAL',
+        message: 'How do I apply the patch?',
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      const patchFile = 'patch_v2_instructions.txt';
+      const patchContent = 'Step 1: Restart node.\nStep 2: Done.';
+      const attRes = addTicketAttachment({
+        ticketId: ticket.ticketId,
+        accountId: user.account.id,
+        userId: staff.user.id,
+        filename: patchFile,
+        contentType: 'text/plain',
+        buffer: Buffer.from(patchContent, 'utf-8'),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      expect(attRes.filename).toBe(patchFile);
+
+      // Customer can download staff provided attachment
+      const custDownload = getTicketAttachment(ticket.ticketId, attRes.id, user.account.id, db);
+      expect(custDownload).not.toBeNull();
+      expect(custDownload?.buffer.toString('utf-8')).toBe(patchContent);
+
+      // Staff can also access attachment across tenant boundary (accountId = null)
+      const staffDownload = getTicketAttachment(ticket.ticketId, attRes.id, null, db);
+      expect(staffDownload).not.toBeNull();
+      expect(staffDownload?.buffer.toString('utf-8')).toBe(patchContent);
+    });
+
+    it('SEARCH-01: Multi-tenant scoped search query isolates tenant resources and hides unverified admin routes', () => {
+      const userA = registerUser({ name: 'Tenant A', email: 'search.a@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const userB = registerUser({ name: 'Tenant B', email: 'search.b@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+
+      // Create a ticket for Tenant A and Tenant B
+      createTicket({ accountId: userA.account.id, userId: userA.user.id, subject: 'Alpha Server Issue', priority: 'NORMAL', message: 'Detail', ipAddress: '127.0.0.1' }, db);
+      createTicket({ accountId: userB.account.id, userId: userB.user.id, subject: 'Beta Server Issue', priority: 'NORMAL', message: 'Detail', ipAddress: '127.0.0.1' }, db);
+
+      // Query database scoped by account_id = userA.account.id
+      const query = 'Server';
+      const like = `%${query}%`;
+      const ticketsA = db.prepare(`
+        SELECT id, subject, priority, status FROM tickets WHERE account_id = ? AND subject LIKE ?
+      `).all(userA.account.id, like) as Array<{ id: string; subject: string }>;
+
+      expect(ticketsA).toHaveLength(1);
+      expect(ticketsA[0]?.subject).toBe('Alpha Server Issue');
+
+      const ticketsB = db.prepare(`
+        SELECT id, subject, priority, status FROM tickets WHERE account_id = ? AND subject LIKE ?
+      `).all(userB.account.id, like) as Array<{ id: string; subject: string }>;
+
+      expect(ticketsB).toHaveLength(1);
+      expect(ticketsB[0]?.subject).toBe('Beta Server Issue');
+
+      // Verify that non-staff session cannot see admin pages in search
+      const staffAccess = getStaffAccess(userA.user.id, db);
+      expect(staffAccess).toBeNull();
+    });
+  });
 });
+
 

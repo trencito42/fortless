@@ -92,7 +92,15 @@ import {
   listAdminStaff,
 } from './modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
-import { listTickets, createTicket, getTicketThread, addCustomerReply } from './modules/support/tickets.js';
+import {
+  listTickets,
+  createTicket,
+  getTicketThread,
+  addCustomerReply,
+  addTicketAttachment,
+  listTicketAttachments,
+  getTicketAttachment,
+} from './modules/support/tickets.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -1357,6 +1365,217 @@ export function buildServer(): FastifyInstance {
     if (result.outcome === 'NOT_FOUND') return reply.status(404).send({ error: 'Ticket not found' });
     if (result.outcome === 'CLOSED') return reply.status(409).send({ error: 'Closed tickets cannot receive new replies.' });
     return reply.status(201).send({ messageId: result.messageId });
+  });
+
+  // Tickets: Upload Attachment
+  const uploadAttachmentSchema = z.object({
+    filename: z.string().min(1).max(255),
+    contentType: z.string().min(3).max(100),
+    dataBase64: z.string().min(1),
+    messageId: z.string().optional(),
+  });
+
+  app.post('/api/v1/tickets/:id/attachments', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parsed = uploadAttachmentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Filename, contentType, and dataBase64 are required.' });
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(parsed.data.dataBase64, 'base64');
+    } catch {
+      return reply.status(400).send({ error: 'Invalid base64 payload.' });
+    }
+
+    try {
+      const record = addTicketAttachment({
+        ticketId: id,
+        messageId: parsed.data.messageId,
+        accountId: req.auth!.account.id,
+        userId: req.auth!.user.id,
+        filename: parsed.data.filename,
+        contentType: parsed.data.contentType,
+        buffer,
+        ipAddress: req.ip,
+      }, getDatabase());
+
+      return reply.status(201).send({ attachment: record });
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg === 'Ticket not found.') return reply.status(404).send({ error: msg });
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
+  // Tickets: List Attachments
+  app.get('/api/v1/tickets/:id/attachments', { preHandler: [requireAuth] }, async (req) => {
+    const { id } = req.params as { id: string };
+    const attachments = listTicketAttachments(id, req.auth!.account.id, getDatabase());
+    return { attachments };
+  });
+
+  // Tickets: Download Attachment
+  app.get('/api/v1/tickets/:id/attachments/:attachmentId', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id, attachmentId } = req.params as { id: string; attachmentId: string };
+    const isStaff = hasStaffPermission(req.auth!.user.id, 'tickets:read', getDatabase());
+    const result = getTicketAttachment(id, attachmentId, isStaff ? null : req.auth!.account.id, getDatabase());
+    if (!result) return reply.status(404).send({ error: 'Attachment not found.' });
+
+    reply.header('Content-Type', result.record.content_type);
+    reply.header('Content-Disposition', `attachment; filename="${result.record.filename}"`);
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Content-Length', result.record.byte_size);
+    reply.header('Cache-Control', 'private, max-age=3600');
+    return reply.send(result.buffer);
+  });
+
+  // Admin Tickets: Staff Upload Attachment
+  app.post('/api/v1/admin/tickets/:ticketId/attachments', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+    const { ticketId } = req.params as { ticketId: string };
+    const parsed = uploadAttachmentSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Filename, contentType, and dataBase64 are required.' });
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = Buffer.from(parsed.data.dataBase64, 'base64');
+    } catch {
+      return reply.status(400).send({ error: 'Invalid base64 payload.' });
+    }
+
+    try {
+      const record = addTicketAttachment({
+        ticketId,
+        messageId: parsed.data.messageId,
+        accountId: null,
+        userId: req.auth!.user.id,
+        filename: parsed.data.filename,
+        contentType: parsed.data.contentType,
+        buffer,
+        ipAddress: req.ip,
+      }, getDatabase());
+
+      return reply.status(201).send({ attachment: record });
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg === 'Ticket not found.') return reply.status(404).send({ error: msg });
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
+  // Global Scoped Search (Ctrl+K / ⌘K)
+  app.get('/api/v1/search', { preHandler: [requireAuth] }, async (req) => {
+    const query = typeof req.query === 'object' && req.query !== null && 'q' in req.query
+      ? String((req.query as { q?: unknown }).q || '').trim().slice(0, 64)
+      : '';
+
+    const db = getDatabase();
+    const accountId = req.auth!.account.id;
+    const isStaff = Boolean(getStaffAccess(req.auth!.user.id, db) && req.auth!.session.mfaVerifiedAt);
+
+    const clientPages = [
+      { id: 'nav-servers', title: 'Servers & Instances', category: 'Navigation', icon: 'server', path: '/app', shortcut: 'G S' },
+      { id: 'nav-deploy', title: 'Deploy New Instance', category: 'Navigation', icon: 'rocket-01', path: '/app/deploy', shortcut: 'G D' },
+      { id: 'nav-billing', title: 'Invoices & Billing', category: 'Navigation', icon: 'credit-card', path: '/app/billing', shortcut: 'G B' },
+      { id: 'nav-tickets', title: 'Support Tickets', category: 'Navigation', icon: 'bubble-chat', path: '/app/support', shortcut: 'G T' },
+      { id: 'nav-audit', title: 'Security Audit Trail', category: 'Navigation', icon: 'shield-01', path: '/app/activity', shortcut: 'G A' },
+      { id: 'nav-settings', title: 'Security, MFA & Team', category: 'Navigation', icon: 'settings-01', path: '/app/settings', shortcut: 'G ,' },
+    ];
+
+    const actions = [
+      { id: 'act-new-ticket', title: 'Open New Support Ticket', category: 'Actions', icon: 'bubble-chat', action: 'new_ticket' },
+      { id: 'act-deploy', title: 'Launch Server Wizard', category: 'Actions', icon: 'rocket-01', action: 'deploy' },
+      { id: 'act-theme', title: 'Toggle Light / Dark Theme', category: 'Actions', icon: 'moon-01', action: 'toggle_theme' },
+      { id: 'act-passkeys', title: 'Manage WebAuthn Passkeys', category: 'Actions', icon: 'key-01', action: 'passkeys' },
+    ];
+
+    const adminPages = isStaff ? [
+      { id: 'adm-overview', title: 'Admin: Operations Overview', category: 'Admin Control Plane', icon: 'home-01', path: '/admin' },
+      { id: 'adm-accounts', title: 'Admin: Customer Accounts', category: 'Admin Control Plane', icon: 'user-group', path: '/admin/accounts' },
+      { id: 'adm-services', title: 'Admin: Service Inventory', category: 'Admin Control Plane', icon: 'server', path: '/admin/services' },
+      { id: 'adm-tickets', title: 'Admin: Support Queue', category: 'Admin Control Plane', icon: 'bubble-chat', path: '/admin/tickets' },
+      { id: 'adm-audit', title: 'Admin: Global Audit Trail', category: 'Admin Control Plane', icon: 'shield-01', path: '/admin/audit' },
+      { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff' },
+    ] : [];
+
+    const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+
+    const services = query ? (db.prepare(`
+      SELECT id, name, identifier, plan_name, ip_address, runtime_state
+      FROM services
+      WHERE account_id = ? AND (name LIKE ? ESCAPE '\\' OR identifier LIKE ? ESCAPE '\\' OR coalesce(ip_address, '') LIKE ? ESCAPE '\\' OR plan_name LIKE ? ESCAPE '\\')
+      LIMIT 5
+    `).all(accountId, like, like, like, like) as Array<{ id: string; name: string; identifier: string | null; plan_name: string; ip_address: string | null; runtime_state: string }>) : [];
+
+    const tickets = query ? (db.prepare(`
+      SELECT id, subject, priority, status, updated_at
+      FROM tickets
+      WHERE account_id = ? AND (subject LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')
+      LIMIT 5
+    `).all(accountId, like, like) as Array<{ id: string; subject: string; priority: string; status: string; updated_at: string }>) : [];
+
+    const invoices = query ? (db.prepare(`
+      SELECT id, invoice_number, total_minor_units, currency, status
+      FROM invoices
+      WHERE account_id = ? AND (invoice_number LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')
+      LIMIT 5
+    `).all(accountId, like, like) as Array<{ id: string; invoice_number: string; total_minor_units: number; currency: string; status: string }>) : [];
+
+    const qLower = query.toLowerCase();
+    const matchedPages = clientPages.filter(p => !qLower || p.title.toLowerCase().includes(qLower));
+    const matchedActions = actions.filter(a => !qLower || a.title.toLowerCase().includes(qLower));
+    const matchedAdmin = adminPages.filter(p => !qLower || p.title.toLowerCase().includes(qLower));
+
+    const formattedServices = services.map(s => ({
+      id: s.id,
+      title: s.name,
+      subtitle: `${s.plan_name} · ${s.ip_address || s.identifier || s.id}`,
+      status: s.runtime_state,
+      category: 'Services',
+      icon: 'server',
+      path: '/app',
+      serviceId: s.id,
+    }));
+
+    const formattedTickets = tickets.map(t => ({
+      id: t.id,
+      title: t.subject,
+      subtitle: `Ticket ${t.id} · Updated ${t.updated_at}`,
+      status: `${t.priority} · ${t.status}`,
+      category: 'Tickets',
+      icon: 'bubble-chat',
+      path: '/app/support',
+      ticketId: t.id,
+    }));
+
+    const formattedInvoices = invoices.map(i => ({
+      id: i.id,
+      title: `Invoice #${i.invoice_number}`,
+      subtitle: `€${(i.total_minor_units / 100).toFixed(2)} ${i.currency}`,
+      status: i.status,
+      category: 'Invoices',
+      icon: 'credit-card',
+      path: '/app/billing',
+      invoiceId: i.id,
+    }));
+
+    const payload = {
+      pages: matchedPages,
+      actions: matchedActions,
+      adminPages: matchedAdmin,
+      services: formattedServices,
+      tickets: formattedTickets,
+      invoices: formattedInvoices,
+    };
+
+    return {
+      query,
+      ...payload,
+      results: payload,
+    };
   });
 
   // Audit Log: List (Tenant Isolated!)

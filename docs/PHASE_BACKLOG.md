@@ -1,13 +1,16 @@
 # Fortless Implementation Backlog & Phase Roadmap
 
-Governed by: `FORTLESS_CODEX_MEGA_PROMPTS/` Playbook  
-Ordering Principle: Hard Dependencies & Security Risk First
+**Governed by Dual Playbooks:**
+1. `FORTLESS_CODEX_MEGA_PROMPTS/` — Primary Engineering Roadmap (Architecture, Security, Multi-Tenancy, Commerce, Provisioning).
+2. `FORTLESS_PETAL_APP_PROMPTS/` — Specialized Product Experience & UI Completion (Command Palette, Dashboard, Charts, Ticketing, Markdown Attachments, Advanced Admin).
+
+**Ordering Principle:** Security Invariants, Multi-Tenant Isolation & Hard Dependencies First.
 
 ---
 
 ## Phase 1 — Code Audit, Mock Elimination Map & Reality Baseline
 - [x] **Slice 1.1**: Full repository and architecture inspection (verified Fastify monolith, SQLite WAL, Argon2id, and Petal assets).
-- [x] **Slice 1.2**: Comprehensive Petal Component Inventory (`docs/PETAL_COMPONENT_INVENTORY.md`).
+- [x] **Slice 1.2**: Comprehensive Petal Component Inventory (`docs/PETAL_COMPONENT_INVENTORY.md` & `docs/PETAL_UI_COMPONENT_MAP.md`).
 - [x] **Slice 1.3**: Security vulnerability assessment (`docs/SECURITY_FINDINGS.md`).
 - [x] **Slice 1.4**: Source-of-truth status matrix (`docs/REALITY_MATRIX.md`).
 
@@ -17,16 +20,20 @@ Ordering Principle: Hard Dependencies & Security Risk First
 - [x] **Slice 2.1**: Fix host binding in `src/index.ts` to `config.HOST` (default `127.0.0.1`) to prevent direct public HTTP bypass.
 - [x] **Slice 2.2**: Include `customOptions` in checkout idempotency request hash calculation in `src/modules/checkout/checkout.ts`.
 - [x] **Slice 2.3**: Implement durable lease recovery for stalled `PROCESSING` outbox worker events, atomic claiming with lease tokens, and exponential backoff in `src/modules/outbox/worker.ts`.
-- [x] **Slice 2.4**: Standalone database migration runner CLI (`npm run migrate`) decoupled from runtime database connection acquisition (`getDatabase()`).
-- [x] **Slice 2.5**: Automated negative test suite for host bind, idempotency options divergence, and concurrent worker lease recovery.
+- [x] **Slice 2.4**: Standalone database migration runner CLI (`npm run migrate`) cleanly separated from runtime database connection acquisition (`getDatabase()`).
+- [x] **Slice 2.5**: Complete negative test suite for host bind, idempotency options divergence, concurrent worker lease recovery, and crash recovery.
 
 ---
 
-## Phase 3 — Identity, Authorization, Email & User Settings
-- [x] **Slice 3.1**: Transactional email outbox table (`email_outbox`) and sandbox adapter with retry logic, fail-closed reporting, and templating.
+## Phase 3 — Identity, Authorization, Email & User Settings (with Petal UI)
+- [x] **Slice 3.1**: Transactional email outbox table (`email_outbox`) and transport isolation with durable retry scheduling, exponential backoff, dead-letter handling, and sandbox receipts.
 - [x] **Slice 3.2**: Audited initial staff `OWNER` bootstrap CLI (`npm run staff:bootstrap-owner`) enforcing verified email, confirmed MFA, and hardened `--force --reason` protection.
 - [x] **Slice 3.3**: Organization team member invitation flow (`/api/v1/account/members`), last-owner protection, and change password flow.
 - [x] **Slice 3.4**: WebAuthn / Passkeys secure enrollment, challenge lifecycle anti-replay, cryptographic signature authentication (ES256), counter verification, and credential management.
+- [x] **Slice 3.5 [PETAL]**: Universal Petal Command Palette (`Ctrl+K` / `⌘K`) with multi-tenant scoped search, permission-aware navigation, and keyboard arrow/enter navigation.
+- [x] **Slice 3.6 [PETAL]**: Complete ticketing experience with Markdown prose rendering, multi-tenant file attachments, SHA256 integrity checks, and streaming secure downloads.
+- [x] **Slice 3.7 [PETAL]**: Native SVG sparklines and telemetry trend charts (`smooth()`, `spark()`, `gauge()`) driven by real observed server states without third-party chart libraries.
+- [x] **Slice 3.8 [PETAL]**: Staff Admin Control Plane with transparent Step-Up MFA Challenge (`#modalStepUp`), auto-intercepting 403 `STEP_UP_REQUIRED` for sensitive operations.
 
 ---
 

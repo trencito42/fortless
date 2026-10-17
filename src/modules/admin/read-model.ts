@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { runInTransaction } from '../../database/index.js';
 import { generateId } from '../identity/auth.js';
+import { listTicketAttachments, type TicketAttachmentRecord } from '../support/tickets.js';
 
 export interface AdminListOptions {
   query?: string;
@@ -306,6 +307,7 @@ export interface AdminTicketDetail {
     is_staff_author?: number;
     [key: string]: unknown;
   }>;
+  attachments: TicketAttachmentRecord[];
 }
 
 export function getAdminTicketDetail(ticketId: string, db: Database.Database): AdminTicketDetail | null {
@@ -330,7 +332,9 @@ export function getAdminTicketDetail(ticketId: string, db: Database.Database): A
     ORDER BY tm.created_at ASC
   `).all(ticketId) as AdminTicketDetail['messages'];
 
-  return { ticket, messages };
+  const attachments = listTicketAttachments(ticketId, null, db);
+
+  return { ticket, messages, attachments };
 }
 
 export function addStaffTicketReply(

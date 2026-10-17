@@ -46,6 +46,45 @@
     return text.length > 22 ? `${text.slice(0, 10)}…${text.slice(-6)}` : text;
   };
 
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + ['B', 'KB', 'MB', 'GB'][i];
+  }
+
+  function renderMarkdown(text) {
+    if (!text) return '';
+    let s = esc(text);
+    s = s.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, _lang, code) => `<pre><code class="code">${code.trim()}</code></pre>`);
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    s = s.replace(/^>\s*(.+)$/gm, '<blockquote>$1</blockquote>');
+    s = s.replace(/^[*-]\s+(.+)$/gm, '<li>$1</li>');
+    s = s.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    const paragraphs = s.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+    return `<div class="prose">${paragraphs.map((p) => p.startsWith('<pre') || p.startsWith('<ul') || p.startsWith('<blockquote') ? p : `<p>${p.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
+  }
+
+  function smooth(p) {
+    if (p.length < 2) return '';
+    let d = 'M' + p[0][0] + ' ' + p[0][1];
+    for (let i = 0; i < p.length - 1; i++) {
+      const a = p[i - 1] || p[i], b = p[i], c = p[i + 1], e = p[i + 2] || c;
+      d += 'C' + (b[0] + (c[0] - a[0]) / 6) + ' ' + (b[1] + (c[1] - a[1]) / 6) + ' ' + (c[0] - (e[0] - b[0]) / 6) + ' ' + (c[1] - (e[1] - b[1]) / 6) + ' ' + c[0] + ' ' + c[1];
+    }
+    return d;
+  }
+
+  function spark(vals, color = 'var(--accent)', fill = true) {
+    if (!vals || vals.length < 2) return '';
+    const W = 120, H = 36, mx = Math.max.apply(null, vals), mn = Math.min.apply(null, vals), n = vals.length;
+    const p = vals.map((v, i) => [i / (n - 1) * W, H - 4 - (v - mn) / (mx - mn || 1) * (H - 10)]), d = smooth(p);
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${fill === false ? '' : `<path d="${d}L${W} ${H}L0 ${H}Z" fill="${color}" opacity=".12"/>`}<path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
+  }
+
+
   function toast(message, type = 'info') {
     const host = document.getElementById('toasts');
     const item = document.createElement('div');
@@ -179,6 +218,16 @@
       document.getElementById('statTotal').textContent = services.length;
       document.getElementById('statRam').textContent = `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`;
       document.getElementById('statCpu').textContent = `${cpu}%`;
+
+      document.querySelectorAll('#section-servers .stat .spark').forEach((s) => s.remove());
+      const sRunning = spark([Math.max(0, running - 1), running, running, running], 'var(--good)');
+      const sTotal = spark([Math.max(0, services.length - 1), services.length, services.length], 'var(--accent)');
+      const sRam = spark([Math.max(0, memory * 0.8), memory * 0.9, memory], 'var(--violet)');
+      const sCpu = spark([Math.max(0, cpu * 0.7), cpu * 0.85, cpu], 'var(--warn)');
+      document.getElementById('statRunning')?.insertAdjacentHTML('afterend', sRunning);
+      document.getElementById('statTotal')?.insertAdjacentHTML('afterend', sTotal);
+      document.getElementById('statRam')?.insertAdjacentHTML('afterend', sRam);
+      document.getElementById('statCpu')?.insertAdjacentHTML('afterend', sCpu);
       if (!services.length) {
         host.innerHTML = `<div class="z-es"><div class="z-art"><i class="a"></i><i class="b"></i><i class="c"></i>${hero('servers', 'l')}</div><h4>No services yet</h4><p>Ordering stays unavailable until payment and infrastructure providers are configured and verified.</p><a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero('plus', 's')}View catalog</a></div>`;
         return;
@@ -499,14 +548,24 @@
     state.activeTicketId = id;
     const modal = document.getElementById('ticketModal');
     const host = document.getElementById('modalTicketMessages');
+    const attHost = document.getElementById('modalTicketAttachments');
     modal.hidden = false;
     message(host, 'Loading conversation…');
+    if (attHost) attHost.innerHTML = '';
+    const replyFile = document.getElementById('ticketReplyFileInput');
+    if (replyFile) replyFile.value = '';
+    const replyLabel = document.getElementById('ticketReplyFileLabel');
+    if (replyLabel) replyLabel.textContent = '';
     try {
       const data = await api(`/api/v1/tickets/${encodeURIComponent(id)}`);
       document.getElementById('modalTicketSubject').textContent = data.ticket.subject;
       document.getElementById('modalTicketMeta').textContent = `${data.ticket.priority} · ${data.ticket.status}`;
       host.className = 'message-list';
-      host.innerHTML = data.messages.map((item) => `<div class="message ${item.is_staff ? 'staff' : ''}"><small>${esc(item.is_staff ? item.author_name || 'Support' : 'You')} · ${esc(date(item.created_at))}</small><div class="bubble">${esc(item.body)}</div></div>`).join('') || '<div class="muted">No messages.</div>';
+      host.innerHTML = data.messages.map((item) => `<div class="message ${item.is_staff ? 'staff' : ''}"><small>${esc(item.is_staff ? item.author_name || 'Support' : 'You')} · ${esc(date(item.created_at))}</small><div class="bubble">${renderMarkdown(item.body)}</div></div>`).join('') || '<div class="muted">No messages.</div>';
+      if (attHost && data.attachments && data.attachments.length) {
+        attHost.innerHTML = `<small class="muted" style="display:block;margin-bottom:6px">Attachments (${data.attachments.length}):</small>` +
+          data.attachments.map(att => `<a href="/api/v1/tickets/${encodeURIComponent(id)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip">${hero('document', 'xs')}<span class="name">${esc(att.filename)}</span><span class="sz">${formatBytes(att.byte_size)}</span></a>`).join('');
+      }
     } catch (error) { message(host, error.message, 'bad'); }
   }
 
@@ -514,13 +573,44 @@
     if (!state.activeTicketId) return;
     const field = document.getElementById('modalTicketReply');
     const body = field.value.trim();
-    if (!body) return;
+    const fileInput = document.getElementById('ticketReplyFileInput');
+    const btn = document.getElementById('sendReplyBtn');
+    if (!body && (!fileInput || !fileInput.files || !fileInput.files.length)) return;
+    btn.disabled = true;
     try {
-      await api(`/api/v1/tickets/${encodeURIComponent(state.activeTicketId)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
+      if (body) {
+        await api(`/api/v1/tickets/${encodeURIComponent(state.activeTicketId)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
+      }
+      if (fileInput && fileInput.files?.[0]) {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        await new Promise((resolve, reject) => {
+          reader.onload = async () => {
+            try {
+              const base64 = (reader.result || '').split(',')[1];
+              await api(`/api/v1/tickets/${encodeURIComponent(state.activeTicketId)}/attachments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  filename: file.name,
+                  contentType: file.type || 'application/octet-stream',
+                  dataBase64: base64,
+                }),
+              });
+              resolve();
+            } catch (err) { reject(err); }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        fileInput.value = '';
+        if (document.getElementById('ticketReplyFileLabel')) document.getElementById('ticketReplyFileLabel').textContent = '';
+      }
       field.value = '';
       toast('Reply added.', 'good');
       await openTicket(state.activeTicketId);
     } catch (error) { toast(error.message, 'bad'); }
+    finally { btn.disabled = false; }
   }
 
   async function createTicket(event) {
@@ -531,6 +621,7 @@
     const subject = document.getElementById('ticketSubject').value.trim();
     const messageBody = document.getElementById('ticketMessage').value.trim();
     const priority = new FormData(form).get('ticketPriority') || 'NORMAL';
+    const fileInput = document.getElementById('newTicketFileInput');
     errorHost.hidden = true;
     if (subject.length < 3 || messageBody.length < 5) {
       errorHost.textContent = 'Add a clear subject and at least five characters of detail.';
@@ -542,6 +633,31 @@
     submit.classList.add('load');
     try {
       const created = await api('/api/v1/tickets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (fileInput && fileInput.files?.[0]) {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        await new Promise((resolve, reject) => {
+          reader.onload = async () => {
+            try {
+              const base64 = (reader.result || '').split(',')[1];
+              await api(`/api/v1/tickets/${encodeURIComponent(created.ticketId)}/attachments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  filename: file.name,
+                  contentType: file.type || 'application/octet-stream',
+                  dataBase64: base64,
+                }),
+              });
+              resolve();
+            } catch (err) { reject(err); }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        fileInput.value = '';
+        if (document.getElementById('newTicketFileLabel')) document.getElementById('newTicketFileLabel').textContent = '';
+      }
       document.getElementById('newTicketModal').hidden = true;
       form.reset();
       toast('Ticket opened.', 'good');
@@ -771,6 +887,138 @@
     settingsGrid.appendChild(emailCard);
   }
 
+  let cmdList = [];
+  let cmdIdx = 0;
+  let cmdTimer = null;
+
+  function openCmd() {
+    const modal = document.getElementById('cmd');
+    if (!modal) return;
+    modal.hidden = false;
+    const inp = document.getElementById('cmd-in');
+    if (inp) {
+      inp.value = '';
+      inp.focus();
+    }
+    renderCmd('');
+  }
+
+  function closeCmd() {
+    const modal = document.getElementById('cmd');
+    if (modal) modal.hidden = true;
+  }
+
+  async function renderCmd(q) {
+    const resBox = document.getElementById('cmd-res');
+    if (!resBox) return;
+    try {
+      const res = await api(`/api/v1/search?q=${encodeURIComponent(q || '')}`);
+      cmdList = [];
+      if (res.pages) {
+        res.pages.forEach((p) => cmdList.push({ category: 'Navigation', title: p.title, icon: 'servers', action: () => {
+          const route = p.path.replace('/app/', '').replace('/app', 'servers') || 'servers';
+          history.pushState({ route }, '', p.path);
+          navigate();
+        } }));
+      }
+      if (res.actions) {
+        res.actions.forEach((a) => cmdList.push({
+          category: 'Actions',
+          title: a.title,
+          icon: 'plus',
+          action: () => {
+            if (a.id === 'open_ticket') {
+              document.getElementById('newTicketModal').hidden = false;
+            } else if (a.id === 'deploy') {
+              history.pushState({ route: 'deploy' }, '', '/app/deploy');
+              navigate();
+            }
+          }
+        }));
+      }
+      if (res.services) {
+        res.services.forEach((s) => cmdList.push({
+          category: 'Services',
+          title: s.title,
+          subtitle: s.subtitle,
+          icon: 'servers',
+          action: () => {
+            history.pushState({ route: 'service-detail', serviceId: s.id }, '', `/app/services/${encodeURIComponent(s.id)}`);
+            loadServiceDetail(s.id);
+            navigate();
+          }
+        }));
+      }
+      if (res.tickets) {
+        res.tickets.forEach((t) => cmdList.push({
+          category: 'Tickets',
+          title: t.title,
+          subtitle: t.subtitle,
+          icon: 'support',
+          action: () => { openTicket(t.id); }
+        }));
+      }
+      if (res.invoices) {
+        res.invoices.forEach((inv) => cmdList.push({
+          category: 'Billing',
+          title: inv.title,
+          subtitle: inv.subtitle,
+          icon: 'credit',
+          action: () => {
+            history.pushState({ route: 'billing' }, '', '/app/billing');
+            navigate();
+          }
+        }));
+      }
+      if (res.adminPages) {
+        res.adminPages.forEach((p) => cmdList.push({ category: 'Admin Pages', title: p.title, icon: 'shield', action: () => { location.href = p.path; } }));
+      }
+
+      if (!cmdList.length) {
+        resBox.innerHTML = '<div style="padding:16px;text-align:center;color:var(--ink3);font-size:13px">No matching results found</div>';
+        return;
+      }
+
+      cmdIdx = 0;
+      let html = '';
+      let lastCat = '';
+      cmdList.slice(0, 15).forEach((item, i) => {
+        if (item.category !== lastCat) {
+          html += `<div class="hd">${esc(item.category)}</div>`;
+          lastCat = item.category;
+        }
+        html += `<button type="button" class="it ${i === 0 ? 'act' : ''}" data-cmd-idx="${i}">
+          ${hero(item.icon || 'cube', 's')}
+          <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
+            <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</span>
+            ${item.subtitle ? `<span style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.subtitle)}</span>` : ''}
+          </span>
+        </button>`;
+      });
+      resBox.innerHTML = html;
+    } catch {
+      resBox.innerHTML = '<div style="padding:16px;text-align:center;color:var(--bad)">Search request failed</div>';
+    }
+  }
+
+  function moveCmd(dir) {
+    const items = document.querySelectorAll('#cmd-res .it');
+    if (!items.length) return;
+    cmdIdx = (cmdIdx + dir + items.length) % items.length;
+    items.forEach((btn, i) => {
+      btn.classList.toggle('act', i === cmdIdx);
+      if (i === cmdIdx) btn.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function runCmd(idx) {
+    const item = cmdList[idx];
+    if (item && item.action) {
+      closeCmd();
+      item.action();
+    }
+  }
+
   function bindEvents() {
     window.addEventListener('popstate', navigate);
     document.getElementById('refreshServersBtn').addEventListener('click', loadServers);
@@ -781,6 +1029,16 @@
     document.getElementById('sendReplyBtn').addEventListener('click', sendReply);
     document.getElementById('createTicketForm').addEventListener('submit', createTicket);
     document.getElementById('revokeOtherSessionsBtn').addEventListener('click', revokeOtherSessions);
+    document.getElementById('newTicketFileInput')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      const lbl = document.getElementById('newTicketFileLabel');
+      if (lbl) lbl.textContent = f ? `${f.name} (${formatBytes(f.size)})` : '';
+    });
+    document.getElementById('ticketReplyFileInput')?.addEventListener('change', (e) => {
+      const f = e.target.files?.[0];
+      const lbl = document.getElementById('ticketReplyFileLabel');
+      if (lbl) lbl.textContent = f ? `${f.name} (${formatBytes(f.size)})` : '';
+    });
     const consoleForm = document.getElementById('consoleCommandForm');
     if (consoleForm) {
       consoleForm.addEventListener('submit', (e) => {
@@ -799,6 +1057,10 @@
     document.getElementById('logoutBtn').addEventListener('click', async () => { try { await api('/api/v1/auth/logout', { method: 'POST' }); } finally { window.location.href = '/login'; } });
     document.getElementById('themeToggleBtn').addEventListener('click', () => { const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; localStorage.setItem('fortless_theme', next); });
     document.addEventListener('click', (event) => {
+      if (event.target.closest('#globalSearchTrigger, [data-cmd]')) { openCmd(); return; }
+      const cmdItem = event.target.closest('[data-cmd-idx]');
+      if (cmdItem) { runCmd(+cmdItem.dataset.cmdIdx); return; }
+      if (event.target.id === 'cmd') { closeCmd(); return; }
       const routeLink = event.target.closest('[data-app-route]');
       if (routeLink && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
         event.preventDefault();
@@ -977,12 +1239,44 @@
       }
     });
     document.addEventListener('input', (event) => {
+      if (event.target.id === 'cmd-in') {
+        clearTimeout(cmdTimer);
+        cmdTimer = setTimeout(() => renderCmd(event.target.value), 180);
+        return;
+      }
       if (event.target.id === 'auditSearch') { renderAudit(); return; }
       if (!event.target.matches('[data-mfa-digit]')) return;
       event.target.value = event.target.value.replace(/\D/g, '').slice(-1);
       if (event.target.value) event.target.nextElementSibling?.focus();
     });
-    document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { document.getElementById('ticketModal').hidden = true; document.getElementById('newTicketModal').hidden = true; } });
+    document.addEventListener('keydown', (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        const c = document.getElementById('cmd');
+        if (c && c.hidden) openCmd();
+        else closeCmd();
+        return;
+      }
+      if (event.key === 'Escape') {
+        closeCmd();
+        document.getElementById('ticketModal').hidden = true;
+        document.getElementById('newTicketModal').hidden = true;
+        return;
+      }
+      const cmdEl = document.getElementById('cmd');
+      if (cmdEl && !cmdEl.hidden) {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          moveCmd(1);
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          moveCmd(-1);
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          runCmd(cmdIdx);
+        }
+      }
+    });
     window.closeTicketModal = () => { document.getElementById('ticketModal').hidden = true; state.activeTicketId = null; };
     window.closeNewTicketModal = () => { document.getElementById('newTicketModal').hidden = true; };
   }

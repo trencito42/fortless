@@ -34,7 +34,47 @@
     staff: ['/admin/staff', 'Staff access', 'Persisted roles, access status and MFA readiness. Click to edit role.']
   };
 
-  const state = { loaded: new Set(), permissions: new Set(), csrfToken: null, activeTicketId: null, activeAccountId: null };
+  const state = {
+    loaded: new Set(),
+    permissions: new Set(),
+    csrfToken: null,
+    activeTicketId: null,
+    activeAccountId: null,
+    pendingStepUpAction: null,
+  };
+
+  function renderMarkdown(text) {
+    if (!text) return '';
+    let s = esc(text);
+    s = s.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, _lang, code) => `<pre><code class="code">${code.trim()}</code></pre>`);
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    s = s.replace(/^>\s*(.+)$/gm, '<blockquote>$1</blockquote>');
+    s = s.replace(/^[*-]\s+(.+)$/gm, '<li>$1</li>');
+    s = s.replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    const paragraphs = s.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    return `<div class="prose">${paragraphs.map(p => p.startsWith('<pre') || p.startsWith('<ul') || p.startsWith('<blockquote') ? p : `<p>${p.replace(/\n/g, '<br>')}</p>`).join('')}</div>`;
+  }
+
+  function promptStepUp(onSuccess, onError) {
+    state.pendingStepUpAction = { onSuccess, onError };
+    const modal = document.getElementById('modalStepUp');
+    if (!modal) {
+      if (onError) onError(new Error('Step-up verification modal not found.'));
+      return;
+    }
+    document.getElementById('stepUpPassword').value = '';
+    document.getElementById('stepUpTotpCode').value = '';
+    const errEl = document.getElementById('stepUpError');
+    if (errEl) {
+      errEl.textContent = '';
+      errEl.style.display = 'none';
+    }
+    modal.hidden = false;
+    setTimeout(() => document.getElementById('stepUpPassword')?.focus(), 50);
+  }
 
   async function api(url, options) {
     const request = { ...(options || {}), headers: { ...((options && options.headers) || {}) } };
@@ -52,6 +92,21 @@
     if (r.status === 401) {
       location.href = `/login?next=${encodeURIComponent(location.pathname)}`;
       throw Error('Session expired');
+    }
+    if (r.status === 403 && (d.code === 'STEP_UP_REQUIRED' || d.error === 'Recent verification required')) {
+      return new Promise((resolve, reject) => {
+        promptStepUp(
+          async () => {
+            try {
+              const res = await api(url, options);
+              resolve(res);
+            } catch (err) {
+              reject(err);
+            }
+          },
+          reject
+        );
+      });
     }
     if (!r.ok) throw Error(d.message || d.error || `Request failed (${r.status})`);
     return d;
@@ -179,13 +234,28 @@
       document.getElementById('adminTicketStatusSelect').value = d.ticket.status;
       msgBox.innerHTML = d.messages.map((m) => `
         <div style="padding:10px 14px;border-radius:12px;background:${m.is_staff_internal_note ? 'var(--warn-bg)' : m.is_staff_author ? 'var(--accent-bg)' : 'var(--s2)'};border:1px solid ${m.is_staff_internal_note ? 'var(--warn)' : 'transparent'}">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:12px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px">
             <b>${esc(m.author_name)} ${m.is_staff_internal_note ? '<span class="badge warn s">INTERNAL NOTE</span>' : m.is_staff_author ? '<span class="badge accent s">STAFF</span>' : ''}</b>
             <span class="muted">${date(m.created_at)}</span>
           </div>
-          <div style="white-space:pre-wrap;font-size:13.5px">${esc(m.body)}</div>
+          ${renderMarkdown(m.body)}
         </div>
       `).join('');
+      const attBox = document.getElementById('adminTicketAttachments');
+      if (attBox) {
+        const atts = d.attachments || [];
+        if (atts.length) {
+          attBox.innerHTML = '<b>Attachments:</b> ' + atts.map((a) => `
+            <a class="att-chip" href="/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(a.id)}" target="_blank" download>
+              <span class="row-icon">${icon('support')}</span>
+              <span>${esc(a.filename)}</span>
+              <small class="muted">(${(a.byte_size / 1024).toFixed(1)} KB)</small>
+            </a>
+          `).join('');
+        } else {
+          attBox.innerHTML = '';
+        }
+      }
     } catch (err) {
       msgBox.innerHTML = `<div style="color:var(--bad);padding:20px">Error loading thread: ${esc(err.message)}</div>`;
     }
@@ -267,16 +337,151 @@
     if (e.target.closest('[data-close-ticket-modal]')) document.getElementById('modalTicketDetail').hidden = true;
     if (e.target.closest('[data-close-account-modal]')) document.getElementById('modalAccountDetail').hidden = true;
     if (e.target.closest('[data-close-staff-modal]')) document.getElementById('modalStaffEditor').hidden = true;
+    if (e.target.closest('[data-close-stepup-modal]')) document.getElementById('modalStepUp').hidden = true;
+    if (e.target.closest('[data-cmd]')) { openCmd(); return; }
+    const cmdItem = e.target.closest('[data-cmd-idx]');
+    if (cmdItem) { runCmd(+cmdItem.dataset.cmdIdx); return; }
+    if (e.target.id === 'cmd') closeCmd();
   });
 
   window.addEventListener('popstate', navigate);
 
+  // Command Palette State & Methods
+  let cmdList = [];
+  let cmdIdx = 0;
+  let cmdTimer = null;
+
+  function openCmd() {
+    const modal = document.getElementById('cmd');
+    if (!modal) return;
+    modal.hidden = false;
+    const inp = document.getElementById('cmd-in');
+    if (inp) {
+      inp.value = '';
+      inp.focus();
+    }
+    renderCmd('');
+  }
+
+  function closeCmd() {
+    const modal = document.getElementById('cmd');
+    if (modal) modal.hidden = true;
+  }
+
+  async function renderCmd(q) {
+    q = (q || '').trim();
+    const resBox = document.getElementById('cmd-res');
+    if (!resBox) return;
+
+    try {
+      const d = await api(`/api/v1/search?q=${encodeURIComponent(q)}`);
+      cmdList = [];
+      const res = d.results || {};
+
+      if (res.adminPages && res.adminPages.length) {
+        res.adminPages.forEach((p) => cmdList.push({ category: p.category || 'Admin Pages', title: p.title, icon: 'shield', action: () => { location.href = p.path; } }));
+      }
+      if (res.pages && res.pages.length) {
+        res.pages.forEach((p) => cmdList.push({ category: 'Customer Pages', title: p.title, icon: 'home', action: () => { location.href = p.path; } }));
+      }
+      if (res.actions && res.actions.length) {
+        res.actions.forEach((a) => cmdList.push({
+          category: 'Actions',
+          title: a.title,
+          icon: 'server',
+          action: () => {
+            if (a.action === 'toggle_theme') {
+              const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+              document.documentElement.setAttribute('data-theme', next);
+              localStorage.setItem('fortless_theme', next);
+            } else if (a.path) {
+              location.href = a.path;
+            }
+          },
+        }));
+      }
+      if (res.services && res.services.length) {
+        res.services.forEach((s) => cmdList.push({ category: 'Services', title: s.title, subtitle: s.subtitle, icon: 'server', action: () => { location.href = `/admin/services?q=${encodeURIComponent(s.title)}`; } }));
+      }
+      if (res.tickets && res.tickets.length) {
+        res.tickets.forEach((t) => cmdList.push({ category: 'Tickets', title: t.title, subtitle: t.subtitle, icon: 'support', action: () => { openTicketDetail(t.id); } }));
+      }
+
+      if (!cmdList.length) {
+        resBox.innerHTML = `<div style="padding:24px;text-align:center;color:var(--ink2)"><p>No matching resources for “${esc(q)}”</p></div>`;
+        return;
+      }
+
+      cmdIdx = 0;
+      let html = '';
+      let lastCat = '';
+      cmdList.slice(0, 15).forEach((item, i) => {
+        if (item.category !== lastCat) {
+          html += `<div class="hd">${esc(item.category)}</div>`;
+          lastCat = item.category;
+        }
+        html += `<button type="button" class="it ${i === 0 ? 'act' : ''}" data-cmd-idx="${i}">
+          <span class="row-icon">${icon(item.icon || 'search')}</span>
+          <div class="tx"><b>${esc(item.title)}</b>${item.subtitle ? `<small>${esc(item.subtitle)}</small>` : ''}</div>
+        </button>`;
+      });
+      resBox.innerHTML = html;
+    } catch {
+      resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad)">Search unavailable.</div>';
+    }
+  }
+
+  function moveCmd(dir) {
+    const items = document.querySelectorAll('#cmd-res .it');
+    if (!items.length) return;
+    cmdIdx = (cmdIdx + dir + items.length) % items.length;
+    items.forEach((btn, i) => {
+      btn.classList.toggle('act', i === cmdIdx);
+      if (i === cmdIdx) btn.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function runCmd(idx) {
+    const item = cmdList[idx];
+    if (item && item.action) {
+      closeCmd();
+      item.action();
+    }
+  }
+
   document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      const c = document.getElementById('cmd');
+      if (c && c.hidden) openCmd();
+      else closeCmd();
+      return;
+    }
     if (e.key === 'Escape') {
+      closeCmd();
       document.getElementById('modalTicketDetail').hidden = true;
       document.getElementById('modalAccountDetail').hidden = true;
       document.getElementById('modalStaffEditor').hidden = true;
+      document.getElementById('modalStepUp').hidden = true;
     }
+    const cmdEl = document.getElementById('cmd');
+    if (cmdEl && !cmdEl.hidden) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveCmd(1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveCmd(-1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        runCmd(cmdIdx);
+      }
+    }
+  });
+
+  document.getElementById('cmd-in')?.addEventListener('input', (e) => {
+    clearTimeout(cmdTimer);
+    cmdTimer = setTimeout(() => renderCmd(e.target.value), 180);
   });
 
   document.querySelectorAll('[data-search]').forEach((input) => {
@@ -287,6 +492,43 @@
     });
   });
 
+  // Ticket attachment file selection
+  document.getElementById('adminTicketFileInput')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    const lbl = document.getElementById('adminTicketFileLabel');
+    if (lbl) lbl.textContent = file ? `${file.name} (${(file.size / 1024).toFixed(1)} KB)` : '';
+  });
+
+  // Step-up Form Submission
+  document.getElementById('adminStepUpForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const password = document.getElementById('stepUpPassword').value;
+    const code = document.getElementById('stepUpTotpCode').value.trim();
+    const btn = document.getElementById('stepUpSubmitBtn');
+    const errEl = document.getElementById('stepUpError');
+    btn.disabled = true;
+    if (errEl) errEl.style.display = 'none';
+
+    try {
+      await api('/api/v1/auth/step-up', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, code }),
+      });
+      document.getElementById('modalStepUp').hidden = true;
+      if (state.pendingStepUpAction && state.pendingStepUpAction.onSuccess) {
+        state.pendingStepUpAction.onSuccess();
+      }
+    } catch (err) {
+      if (errEl) {
+        errEl.textContent = err.message || 'Verification failed.';
+        errEl.style.display = 'block';
+      }
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   // Form Submissions
   document.getElementById('adminTicketReplyForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -294,6 +536,7 @@
     const body = document.getElementById('adminReplyBody').value.trim();
     const isInternalNote = document.getElementById('adminTicketInternalNote').checked;
     const newStatus = document.getElementById('adminTicketStatusSelect').value;
+    const fileInput = document.getElementById('adminTicketFileInput');
     const btn = document.getElementById('adminSendReplyBtn');
     btn.disabled = true;
     try {
@@ -302,6 +545,33 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body, isInternalNote }),
       });
+      if (fileInput && fileInput.files?.[0]) {
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        await new Promise((resolve, reject) => {
+          reader.onload = async () => {
+            try {
+              const base64 = (reader.result || '').split(',')[1];
+              await api(`/api/v1/admin/tickets/${encodeURIComponent(state.activeTicketId)}/attachments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  filename: file.name,
+                  contentType: file.type || 'application/octet-stream',
+                  dataBase64: base64,
+                }),
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        fileInput.value = '';
+        if (document.getElementById('adminTicketFileLabel')) document.getElementById('adminTicketFileLabel').textContent = '';
+      }
       await api(`/api/v1/admin/tickets/${encodeURIComponent(state.activeTicketId)}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

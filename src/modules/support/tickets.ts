@@ -1,5 +1,43 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { generateId } from '../identity/auth.js';
+
+export const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'text/plain',
+  'text/markdown',
+  'application/pdf',
+  'application/json',
+  'application/zip',
+]);
+
+export const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+export function sanitizeFilename(filename: string): string {
+  const normalized = filename.replace(/\\/g, '/').replace(/[\0\r\n\t]/g, '').trim();
+  const base = path.basename(normalized);
+  const clean = base.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+  return clean || 'attachment.dat';
+}
+
+export interface TicketAttachmentRecord {
+  id: string;
+  ticket_id: string;
+  message_id: string | null;
+  uploader_user_id: string;
+  filename: string;
+  content_type: string;
+  byte_size: number;
+  file_hash: string;
+  storage_path: string;
+  created_at: string;
+  uploader_name?: string;
+}
 
 export interface CreateTicketInput {
   accountId: string;
@@ -52,7 +90,8 @@ export function getTicketThread(ticketId: string, accountId: string, db: Databas
     WHERE tm.ticket_id = ? AND tm.is_staff_internal_note = 0
     ORDER BY tm.created_at ASC, tm.id ASC
   `).all(ticketId);
-  return { ticket, messages };
+  const attachments = listTicketAttachments(ticketId, accountId, db);
+  return { ticket, messages, attachments };
 }
 
 export function addCustomerReply(
@@ -74,4 +113,134 @@ export function addCustomerReply(
       .run(generateId('aud'), input.accountId, input.userId, input.ticketId, input.ipAddress, generateId('cor'));
     return { outcome: 'CREATED' as const, messageId };
   })();
+}
+
+export function addTicketAttachment(
+  input: {
+    ticketId: string;
+    messageId?: string | null;
+    accountId: string | null;
+    userId: string;
+    filename: string;
+    contentType: string;
+    buffer: Buffer;
+    ipAddress: string;
+    storageBaseDir?: string;
+  },
+  db: Database.Database
+): TicketAttachmentRecord {
+  const cleanMime = (input.contentType.toLowerCase().split(';')[0] ?? '').trim();
+  if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(cleanMime)) {
+    throw new Error(`File type '${cleanMime}' is not permitted. Allowed: images, PDF, text, JSON, zip.`);
+  }
+  if (input.buffer.length === 0) {
+    throw new Error('Attachment cannot be empty.');
+  }
+  if (input.buffer.length > MAX_ATTACHMENT_SIZE_BYTES) {
+    throw new Error('Attachment exceeds maximum allowed size of 5 MB.');
+  }
+
+  const ticket = db.prepare('SELECT id, account_id, status FROM tickets WHERE id = ?').get(input.ticketId) as
+    | { id: string; account_id: string; status: string }
+    | undefined;
+
+  if (!ticket) throw new Error('Ticket not found.');
+  if (input.accountId && ticket.account_id !== input.accountId) {
+    throw new Error('Ticket not found.');
+  }
+
+  const safeName = sanitizeFilename(input.filename);
+  const attachmentId = generateId('att');
+  const fileHash = crypto.createHash('sha256').update(input.buffer).digest('hex');
+
+  const baseDir = input.storageBaseDir || path.resolve(process.cwd(), 'data', 'attachments');
+  const ticketDir = path.join(baseDir, ticket.id);
+  if (!fs.existsSync(ticketDir)) {
+    fs.mkdirSync(ticketDir, { recursive: true, mode: 0o750 });
+  }
+
+  const storageFilename = `${attachmentId}_${safeName}`;
+  const diskPath = path.join(ticketDir, storageFilename);
+  fs.writeFileSync(diskPath, input.buffer);
+
+  return db.transaction(() => {
+    db.prepare(`
+      INSERT INTO ticket_attachments (id, ticket_id, message_id, uploader_user_id, filename, content_type, byte_size, file_hash, storage_path)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      attachmentId,
+      ticket.id,
+      input.messageId || null,
+      input.userId,
+      safeName,
+      cleanMime,
+      input.buffer.length,
+      fileHash,
+      diskPath
+    );
+
+    db.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, ?, 'ticket.attachment_uploaded', 'ticket_attachment', ?, ?, ?, ?)
+    `).run(
+      generateId('aud'),
+      ticket.account_id,
+      input.userId,
+      input.accountId ? 'USER' : 'STAFF',
+      attachmentId,
+      input.ipAddress,
+      generateId('cor'),
+      JSON.stringify({ filename: safeName, size: input.buffer.length, contentType: cleanMime, fileHash })
+    );
+
+    return db.prepare('SELECT * FROM ticket_attachments WHERE id = ?').get(attachmentId) as TicketAttachmentRecord;
+  })();
+}
+
+export function listTicketAttachments(
+  ticketId: string,
+  accountId: string | null,
+  db: Database.Database
+): TicketAttachmentRecord[] {
+  const ticket = db.prepare('SELECT id, account_id FROM tickets WHERE id = ?').get(ticketId) as
+    | { id: string; account_id: string }
+    | undefined;
+  if (!ticket) return [];
+  if (accountId && ticket.account_id !== accountId) return [];
+
+  return db.prepare(`
+    SELECT ta.id, ta.ticket_id, ta.message_id, ta.uploader_user_id, ta.filename,
+           ta.content_type, ta.byte_size, ta.file_hash, ta.storage_path, ta.created_at,
+           u.name AS uploader_name
+    FROM ticket_attachments ta
+    JOIN users u ON u.id = ta.uploader_user_id
+    WHERE ta.ticket_id = ?
+    ORDER BY ta.created_at ASC
+  `).all(ticketId) as TicketAttachmentRecord[];
+}
+
+export function getTicketAttachment(
+  ticketId: string,
+  attachmentId: string,
+  accountId: string | null,
+  db: Database.Database
+): { record: TicketAttachmentRecord; buffer: Buffer } | null {
+  const ticket = db.prepare('SELECT id, account_id FROM tickets WHERE id = ?').get(ticketId) as
+    | { id: string; account_id: string }
+    | undefined;
+  if (!ticket) return null;
+  if (accountId && ticket.account_id !== accountId) return null;
+
+  const record = db.prepare(`
+    SELECT ta.*, u.name AS uploader_name
+    FROM ticket_attachments ta
+    JOIN users u ON u.id = ta.uploader_user_id
+    WHERE ta.id = ? AND ta.ticket_id = ?
+  `).get(attachmentId, ticketId) as TicketAttachmentRecord | undefined;
+
+  if (!record) return null;
+  if (!fs.existsSync(record.storage_path)) return null;
+
+  const buffer = fs.readFileSync(record.storage_path);
+  return { record, buffer };
 }

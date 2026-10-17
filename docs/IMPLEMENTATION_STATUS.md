@@ -1,10 +1,10 @@
-# Fortless implementation status
+# Fortless Implementation Status
 
 Last updated: 2026-10-17
 
 Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED`.
 
-## Phase 0 — audit and foundation
+## Phase 0 — Audit and Foundation
 
 | Area | Status | Evidence / limitation |
 | --- | --- | --- |
@@ -13,7 +13,7 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | Asset fingerprinting | `MOCK_ONLY` | SHA-256 content names emitted at runtime; hashed assets use one-year immutable cache |
 | Environment safety | `MOCK_ONLY` | `.env.example`; production session secret is mandatory; development fallback is persisted with mode `0600` instead of rotating on restart; external modes default disabled |
 
-## Phase 1 — identity slice 1
+## Phase 1 — Identity & Core Authentication
 
 | Capability | Status | Evidence / limitation |
 | --- | --- | --- |
@@ -23,20 +23,34 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | Password recovery | `MOCK_ONLY` | Non-enumerating API, 15-minute single-use token, all sessions revoked after reset |
 | Brute-force control | `MOCK_ONLY` | Persistent per-IP + normalized-identifier failure window; distributed Redis enforcement remains open |
 | CSRF and CORS | `MOCK_ONLY` | Signed double-submit token for browser mutations; explicit origin allowlist |
-| Responsive auth UI | `MOCK_ONLY` | Petal/Fortless portrait + dedicated small-landscape layouts; browser/device E2E not yet executed |
-| Cross-surface design coherence | `MOCK_ONLY` | Homepage, auth and app now share Fortless logo geometry, Inter Tight typography, color tokens and the same persisted theme preference |
-| Mobile public homepage | `MOCK_ONLY` | Petal drawer navigation becomes full-screen on phones with focus return/trap, Escape and backdrop handling; development notice is compact; category, service, benefit and workflow collections use touch-native horizontal snap rails to reduce page height; physical-device visual regression remains open |
-| Session-aware public navigation | `MOCK_ONLY` | Homepage CTAs are rendered from the server session state; authenticated users see dashboard actions and are redirected away from login/register |
-| Customer app page guard | `MOCK_ONLY` | `/app` redirects unauthenticated requests server-side |
-| Session/device management | `MOCK_ONLY` | Real active-session inventory, current-device identification, tenant-safe individual revocation, revoke-others action and audit events; local domain + HTTP coverage |
-| TOTP multi-factor authentication | `MOCK_ONLY` | Supplied Petal QR/OTP/backup component, six-cell challenge with paste/autofill/backspace handling and separate recovery mode, password-confirmed enrollment, AES-256-GCM protected secrets, restart-stable key material, restart-independent one-time recovery-code hashes, persistent attempt throttling, disable flow and audit events; local tests only |
-| Recent step-up authentication | `MOCK_ONLY` | Password plus live TOTP produces session-scoped evidence valid for ten minutes; failed password/code attempts do not elevate the session and successful elevation is audited. WebAuthn/passkeys remain open |
-| Native responsive app shell | `MOCK_ONLY` | Correct document/CSS layering, docked portrait tab bar, docked landscape rail, mobile record cards, bottom-sheet modals and safe-area handling; physical-device browser matrix remains open |
+| Responsive auth UI | `MOCK_ONLY` | Petal/Fortless portrait + dedicated small-landscape layouts |
+| Session/device management | `MOCK_ONLY` | Real active-session inventory, current-device identification, tenant-safe individual revocation, revoke-others action and audit events |
+| TOTP multi-factor authentication | `MOCK_ONLY` | Supplied Petal QR/OTP/backup component, six-cell challenge with paste/autofill/backspace handling, password-confirmed enrollment, AES-256-GCM protected secrets, restart-stable key material, restart-independent one-time recovery-code hashes, persistent attempt throttling, disable flow and audit events |
+| Recent step-up authentication | `MOCK_ONLY` | Password plus live TOTP produces session-scoped evidence valid for ten minutes; failed password/code attempts do not elevate the session; transparent modal step-up in Admin UI |
+| Native responsive app shell | `MOCK_ONLY` | Correct document/CSS layering, docked portrait tab bar, docked landscape rail, mobile record cards, bottom-sheet modals and safe-area handling |
 | Customer app routing | `MOCK_ONLY` | Real History API paths (`/app/settings`, `/app/billing`, `/app/support`, etc.), authenticated deep-link refresh, back/forward navigation and automatic migration from legacy hash URLs |
-| Customer app component integration | `MOCK_ONLY` | All six customer routes now compose supplied Petal primitives: stat tiles and service lists, plan selectors, invoice summaries/tables, support lists and modals, expandable audit rows, empty states, TOTP, session rows and responsive shells; no sample catalog cards are rendered while real API data loads |
-| Staff/admin guard | `MOCK_ONLY` | Persisted, revocable staff memberships with `OWNER`, `ADMINISTRATOR`, `BILLING`, `SUPPORT`, `INFRASTRUCTURE`, and `AUDITOR` roles; permissions and MFA are checked from the database on every document/API request, so same-session revocation takes effect immediately |
-| Staff operations workspace | `MOCK_ONLY` | Petal-based responsive routes at `/admin`, `/admin/accounts`, `/admin/services`, `/admin/tickets`, `/admin/audit`, and `/admin/staff`; role-filtered navigation and read APIs return real global database records with bounded search while deliberately omitting authentication/provider secrets |
-| Staff membership administration | `MOCK_ONLY` | Owner-only create/change/revoke APIs require fresh step-up, confirmed target MFA, reason capture and audit; self-modification and removal of the final owner are rejected. No active `OWNER` has been inferred or auto-created, so live mutation remains unavailable until explicit owner assignment |
+| Staff/admin guard | `MOCK_ONLY` | Persisted, revocable staff memberships with `OWNER`, `ADMINISTRATOR`, `BILLING`, `SUPPORT`, `INFRASTRUCTURE`, and `AUDITOR` roles; permissions and MFA are checked from the database on every document/API request |
+
+## Phase 2 — Production Infrastructure & Reliable Jobs
+
+| Capability | Status | Evidence / limitation |
+| --- | --- | --- |
+| Host binding isolation | `MOCK_ONLY` | Binds to `config.HOST` (default `127.0.0.1`), prevents reverse proxy bypass |
+| Idempotency request hash | `MOCK_ONLY` | `customOptions` included in checkout idempotency hash |
+| Worker concurrency & leasing | `MOCK_ONLY` | Concurrency-safe atomic event claiming, lease expiration reset, bounded exponential backoff, dead-letter queue |
+| Runtime DB separation | `MOCK_ONLY` | `getDatabase()` decoupled from migration runs; explicit `npm run migrate` CLI |
+
+## Phase 3 — Identity Hardening, Email, WebAuthn & Petal Product UI
+
+| Capability | Status | Evidence / limitation |
+| --- | --- | --- |
+| Transactional email outbox | `MOCK_ONLY` | Atomic queueing in SQLite, durable retry backoff, bounded attempts, dead-letter state, offline sandbox receipts |
+| Staff owner bootstrap | `MOCK_ONLY` | `npm run staff:bootstrap-owner` CLI requires verified email, confirmed TOTP MFA; enforces `--force --reason` protection |
+| Phishing-resistant WebAuthn | `MOCK_ONLY` | FIDO2/WebAuthn registration and authentication, anti-replay challenge lifecycle, ES256 signature verification, authenticator counter validation |
+| Universal Petal Command Palette | `MOCK_ONLY` | `Ctrl+K` / `⌘K` global palette across customer and admin shells, scoped `/api/v1/search` with multi-tenant isolation, Arrow/Enter navigation |
+| Ticketing with Markdown & Attachments | `MOCK_ONLY` | Customer and staff thread management, XSS-safe Markdown rendering, multi-tenant file attachments with SHA256 integrity, 5MB limit, MIME whitelist |
+| Native Petal SVG Charts | `MOCK_ONLY` | Cubic Bezier `smooth()` trend sparklines and gauge indicators driven by real server states |
+| Admin Step-Up Challenge Modal | `MOCK_ONLY` | Transparent 403 `STEP_UP_REQUIRED` interception, TOTP challenge verify `/api/v1/auth/step-up`, seamless mutation retry |
 
 ## Fail-closed integrations
 
@@ -48,17 +62,22 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 
 ## Verification executed
 
-- `npm run build` — passed with 0 TypeScript compiler errors.
-- `npm test` — 67/67 passed across Categories A through L:
-  - Identity, auth, sessions, Argon2id, single-use tokens, step-up, and TOTP.
-  - Catalog, dynamic pricing, EU VAT calculations, coupons, and capacity reservations.
-  - Checkout idempotency, Stripe webhooks, refunds, disputes, and credit notes.
-  - Multi-tenant support tickets and staff responses.
-  - Pterodactyl provisioning adapter, power actions, anti-SSRF validation, and timeout recovery sagas.
-  - Staff RBAC, read models, audit logs, and account lock mutations.
-  - Category I: Outbox Concurrency, Crash Recovery, and Resilient Worker Leasing (atomic claiming with worker lease tokens, expired lease recovery, exponential backoff, and dead-lettering).
-  - Category J: Transactional Email Outbox & Transport Isolation (concurrency-safe claiming, bounded retries, dead-lettering, sandbox receipts, and fail-closed live adapter).
-  - Category K: Staff Owner Bootstrap Hardening & Recovery (rejection of unverified/no-MFA users, existing owner protection, and mandatory `--force --reason` audit log).
-  - Category L: WebAuthn / Passkeys Phishing-Resistant MFA (single-use anti-replay challenges, origin mismatch rejection, ES256 cryptographic signature verification, authenticator counter anti-replay, and session issuance with `mfaVerified = true`).
-- Decoupled `getDatabase()` connection acquisition from automatic schema migration runs.
+- `npx tsc --noEmit` — passed with 0 TypeScript compiler errors.
+- `npm test` — 72/72 passed across Categories A through M:
+  - Category A: Identity, Authentication & Multi-Tenant Isolation (11 tests).
+  - Category B: Catalog & Cryptographic Quote Invariants (9 tests).
+  - Category C: Checkout Idempotency & Payment Invariants (8 tests).
+  - Category D: Tenant-Safe Support Lifecycle (2 tests).
+  - Category E: Infrastructure Provisioning & Timeout Recovery Sagas (9 tests).
+  - Category F: Staff Read Models & RBAC (8 tests).
+  - Category G: Team Management, Password Change & Transactional Email Outbox (7 tests).
+  - Category H: Subscriptions, Notifications & Customer Observability (3 tests).
+  - Category I: Outbox Concurrency, Crash Recovery, and Resilient Worker Leasing (3 tests).
+  - Category J: Transactional Email Outbox & Transport Isolation (3 tests).
+  - Category K: Staff Owner Bootstrap Hardening & Recovery (4 tests).
+  - Category L: WebAuthn / Passkeys Phishing-Resistant MFA (3 tests).
+  - Category M: Petal Universal UI, Command Palette & Support Ticketing with Attachments (5 tests).
+- Separated `getDatabase()` connection acquisition from automatic schema migration runs.
 - Fixed Admin UI modal clipping on mobile and invisibility on desktop by correcting unclosed `<nav class="tabbar">` and adding Petal `.scrim` / `.modal` CSS.
+- Applied Migration 11 (`ticket attachments and multi-tenant file storage`) to SQLite database.
+- PM2 dev process reloaded and operational on `127.0.0.1:3021`.
