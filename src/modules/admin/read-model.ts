@@ -405,3 +405,94 @@ export function updateTicketStatus(
     );
   }, db);
 }
+
+export function listAdminOrders(db: Database.Database, options: AdminListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const like = search(query);
+  const rows = db.prepare(`
+    SELECT o.id, o.status, o.currency, o.total_minor_units, o.idempotency_key, o.created_at, o.updated_at,
+           a.id AS account_id, a.name AS account_name,
+           u.name AS customer_name, u.email AS customer_email,
+           (SELECT count(*) FROM order_items oi WHERE oi.order_id = o.id) AS item_count
+    FROM orders o
+    JOIN accounts a ON a.id = o.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR o.id LIKE ? ESCAPE '\\' OR o.status LIKE ? ESCAPE '\\'
+      OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    ORDER BY o.created_at DESC, o.id DESC
+    LIMIT ? OFFSET ?
+  `).all(query, like, like, like, like, like, limit, offset) as any[];
+
+  return { orders: rows, limit, offset };
+}
+
+export function listAdminInvoices(db: Database.Database, options: AdminListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const like = search(query);
+  const rows = db.prepare(`
+    SELECT inv.id, inv.invoice_number, inv.status, inv.currency,
+           inv.subtotal_minor_units, inv.tax_minor_units, inv.total_minor_units,
+           inv.amount_paid_minor_units, inv.due_date, inv.created_at,
+           a.id AS account_id, a.name AS account_name,
+           u.name AS customer_name, u.email AS customer_email,
+           (SELECT count(*) FROM credit_notes cn WHERE cn.invoice_id = inv.id) AS credit_note_count
+    FROM invoices inv
+    JOIN accounts a ON a.id = inv.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR inv.id LIKE ? ESCAPE '\\' OR coalesce(inv.invoice_number, '') LIKE ? ESCAPE '\\'
+      OR inv.status LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    ORDER BY inv.created_at DESC, inv.id DESC
+    LIMIT ? OFFSET ?
+  `).all(query, like, like, like, like, like, like, limit, offset) as any[];
+
+  return { invoices: rows, limit, offset };
+}
+
+export function listAdminCreditNotes(db: Database.Database, options: AdminListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const like = search(query);
+  const rows = db.prepare(`
+    SELECT cn.id, cn.credit_note_number, cn.amount_minor_units, cn.reason, cn.created_at,
+           inv.id AS invoice_id, inv.invoice_number, inv.currency,
+           a.id AS account_id, a.name AS account_name,
+           u.name AS customer_name, u.email AS customer_email
+    FROM credit_notes cn
+    JOIN invoices inv ON inv.id = cn.invoice_id
+    JOIN accounts a ON a.id = inv.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR cn.id LIKE ? ESCAPE '\\' OR cn.credit_note_number LIKE ? ESCAPE '\\'
+      OR cn.reason LIKE ? ESCAPE '\\' OR inv.invoice_number LIKE ? ESCAPE '\\'
+      OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    ORDER BY cn.created_at DESC, cn.id DESC
+    LIMIT ? OFFSET ?
+  `).all(query, like, like, like, like, like, like, like, limit, offset) as any[];
+
+  return { creditNotes: rows, limit, offset };
+}
+
+export function getAdminCapacityPools(db: Database.Database) {
+  const regions = db.prepare(`
+    SELECT r.id, r.code, r.name, r.country, r.is_active,
+           count(DISTINCT n.id) AS node_count,
+           coalesce(sum(n.max_memory_mb), 0) AS total_memory_mb,
+           coalesce(sum(n.allocated_memory_mb), 0) AS allocated_memory_mb,
+           coalesce(sum(n.max_disk_mb), 0) AS total_disk_mb,
+           coalesce(sum(n.allocated_disk_mb), 0) AS allocated_disk_mb
+    FROM regions r
+    LEFT JOIN nodes n ON n.region_id = r.id
+    GROUP BY r.id
+    ORDER BY r.code ASC
+  `).all() as any[];
+
+  const nodes = db.prepare(`
+    SELECT n.id, n.region_id, n.name, n.fqdn, n.provider_instance_id,
+           n.max_memory_mb, n.allocated_memory_mb, n.max_disk_mb, n.allocated_disk_mb,
+           n.maintenance_mode, r.code AS region_code, r.name AS region_name,
+           (SELECT count(*) FROM services s WHERE s.node_id = n.id AND s.contract_status = 'ACTIVE') AS active_service_count
+    FROM nodes n
+    JOIN regions r ON r.id = n.region_id
+    ORDER BY r.code ASC, n.name ASC
+  `).all() as any[];
+
+  return { regions, nodes };
+}

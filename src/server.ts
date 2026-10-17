@@ -90,6 +90,10 @@ import {
   updateTicketStatus,
   listAdminAudit,
   listAdminStaff,
+  listAdminOrders,
+  listAdminInvoices,
+  listAdminCreditNotes,
+  getAdminCapacityPools,
 } from './modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
 import {
@@ -1679,6 +1683,28 @@ export function buildServer(): FastifyInstance {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
     return listAdminServices(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/orders', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const options = parseAdminList(req.query);
+    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
+    return listAdminOrders(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/invoices', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const options = parseAdminList(req.query);
+    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
+    return listAdminInvoices(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/credit-notes', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const options = parseAdminList(req.query);
+    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
+    return listAdminCreditNotes(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/capacity', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async () => {
+    return getAdminCapacityPools(getDatabase());
   });
 
   // Admin Services: Suspend

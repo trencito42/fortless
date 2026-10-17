@@ -5,6 +5,8 @@ import { SCHEMA_SQL } from '../src/database/schema.js';
 import { runMigrations } from '../src/database/migrations.js';
 import { seedInitialCatalog } from '../src/modules/catalog/catalog.js';
 import { registerUser } from '../src/modules/identity/auth.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   calculateNextPeriod,
   processSubscriptionRenewals,
@@ -16,6 +18,16 @@ import {
   updateIncident,
   updateComponentStatus,
 } from '../src/modules/status/status.js';
+import {
+  listAdminOrders,
+  listAdminInvoices,
+  listAdminCreditNotes,
+  getAdminCapacityPools,
+} from '../src/modules/admin/read-model.js';
+import {
+  createDatabaseBackup,
+  verifyAndRestoreBackup,
+} from '../src/modules/backup/backup.js';
 
 describe('Phase 4: Subscription Renewal, Dunning & System Status Management', () => {
   let db: Database.Database;
@@ -335,6 +347,179 @@ describe('Phase 4: Subscription Renewal, Dunning & System Status Management', ()
       expect(audit.action).toBe('system_component.update');
       expect(audit.actor_user_id).toBe(staffUser.user.id);
       expect(JSON.parse(audit.metadata).newStatus).toBe('MAINTENANCE');
+    });
+  });
+
+  describe('Category Q: Administrative Operations Read Model & API Slices', () => {
+    it('ADM-09: listAdminOrders lists cross-tenant orders with filtering, items and pagination', () => {
+      const userA = registerUser({ email: 'ord_a@example.com', password: 'Password123!', name: 'User A', ipAddress: '127.0.0.1', userAgent: 'vitest' }, db);
+      const userB = registerUser({ email: 'ord_b@example.com', password: 'Password123!', name: 'User B', ipAddress: '127.0.0.1', userAgent: 'vitest' }, db);
+
+      createTestService(userA.account.id);
+      createTestService(userB.account.id);
+
+      const allOrders = listAdminOrders(db);
+      expect(allOrders.orders.length).toBe(2);
+      expect(allOrders.orders[0]?.item_count).toBe(1);
+
+      // Search by email
+      const filtered = listAdminOrders(db, { query: 'ord_a@example.com' });
+      expect(filtered.orders.length).toBe(1);
+      expect(filtered.orders[0]?.customer_email).toBe('ord_a@example.com');
+    });
+
+    it('ADM-10: listAdminInvoices lists cross-tenant sequential invoices, amounts, and statuses', () => {
+      const user = registerUser({ email: 'inv_staff@example.com', password: 'Password123!', name: 'Inv User', ipAddress: '127.0.0.1', userAgent: 'vitest' }, db);
+
+      db.prepare(`
+        INSERT INTO invoices (id, account_id, invoice_number, status, currency, subtotal_minor_units, tax_minor_units, total_minor_units, due_date)
+        VALUES ('inv_test_01', ?, 'INV-2026-00001', 'ISSUED', 'EUR', 2000, 380, 2380, datetime('now', '+14 days'))
+      `).run(user.account.id);
+
+      const res = listAdminInvoices(db);
+      expect(res.invoices.length).toBeGreaterThan(0);
+      const found = res.invoices.find((i: any) => i.id === 'inv_test_01');
+      expect(found).toBeDefined();
+      expect(found?.invoice_number).toBe('INV-2026-00001');
+      expect(found?.total_minor_units).toBe(2380);
+      expect(found?.customer_email).toBe('inv_staff@example.com');
+    });
+
+    it('ADM-11: listAdminCreditNotes lists refund notes linked to parent invoices', () => {
+      const user = registerUser({ email: 'crn_staff@example.com', password: 'Password123!', name: 'Crn User', ipAddress: '127.0.0.1', userAgent: 'vitest' }, db);
+
+      db.prepare(`
+        INSERT INTO invoices (id, account_id, invoice_number, status, currency, subtotal_minor_units, tax_minor_units, total_minor_units, due_date)
+        VALUES ('inv_crn_parent', ?, 'INV-2026-00002', 'CREDITED', 'EUR', 1500, 0, 1500, datetime('now', '+14 days'))
+      `).run(user.account.id);
+
+      db.prepare(`
+        INSERT INTO credit_notes (id, invoice_id, credit_note_number, amount_minor_units, reason)
+        VALUES ('crn_test_01', 'inv_crn_parent', 'CRN-2026-00001', 1500, 'Customer requested SLA credit')
+      `).run();
+
+      const res = listAdminCreditNotes(db);
+      expect(res.creditNotes.length).toBe(1);
+      expect(res.creditNotes[0]?.credit_note_number).toBe('CRN-2026-00001');
+      expect(res.creditNotes[0]?.amount_minor_units).toBe(1500);
+      expect(res.creditNotes[0]?.invoice_number).toBe('INV-2026-00002');
+      expect(res.creditNotes[0]?.reason).toBe('Customer requested SLA credit');
+    });
+
+    it('ADM-12: getAdminCapacityPools returns regions and nodes with resource metrics', () => {
+      const pools = getAdminCapacityPools(db);
+      expect(pools.regions.length).toBeGreaterThanOrEqual(2);
+      expect(pools.nodes.length).toBeGreaterThanOrEqual(2);
+
+      const fraNode = pools.nodes.find((n: any) => n.id === 'node_fra_01');
+      expect(fraNode).toBeDefined();
+      expect(fraNode?.max_memory_mb).toBe(131072);
+      expect(fraNode?.region_code).toBe('fra-1');
+    });
+  });
+
+  describe('Category R: Automated Backup, Authenticated Encryption & Disaster Recovery Verification (Gate 7)', () => {
+    const testBackupDir = path.resolve(process.cwd(), 'data', 'test_backups');
+
+    afterEach(() => {
+      if (fs.existsSync(testBackupDir)) {
+        fs.rmSync(testBackupDir, { recursive: true, force: true });
+      }
+    });
+
+    it('BCK-01: Online atomic database snapshot captures consistent state and computes SHA-256', async () => {
+      const meta = await createDatabaseBackup({
+        sourceDb: db,
+        targetDir: testBackupDir,
+      });
+
+      expect(meta.backupId).toBeDefined();
+      expect(meta.sha256).toHaveLength(64);
+      expect(meta.isEncrypted).toBe(false);
+      expect(fs.existsSync(meta.backupFilePath)).toBe(true);
+      expect(Object.keys(meta.tableCounts).length).toBeGreaterThan(10);
+    });
+
+    it('BCK-02: Checksum verification detects tampering and aborts restore', async () => {
+      const meta = await createDatabaseBackup({
+        sourceDb: db,
+        targetDir: testBackupDir,
+      });
+
+      const restorePath = path.join(testBackupDir, 'restored.db');
+
+      // Attempt restore with mismatched expected checksum
+      await expect(
+        verifyAndRestoreBackup({
+          backupFilePath: meta.backupFilePath,
+          targetDbPath: restorePath,
+          expectedSha256: '0000000000000000000000000000000000000000000000000000000000000000',
+        })
+      ).rejects.toThrow(/Checksum mismatch/);
+    });
+
+    it('BCK-03: AES-256-GCM authenticated encryption and decryption', async () => {
+      const key = 'secret-production-disaster-recovery-key-32b';
+      const meta = await createDatabaseBackup({
+        sourceDb: db,
+        targetDir: testBackupDir,
+        encryptionKey: key,
+      });
+
+      expect(meta.isEncrypted).toBe(true);
+      expect(meta.algorithm).toBe('aes-256-gcm');
+      expect(meta.backupFilePath.endsWith('.enc.db')).toBe(true);
+
+      const restorePath = path.join(testBackupDir, 'restored_encrypted.db');
+
+      // Fails with wrong key
+      await expect(
+        verifyAndRestoreBackup({
+          backupFilePath: meta.backupFilePath,
+          targetDbPath: restorePath,
+          encryptionKey: 'wrong-key-completely-different',
+        })
+      ).rejects.toThrow();
+
+      // Succeeds with correct key
+      const report = await verifyAndRestoreBackup({
+        backupFilePath: meta.backupFilePath,
+        targetDbPath: restorePath,
+        encryptionKey: key,
+        expectedSha256: meta.sha256,
+      });
+
+      expect(report.success).toBe(true);
+      expect(report.integrityCheck).toBe('ok');
+      expect(report.foreignKeyViolations).toBe(0);
+    });
+
+    it('BCK-04: Isolated staging restore passes PRAGMA integrity_check and row count validation', async () => {
+      // Seed a user before backup
+      registerUser({ email: 'dr_restore_test@example.com', password: 'Password123!', name: 'DR User', ipAddress: '127.0.0.1', userAgent: 'vitest' }, db);
+
+      const meta = await createDatabaseBackup({
+        sourceDb: db,
+        targetDir: testBackupDir,
+      });
+
+      const restoreTarget = path.join(testBackupDir, 'staging_restore.db');
+      const report = await verifyAndRestoreBackup({
+        backupFilePath: meta.backupFilePath,
+        targetDbPath: restoreTarget,
+        expectedSha256: meta.sha256,
+      });
+
+      expect(report.success).toBe(true);
+      expect(report.integrityCheck).toBe('ok');
+      expect(report.foreignKeyViolations).toBe(0);
+
+      // Verify restored database directly
+      const restoredDb = new Database(restoreTarget, { readonly: true });
+      const user = restoredDb.prepare("SELECT email FROM users WHERE email = 'dr_restore_test@example.com'").get() as any;
+      expect(user).toBeDefined();
+      expect(user.email).toBe('dr_restore_test@example.com');
+      restoredDb.close();
     });
   });
 });

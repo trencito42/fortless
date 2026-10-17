@@ -129,15 +129,15 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 ### Phase 4: Operational Readiness, Tickets, System Status & Go-Live Pilot
 *Goal: Complete operational toolset, support ticketing, public status page, backup restore drills, and security hardening.*
 
-- [ ] **Slice 4.1: Customer & Staff Support Ticketing Engine**
-  - Multi-tenant support tickets with role-based internal notes, markdown sanitization, and attachments.
-- [ ] **Slice 4.2: Automated Subscription Renewal & Dunning Scheduler**
-  - End-of-month anchoring, off-session charging, 5-day grace period, and suspension logic.
-- [ ] **Slice 4.3: Public System Status & Incident Management**
-  - Independent status dashboard (`/status`) with incident timeline and node maintenance notices.
-- [ ] **Slice 4.4: Administrative Operations Dashboard**
-  - Staff management screens for orders, invoices, credit notes, capacity pools, and audit log search.
-- [ ] **Slice 4.5: Backup & Disaster Recovery Verification**
-  - Automated database backup script, encryption, and isolated staging restore verification.
+- [x] **Slice 4.1: Customer & Staff Support Ticketing Engine**
+  - Multi-tenant support tickets with role-based internal notes, markdown sanitization, attachments (`TICK-01` to `TICK-04`).
+- [x] **Slice 4.2: Automated Subscription Renewal & Dunning Scheduler**
+  - End-of-month anchoring, 5-day grace period, invoice issuance, suspension, and payment settlement (`DUN-01` to `DUN-05`).
+- [x] **Slice 4.3: Public System Status & Incident Management**
+  - Standalone status dashboard (`/status`), operational indicators, incident updates timeline (`STAT-01` to `STAT-04`).
+- [x] **Slice 4.4: Administrative Operations Dashboard**
+  - Staff management read models and endpoints for orders, invoices, credit notes, capacity pools, and audit search (`ADM-09` to `ADM-12`).
+- [x] **Slice 4.5: Backup & Disaster Recovery Verification**
+  - Automated atomic database backup, AES-256-GCM encryption, checksum validation, and isolated staging restore verification (`BCK-01` to `BCK-04`).
 - [ ] **Slice 4.6: P0 Launch Gate Signoff & Limited Pilot Rollout**
   - Review all 8 release gates in `TEST_MATRIX.md` with documented evidence.

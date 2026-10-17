@@ -10,6 +10,7 @@
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
     "migrate": "tsx src/scripts/migrate.ts",
+    "backup": "tsx src/scripts/backup-restore.ts backup",
     "staff:bootstrap-owner": "tsx src/scripts/bootstrap-owner.ts",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest"

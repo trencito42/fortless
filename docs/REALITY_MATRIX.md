@@ -31,6 +31,7 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/app/support` | Page | `LOCAL_VERIFIED` | Customer support thread list and ticket view (`/api/v1/tickets`). |
 | `/app/activity` | Page | `LOCAL_VERIFIED` | Audit trail viewer (`/api/v1/audit`) scoped strictly to tenant account. |
 | `/app/settings` | Page | `LOCAL_VERIFIED` | Active session inventory, remote session revocation, TOTP enrollment/disablement. |
+| `/status` | Page | `LOCAL_VERIFIED` | Standalone public status dashboard with live indicator dot, component grid, active incidents, and history. |
 
 ---
 
@@ -109,6 +110,7 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/api/v1/tickets/:id/attachments/:attachmentId` | GET | `LOCAL_VERIFIED` | Streams attachment download with nosniff and Content-Disposition; tenant-isolated. |
 | `/api/v1/admin/tickets/:ticketId/attachments` | POST | `LOCAL_VERIFIED` | Staff attachment upload to customer ticket; tenant-isolated storage. |
 | `/api/v1/audit` | GET | `LOCAL_VERIFIED` | Tenant-scoped immutable audit stream. |
+| `/api/v1/status` | GET | `LOCAL_VERIFIED` | Public truthful platform component status, health indicator, and incident history. |
 
 ### Staff Operations (`/api/v1/admin/*`)
 | Endpoint | Method | Status | Notes |
@@ -116,6 +118,14 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/api/v1/admin/overview` | GET | `LOCAL_VERIFIED` | Derived from DB counts; reports capability status truthfully. |
 | `/api/v1/admin/accounts` | GET | `LOCAL_VERIFIED` | Bounded pagination; owner info without passwords/tokens. |
 | `/api/v1/admin/services` | GET | `LOCAL_VERIFIED` | Cross-tenant instance inspection. |
+| `/api/v1/admin/orders` | GET | `LOCAL_VERIFIED` | Cross-tenant order inspection with item counts, search, and pagination. |
+| `/api/v1/admin/invoices` | GET | `LOCAL_VERIFIED` | Cross-tenant fiscal invoice inspection with credit note counts. |
+| `/api/v1/admin/credit-notes` | GET | `LOCAL_VERIFIED` | Cross-tenant refund and SLA credit note inspection with parent invoice references. |
+| `/api/v1/admin/capacity` | GET | `LOCAL_VERIFIED` | Infrastructure capacity pools by region and node (memory, disk, active service count). |
+| `/api/v1/admin/incidents` | POST | `LOCAL_VERIFIED` | Staff incident creation with atomic component status updates and audit logs. |
+| `/api/v1/admin/incidents/:id/updates` | POST | `LOCAL_VERIFIED` | Staff incident progress updates and resolution marking. |
+| `/api/v1/admin/components/:id` | PATCH | `LOCAL_VERIFIED` | Staff direct component operational state modification. |
+| `/api/v1/admin/billing/process-renewals` | POST | `LOCAL_VERIFIED` | Staff trigger for automated subscription renewals, dunning grace periods, and suspension. |
 | `/api/v1/admin/tickets` | GET | `LOCAL_VERIFIED` | Cross-tenant support triage. |
 | `/api/v1/admin/audit` | GET | `LOCAL_VERIFIED` | Global administrative mutation stream. |
 | `/api/v1/admin/staff` | GET | `LOCAL_VERIFIED` | Staff directory with active/revoked memberships. |
@@ -132,4 +142,5 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | **Stripe Payments** | `MOCKED` |authoritative HMAC validation implemented & tested with test fixtures; real Stripe sandbox keys needed. |
 | **Pterodactyl Panel** | `MOCKED` | Outbox worker & timeout recovery saga verified with `MockPterodactylAdapter`; live sandbox instance needed. |
 | **Database Engine** | `LOCAL_VERIFIED` | SQLite with WAL mode & foreign keys active; PostgreSQL migration tooling required before production. |
+| **Backup & Disaster Recovery** | `LOCAL_VERIFIED` | Automated online atomic SQLite backup, AES-256-GCM encryption, SHA-256 checksum verification, and isolated staging restore drills (`npm run backup`). |
 | **Distributed Cache/KV** | `BLOCKED` | In-process rate limiting active; Redis required for multi-replica deployments. |
