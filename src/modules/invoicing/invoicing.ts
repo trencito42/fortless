@@ -115,3 +115,39 @@ export function markInvoicePaid(invoiceId: string, paidAmountMinorUnits: number,
     };
   }, db);
 }
+
+export function listInvoicesForAccount(accountId: string, db: Database.Database = getDatabase()) {
+  return db.prepare(`
+    SELECT id, invoice_number, status, currency, subtotal_minor_units, tax_minor_units, total_minor_units,
+           amount_paid_minor_units, due_date, paid_at, created_at
+    FROM invoices
+    WHERE account_id = ?
+    ORDER BY created_at DESC
+  `).all(accountId);
+}
+
+export function getInvoiceDetail(invoiceId: string, accountId?: string, db: Database.Database = getDatabase()) {
+  let query = 'SELECT * FROM invoices WHERE id = ?';
+  const params: string[] = [invoiceId];
+  if (accountId) {
+    query += ' AND account_id = ?';
+    params.push(accountId);
+  }
+
+  const invoice = db.prepare(query).get(...params) as Invoice | undefined;
+  if (!invoice) return null;
+
+  const lines = db.prepare(`
+    SELECT id, description, quantity, unit_price_minor_units, tax_rate_basis_points, total_minor_units
+    FROM invoice_lines
+    WHERE invoice_id = ?
+  `).all(invoiceId);
+
+  const payments = db.prepare(`
+    SELECT id, psp_name, psp_session_id, status, amount_minor_units, currency, created_at
+    FROM payment_attempts
+    WHERE invoice_id = ?
+  `).all(invoiceId);
+
+  return { invoice, lines, payments };
+}

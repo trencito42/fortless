@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
-import { markInvoicePaid } from '../invoicing/invoicing.js';
+import { markInvoicePaid, getNextCreditNoteNumber } from '../invoicing/invoicing.js';
 
 export interface StripeWebhookPayload {
   id: string;
@@ -100,17 +100,111 @@ export function ingestPSPWebhook(
     VALUES (?, ?, ?, ?, ?, ?, ?, 'RECEIVED')
   `).run(generateId('inb'), pspName, merchantAccount, eventId, eventType, payloadDigest, rawBody);
 
-  // We are interested in payment intent successes
-  if (eventType !== 'payment_intent.succeeded' && eventType !== 'checkout.session.completed') {
+  // 2. Handle Charge Refunded
+  if (eventType === 'charge.refunded') {
+    const rawObj = payload.data.object as Record<string, any>;
+    const chargeId = rawObj.id;
+    const paymentIntentId = rawObj.payment_intent;
+    const amountRefunded = rawObj.amount_refunded || rawObj.amount;
+
+    const attempt = db.prepare(`
+      SELECT pa.*, i.id as invoice_id, i.order_id, i.account_id, i.total_minor_units
+      FROM payment_attempts pa
+      JOIN invoices i ON i.id = pa.invoice_id
+      WHERE pa.psp_session_id = ? OR pa.id = ?
+    `).get(paymentIntentId || chargeId, paymentIntentId || chargeId) as {
+      id: string;
+      invoice_id: string;
+      order_id: string;
+      account_id: string;
+      total_minor_units: number;
+    } | undefined;
+
+    if (!attempt) {
+      db.prepare("UPDATE psp_inbox_events SET status = 'ANOMALY', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+      return { status: 'ANOMALY_HELD', eventId };
+    }
+
+    runInTransaction((trx) => {
+      const creditNoteNumber = getNextCreditNoteNumber(undefined, trx);
+      const isFullRefund = amountRefunded >= attempt.total_minor_units;
+
+      trx.prepare(`
+        UPDATE invoices
+        SET status = ?, amount_paid_minor_units = max(0, amount_paid_minor_units - ?)
+        WHERE id = ?
+      `).run(isFullRefund ? 'CREDITED' : 'PAID', amountRefunded, attempt.invoice_id);
+
+      trx.prepare("UPDATE payment_attempts SET status = 'CANCELED' WHERE id = ?").run(attempt.id);
+
+      if (isFullRefund) {
+        trx.prepare("UPDATE orders SET status = 'CANCELED', updated_at = datetime('now', 'utc') WHERE id = ?").run(attempt.order_id);
+        trx.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE account_id = ? AND order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)")
+          .run(attempt.account_id, attempt.order_id);
+      }
+
+      trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+
+      trx.prepare(`
+        INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+        VALUES (?, ?, 'PSP_WEBHOOK', 'payment.refunded', 'invoice', ?, ?, ?)
+      `).run(generateId('aud'), attempt.account_id, attempt.invoice_id, eventId, JSON.stringify({ amountRefunded, creditNoteNumber }));
+    }, db);
+
+    return { status: 'PROCESSED', eventId, orderId: attempt.order_id };
+  }
+
+  // 3. Handle Charge Dispute Created
+  if (eventType === 'charge.dispute.created') {
+    const rawObj = payload.data.object as Record<string, any>;
+    const chargeId = rawObj.charge;
+    const paymentIntentId = rawObj.payment_intent;
+
+    const attempt = db.prepare(`
+      SELECT pa.*, i.account_id, i.order_id
+      FROM payment_attempts pa
+      JOIN invoices i ON i.id = pa.invoice_id
+      WHERE pa.psp_session_id = ? OR pa.id = ?
+    `).get(paymentIntentId || chargeId, paymentIntentId || chargeId) as {
+      id: string;
+      account_id: string;
+      order_id: string;
+    } | undefined;
+
+    if (attempt) {
+      runInTransaction((trx) => {
+        trx.prepare("UPDATE accounts SET status = 'FLAGGED_FRAUD', updated_at = datetime('now', 'utc') WHERE id = ?").run(attempt.account_id);
+        trx.prepare("UPDATE services SET contract_status = 'SUSPENDED' WHERE account_id = ?").run(attempt.account_id);
+        trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+        trx.prepare(`
+          INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+          VALUES (?, ?, 'PSP_WEBHOOK', 'payment.disputed', 'account', ?, ?, ?)
+        `).run(generateId('aud'), attempt.account_id, attempt.account_id, eventId, JSON.stringify({ disputeId: rawObj.id }));
+      }, db);
+    } else {
+      db.prepare("UPDATE psp_inbox_events SET status = 'ANOMALY', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+    }
+    return { status: 'PROCESSED', eventId };
+  }
+
+  // We are interested in payment intent successes and checkout completions
+  if (eventType !== 'payment_intent.succeeded' && eventType !== 'checkout.session.completed' && eventType !== 'checkout.session.async_payment_succeeded') {
     db.prepare("UPDATE psp_inbox_events SET status = 'IGNORED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
     return { status: 'IGNORED', eventId };
   }
 
   const paymentObj = payload.data.object;
+  // If checkout.session.completed, ensure payment_status is 'paid'
+  const rawSession = paymentObj as Record<string, unknown>;
+  if (eventType === 'checkout.session.completed' && rawSession['payment_status'] && rawSession['payment_status'] !== 'paid') {
+    db.prepare("UPDATE psp_inbox_events SET status = 'IGNORED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+    return { status: 'IGNORED', eventId };
+  }
+
   const paymentAttemptId = paymentObj.metadata?.paymentAttemptId || paymentObj.id;
   const expectedOrderId = paymentObj.metadata?.orderId;
 
-  // 2. Lookup Payment Attempt & Order
+  // 4. Lookup Payment Attempt & Order
   const attemptRow = db.prepare(`
     SELECT pa.*, i.order_id, i.account_id, o.status as order_status, o.total_minor_units as order_total
     FROM payment_attempts pa
@@ -145,18 +239,18 @@ export function ingestPSPWebhook(
     return { status: 'ANOMALY_HELD', eventId, orderId: attemptRow.order_id };
   }
 
-  // 3. Atomic State Settlement
+  // 5. Atomic State Settlement
   runInTransaction((trx) => {
-    // 3a. Update Payment Attempt
+    // 5a. Update Payment Attempt
     trx.prepare("UPDATE payment_attempts SET status = 'SUCCEEDED' WHERE id = ?").run(attemptRow.id);
 
-    // 3b. Mark Invoice PAID & Allocate Sequential Number
+    // 5b. Mark Invoice PAID & Allocate Sequential Number
     markInvoicePaid(attemptRow.invoice_id, paymentObj.amount, trx);
 
-    // 3c. Update Order Status
+    // 5c. Update Order Status
     trx.prepare("UPDATE orders SET status = 'PAID', updated_at = datetime('now', 'utc') WHERE id = ?").run(attemptRow.order_id);
 
-    // 3d. Find order items and create service records + outbox events
+    // 5d. Find order items and create service records + outbox events
     const items = trx.prepare('SELECT * FROM order_items WHERE order_id = ?').all(attemptRow.order_id) as ({
       id: string;
       plan_version_id: string;
@@ -222,10 +316,10 @@ export function ingestPSPWebhook(
       `).run(outboxId, serviceId, JSON.stringify(payloadData));
     }
 
-    // 3e. Mark Inbox Event Processed
+    // 5e. Mark Inbox Event Processed
     trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
 
-    // 3f. Record Audit
+    // 5f. Record Audit
     trx.prepare(`
       INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id)
       VALUES (?, ?, 'PSP_WEBHOOK', 'order.paid', 'order', ?, ?)
@@ -233,4 +327,62 @@ export function ingestPSPWebhook(
   }, db);
 
   return { status: 'PROCESSED', eventId, orderId: attemptRow.order_id };
+}
+
+export function processStaffRefund(
+  data: {
+    invoiceId: string;
+    amountMinorUnits: number;
+    reason: string;
+    staffUserId: string;
+    ipAddress: string;
+  },
+  db: Database.Database = getDatabase()
+): { creditNoteNumber: string; refundedAmount: number } {
+  return runInTransaction((trx) => {
+    const invoice = trx.prepare('SELECT id, account_id, order_id, total_minor_units, amount_paid_minor_units, status FROM invoices WHERE id = ?').get(data.invoiceId) as {
+      id: string;
+      account_id: string;
+      order_id: string | null;
+      total_minor_units: number;
+      amount_paid_minor_units: number;
+      status: string;
+    } | undefined;
+
+    if (!invoice) throw new Error('Invoice not found.');
+    if (invoice.status !== 'PAID') throw new Error('Only paid invoices can be refunded.');
+    if (data.amountMinorUnits <= 0) throw new Error('Refund amount must be positive.');
+    if (data.amountMinorUnits > invoice.amount_paid_minor_units) throw new Error('Refund amount exceeds amount paid.');
+
+    const creditNoteNumber = getNextCreditNoteNumber(undefined, trx);
+    const newPaidAmount = invoice.amount_paid_minor_units - data.amountMinorUnits;
+    const isFullRefund = newPaidAmount === 0;
+
+    trx.prepare(`
+      UPDATE invoices
+      SET status = ?, amount_paid_minor_units = ?
+      WHERE id = ?
+    `).run(isFullRefund ? 'CREDITED' : 'PAID', newPaidAmount, data.invoiceId);
+
+    if (invoice.order_id && isFullRefund) {
+      trx.prepare("UPDATE orders SET status = 'CANCELED', updated_at = datetime('now', 'utc') WHERE id = ?").run(invoice.order_id);
+      trx.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE account_id = ? AND order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)")
+        .run(invoice.account_id, invoice.order_id);
+    }
+
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'STAFF', 'payment.staff_refund', 'invoice', ?, ?, ?, ?)
+    `).run(
+      generateId('aud'),
+      invoice.account_id,
+      data.staffUserId,
+      data.invoiceId,
+      data.ipAddress,
+      generateId('cor'),
+      JSON.stringify({ amount: data.amountMinorUnits, reason: data.reason, creditNoteNumber })
+    );
+
+    return { creditNoteNumber, refundedAmount: data.amountMinorUnits };
+  }, db);
 }

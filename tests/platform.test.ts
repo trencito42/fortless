@@ -59,6 +59,7 @@ import {
   generateStripeSignature,
   verifyStripeSignature,
   ingestPSPWebhook,
+  processStaffRefund,
   type StripeWebhookPayload,
 } from '../src/modules/payments/webhooks.js';
 import { MockPterodactylAdapter } from '../src/modules/provisioning/adapter.js';
@@ -676,6 +677,210 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
           db
         );
       }).toThrow('Idempotency key was previously used with a different request payload.');
+    });
+
+    it('PAY-07: checkout.session.completed with payment_status != paid does NOT mark order PAID', () => {
+      const user = registerUser(
+        { email: 'unpaid_checkout@example.com', password: 'Password123!', name: 'Unpaid Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_unpaid_test', regionId: 'reg_fra_1' }, db);
+
+      const payload: StripeWebhookPayload = {
+        id: 'evt_stripe_unpaid_session_001',
+        type: 'checkout.session.completed',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 1428,
+            currency: 'eur',
+            status: 'complete',
+            // @ts-expect-error test field
+            payment_status: 'unpaid',
+            metadata: { orderId: checkout.orderId, paymentAttemptId: checkout.paymentAttemptId, accountId: user.account.id },
+          },
+        },
+      };
+
+      const result = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      expect(result.status).toBe('IGNORED');
+
+      const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(checkout.orderId) as { status: string };
+      expect(order.status).toBe('AWAITING_PAYMENT');
+    });
+
+    it('PAY-08: charge.refunded webhook updates invoice to CREDITED, issues credit note, and terminates service', () => {
+      const user = registerUser(
+        { email: 'refund_hook@example.com', password: 'Password123!', name: 'Refund Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_refund_hook', regionId: 'reg_fra_1' }, db);
+
+      // Settle payment first
+      const payPayload: StripeWebhookPayload = {
+        id: 'evt_settle_first',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 1428,
+            currency: 'eur',
+            status: 'succeeded',
+            metadata: { orderId: checkout.orderId, paymentAttemptId: checkout.paymentAttemptId, accountId: user.account.id },
+          },
+        },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payPayload), payPayload, db);
+
+      // Deliver charge.refunded
+      const refundPayload: StripeWebhookPayload = {
+        id: 'evt_charge_refunded_001',
+        type: 'charge.refunded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: 'ch_test_charge',
+            amount: 1428,
+            currency: 'eur',
+            status: 'succeeded',
+            // @ts-expect-error test field
+            amount_refunded: 1428,
+            payment_intent: checkout.paymentAttemptId,
+          },
+        },
+      };
+
+      const refundRes = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(refundPayload), refundPayload, db);
+      expect(refundRes.status).toBe('PROCESSED');
+
+      const inv = db.prepare('SELECT status, amount_paid_minor_units FROM invoices WHERE id = ?').get(checkout.invoiceId) as { status: string; amount_paid_minor_units: number };
+      expect(inv.status).toBe('CREDITED');
+      expect(inv.amount_paid_minor_units).toBe(0);
+
+      const ord = db.prepare('SELECT status FROM orders WHERE id = ?').get(checkout.orderId) as { status: string };
+      expect(ord.status).toBe('CANCELED');
+
+      const svc = db.prepare('SELECT contract_status FROM services WHERE account_id = ?').get(user.account.id) as { contract_status: string };
+      expect(svc.contract_status).toBe('TERMINATED');
+    });
+
+    it('PAY-09: charge.dispute.created webhook suspends services and flags account for fraud review', () => {
+      const user = registerUser(
+        { email: 'dispute_hook@example.com', password: 'Password123!', name: 'Dispute Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_dispute_hook', regionId: 'reg_fra_1' }, db);
+
+      // Settle payment first
+      const payPayload: StripeWebhookPayload = {
+        id: 'evt_settle_for_dispute',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 1428,
+            currency: 'eur',
+            status: 'succeeded',
+            metadata: { orderId: checkout.orderId, paymentAttemptId: checkout.paymentAttemptId, accountId: user.account.id },
+          },
+        },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payPayload), payPayload, db);
+
+      // Dispute created
+      const disputePayload: StripeWebhookPayload = {
+        id: 'evt_dispute_created_001',
+        type: 'charge.dispute.created',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: 'dp_dispute_123',
+            amount: 1428,
+            currency: 'eur',
+            status: 'needs_response',
+            // @ts-expect-error test field
+            payment_intent: checkout.paymentAttemptId,
+          },
+        },
+      };
+
+      const disputeRes = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(disputePayload), disputePayload, db);
+      expect(disputeRes.status).toBe('PROCESSED');
+
+      const acc = db.prepare('SELECT status FROM accounts WHERE id = ?').get(user.account.id) as { status: string };
+      expect(acc.status).toBe('FLAGGED_FRAUD');
+
+      const svc = db.prepare('SELECT contract_status FROM services WHERE account_id = ?').get(user.account.id) as { contract_status: string };
+      expect(svc.contract_status).toBe('SUSPENDED');
+    });
+
+    it('PAY-10: Staff can execute partial and full refunds with credit notes and audit reason', () => {
+      const user = registerUser(
+        { email: 'staff_refund@example.com', password: 'Password123!', name: 'Staff Refund Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const admin = registerUser(
+        { email: 'billing_staff@example.com', password: 'Password123!', name: 'Billing Staff', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'BILLING', 'ACTIVE')").run(admin.user.id);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_staff_refund', regionId: 'reg_fra_1' }, db);
+
+      // Settle payment
+      const payPayload: StripeWebhookPayload = {
+        id: 'evt_settle_for_staff_refund',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: checkout.paymentAttemptId,
+            amount: 1428,
+            currency: 'eur',
+            status: 'succeeded',
+            metadata: { orderId: checkout.orderId, paymentAttemptId: checkout.paymentAttemptId, accountId: user.account.id },
+          },
+        },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payPayload), payPayload, db);
+
+      // Partial refund: €5.00
+      const partialRes = processStaffRefund(
+        { invoiceId: checkout.invoiceId, amountMinorUnits: 500, reason: 'Customer dissatisfied with latency', staffUserId: admin.user.id, ipAddress: '10.0.0.5' },
+        db
+      );
+      expect(partialRes.creditNoteNumber).toMatch(/^CRN-\d{4}-\d{5}$/);
+      expect(partialRes.refundedAmount).toBe(500);
+
+      const invAfterPartial = db.prepare('SELECT status, amount_paid_minor_units FROM invoices WHERE id = ?').get(checkout.invoiceId) as { status: string; amount_paid_minor_units: number };
+      expect(invAfterPartial.status).toBe('PAID');
+      expect(invAfterPartial.amount_paid_minor_units).toBe(928); // 1428 - 500
+
+      // Cannot refund more than remaining paid amount
+      expect(() => {
+        processStaffRefund(
+          { invoiceId: checkout.invoiceId, amountMinorUnits: 1000, reason: 'Exceeding remaining amount', staffUserId: admin.user.id, ipAddress: '10.0.0.5' },
+          db
+        );
+      }).toThrow('Refund amount exceeds amount paid.');
+
+      // Full refund of remaining €9.28
+      const fullRes = processStaffRefund(
+        { invoiceId: checkout.invoiceId, amountMinorUnits: 928, reason: 'Full account closure', staffUserId: admin.user.id, ipAddress: '10.0.0.5' },
+        db
+      );
+      expect(fullRes.creditNoteNumber).toMatch(/^CRN-\d{4}-\d{5}$/);
+
+      const invAfterFull = db.prepare('SELECT status, amount_paid_minor_units FROM invoices WHERE id = ?').get(checkout.invoiceId) as { status: string; amount_paid_minor_units: number };
+      expect(invAfterFull.status).toBe('CREDITED');
+      expect(invAfterFull.amount_paid_minor_units).toBe(0);
     });
   });
 

@@ -1,0 +1,7 @@
+# Task 16: E2E regression and truthfulness gate for application completeness
+
+Audit every customer and admin journey end-to-end: signup → email verify → login/MFA → dashboard → choose plan/region → server-authored quote → Stripe sandbox payment → payment verification → provisioning staging → service console/state → invoice/subscription renewal → ticket with attachment → admin reply → customer notification → cancellation/refund according to configured policy. Mark portions BLOCKED where real provider/sandbox credentials or legal policies are unavailable; NEVER synthesize events to make UI look complete.
+
+Automate complete local journeys with fixture tenants and fake adapters ONLY IN TESTS, plus separate vendor sandbox suites (clearly labeled). Negative tests for role changes mid-session, IDOR across every detail/upload/download route, duplicate checkout, webhook replay/out of order, ticket Markdown XSS, file traversal, concurrent worker crash, 2FA bypass, stale quotes, billing tax precision, admin step-up and Ctrl+K unauthorized search.
+
+Review every visible button, menu, dropdown, keyboard shortcut and page tab; track its actual action/state/reality status. Verify 245 Petal gallery widgets aren't all imported indiscriminately: include only relevant widgets to minimize bundle size. Run TypeScript build, unit/integration, HTTP, browser E2E, accessibility checks; state what's not run. `docs/PETAL_UI_COMPONENT_MAP.md`, `docs/REALITY_MATRIX.md` and `docs/PHASE_BACKLOG.md` must agree. Produce signed-off per-feature checklist, blockers and SHA.

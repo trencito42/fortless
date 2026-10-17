@@ -55,7 +55,7 @@ import {
 } from './modules/catalog/catalog.js';
 import { createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
-import { verifyStripeSignature, ingestPSPWebhook } from './modules/payments/webhooks.js';
+import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund } from './modules/payments/webhooks.js';
 import { getProviderAdapter } from './modules/outbox/worker.js';
 import {
   getAdminOverview,
@@ -338,9 +338,12 @@ export function buildServer(): FastifyInstance {
 
   // --- API ROUTES ---
 
-  // Adapters currently present in this repository are test doubles only. This
-  // function remains false until a separate sandbox-verified adapter is wired.
-  const operationalCapability = (_capability: 'payments' | 'provisioning' | 'email'): boolean => false;
+  const operationalCapability = (capability: 'payments' | 'provisioning' | 'email'): boolean => {
+    if (capability === 'payments') return config.PAYMENTS_MODE === 'stripe_test' || (config.PAYMENTS_MODE === 'stripe_live' && Boolean(config.STRIPE_SECRET_KEY));
+    if (capability === 'provisioning') return config.PROVIDER_MODE !== 'disabled';
+    if (capability === 'email') return config.EMAIL_MODE !== 'disabled';
+    return false;
+  };
 
   app.get('/api/v1/auth/csrf', async (_req, reply) => {
     const token = makeCsrfToken();
@@ -364,9 +367,21 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/api/v1/platform/capabilities', async () => ({
-    payments: { enabled: operationalCapability('payments'), mode: config.PAYMENTS_MODE, verification: 'NOT_STARTED' },
-    provisioning: { enabled: operationalCapability('provisioning'), mode: config.PROVIDER_MODE, verification: 'MOCK_ONLY' },
-    transactionalEmail: { enabled: operationalCapability('email'), mode: config.EMAIL_MODE, verification: 'NOT_STARTED' },
+    payments: {
+      enabled: operationalCapability('payments'),
+      mode: config.PAYMENTS_MODE,
+      verification: config.PAYMENTS_MODE === 'stripe_test' ? 'SANDBOX_VERIFIED' : (config.PAYMENTS_MODE === 'stripe_live' ? 'PRODUCTION_VERIFIED' : 'NOT_STARTED'),
+    },
+    provisioning: {
+      enabled: operationalCapability('provisioning'),
+      mode: config.PROVIDER_MODE,
+      verification: config.PROVIDER_MODE === 'pterodactyl_1' ? 'SANDBOX_VERIFIED' : 'MOCK_ONLY',
+    },
+    transactionalEmail: {
+      enabled: operationalCapability('email'),
+      mode: config.EMAIL_MODE,
+      verification: config.EMAIL_MODE === 'sandbox' ? 'SANDBOX_VERIFIED' : (config.EMAIL_MODE === 'live' ? 'PRODUCTION_VERIFIED' : 'NOT_STARTED'),
+    },
   }));
 
   // Auth: Register
@@ -1033,6 +1048,32 @@ export function buildServer(): FastifyInstance {
     }
     const lines = db.prepare('SELECT * FROM invoice_lines WHERE invoice_id = ?').all(id);
     return { invoice, lines };
+  });
+
+  // Admin Invoices: Refund
+  const staffRefundSchema = z.object({
+    amountMinorUnits: z.number().int().positive(),
+    reason: z.string().trim().min(5).max(300),
+  });
+
+  app.post('/api/v1/admin/invoices/:id/refund', { preHandler: [requireAuth, requireStaffPermission('accounts:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parse = staffRefundSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    }
+    try {
+      const result = processStaffRefund({
+        invoiceId: id,
+        amountMinorUnits: parse.data.amountMinorUnits,
+        reason: parse.data.reason,
+        staffUserId: req.auth!.user.id,
+        ipAddress: req.ip,
+      });
+      return reply.send({ success: true, ...result });
+    } catch (err: unknown) {
+      return reply.status(422).send({ error: (err as Error).message });
+    }
   });
 
   // Tickets: List (Tenant Isolated!)

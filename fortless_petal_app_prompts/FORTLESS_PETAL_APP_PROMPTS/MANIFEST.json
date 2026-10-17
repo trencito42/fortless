@@ -1,0 +1,28 @@
+{
+  "name": "FORTLESS Petal Application Completion Pack",
+  "repo": "trencito42/fortless",
+  "canonical_design": "blueprint/fortless-blueprint/design",
+  "files": [
+    "00_MANDATORY_RULES.md",
+    "01_PETAL_CATALOG_AND_GAP_MAP.md",
+    "02_APP_SHELL_COMMAND_PALETTE.md",
+    "03_DASHBOARD_CHARTS_WIDGETS.md",
+    "04_SERVER_DETAIL_CONSOLE_AND_RESOURCES.md",
+    "05_DEPLOY_MULTISTEP_WIZARD.md",
+    "06_BILLING_INVOICES_PAYMENTS.md",
+    "07_SUPPORT_TICKETS_MARKDOWN_ATTACHMENTS.md",
+    "08_ACTIVITY_AUDIT_FILTERS.md",
+    "09_SETTINGS_SECURITY_MFA_PROFILE.md",
+    "10_NOTIFICATIONS_INBOX.md",
+    "11_TEAM_ORGANIZATIONS_AND_API_KEYS.md",
+    "12_ADMIN_CONTROL_PLANE_PETAL.md",
+    "13_ADMIN_PRODUCTS_PRICING_NODES.md",
+    "14_OPERATIONS_MONITORING_LOGS.md",
+    "15_RESPONSIVE_A11Y_POLISH.md",
+    "16_END_TO_END_PRODUCT_QA.md",
+    "17_START_HERE.md",
+    "18_MASTER_RUNNER.md",
+    "19_ADOPTION_PRIORITY_MATRIX.md"
+  ],
+  "total_files": 20
+}
