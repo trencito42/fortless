@@ -31,7 +31,7 @@ Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
 | `/app/support` | Page | `LOCAL_VERIFIED` | Customer support thread list and ticket view (`/api/v1/tickets`). |
 | `/app/activity` | Page | `LOCAL_VERIFIED` | Audit trail viewer (`/api/v1/audit`) scoped strictly to tenant account. |
 | `/app/settings` | Page | `LOCAL_VERIFIED` | Active session inventory, remote session revocation, TOTP enrollment/disablement. |
-| `/status` | Page | `LOCAL_VERIFIED` | Standalone public status dashboard with live indicator dot, component grid, active incidents, and history. |
+| `/status` | Page | `LOCAL_VERIFIED` | Standalone public status dashboard with canonical Petal design system, Hugeicons, live indicator dot, component telemetry grid, active incidents, and history. |
 
 ---
 
