@@ -2166,13 +2166,9 @@ ${node.textContent || ""}
   }
   function ticketRow(ticket) {
     const search = `${ticket.subject} ${ticket.id} ${ticket.status} ${ticket.priority}`.toLowerCase();
-    return `<a class="z-cv support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}">
-    <span class="ico-b ${priorityTone(ticket.priority) || "accent"}">${hero("support")}</span>
-    <span class="tx"><b>${esc(ticket.subject)}<small>${esc(formatDate(ticket.updated_at || ticket.created_at))}</small></b><span>${esc(ticket.id)} \xB7 ${Number(ticket.message_count || 0)} message${Number(ticket.message_count || 0) === 1 ? "" : "s"}</span></span>
-    <span class="badge ${priorityTone(ticket.priority)} s">${esc(ticket.priority)}</span>
-    <span class="badge ${statusTone(ticket.status)} s">${esc(ticket.status.replace("_", " "))}</span>
-    ${hero("chevron", "s")}
-  </a>`;
+    const tone = priorityTone(ticket.priority) || "acc";
+    const msgs = Number(ticket.message_count || 0);
+    return `<a class="li support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}"><span class="tile ${tone} sm">${hero("support", "s")}</span><span class="tx"><b>${esc(ticket.subject)}</b><small>${esc(ticket.id)} \xB7 ${msgs} message${msgs === 1 ? "" : "s"} \xB7 ${esc(formatDate(ticket.updated_at || ticket.created_at))}</small></span><span class="row" style="gap:6px;flex-shrink:0"><span class="pill ${statusTone(ticket.status)}">${esc(ticket.status.replace("_", " "))}</span><span class="pill ${tone}">${esc(ticket.priority)}</span>${hero("chevron", "s")}</span></a>`;
   }
   async function renderTickets() {
     const host = document.getElementById("ticketsList");
@@ -2187,12 +2183,12 @@ ${node.textContent || ""}
         host.innerHTML = renderEmptyState({ icon: "support", title: "No support conversations", message: "Open a ticket when you need help with an account or service.", actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new">${hero("plus", "s")}Open ticket</a>` });
         return;
       }
-      host.className = "z-cl support-ticket-list";
+      host.className = "";
       host.innerHTML = tickets.map(ticketRow).join("");
       filterTickets();
     } catch (error) {
-      host.className = "support-error";
-      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
+      host.className = "";
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load tickets</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   function filterTickets() {
@@ -2241,14 +2237,14 @@ ${node.textContent || ""}
       host.innerHTML = `<nav class="support-breadcrumb" aria-label="Breadcrumb"><a href="/app/support" data-app-route="tickets">Support</a>${hero("chevron", "xs")}<span>${esc(data.ticket.id)}</span></nav>
       <div class="support-thread-layout">
         <article class="card support-thread">
-          <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="badge ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="badge ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} \xB7 Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
+          <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="pill ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="pill ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} \xB7 Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
           <div class="support-messages z-cmt">${data.messages.map((message) => `<article class="z-cmi ${message.is_staff ? "staff" : "customer"}"><span class="av s">${esc((message.author_name || (message.is_staff ? "Support" : "You")).slice(0, 2).toUpperCase())}</span><div class="tx"><div class="hd"><b>${esc(message.is_staff ? message.author_name || "Fortless support" : message.author_name || "You")}</b><small>${message.is_staff ? "Fortless support" : "Customer"} \xB7 ${esc(formatDate(message.created_at))}</small></div><div class="bd">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></div></article>`).join("")}</div>
-          ${closed ? `<div class="state-message warn">${hero("warning")}<span>This ticket is closed. New replies are disabled.</span></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor("ticketReplyEditor", "Ticket reply", "Write a reply\u2026")}${fileDrop("ticketReplyFileInput", "ticketReplyFileLabel")}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero("paper", "s")}Send reply</button></div></form>`}
+          ${closed ? `<div class="alert warn"><div><b>Ticket closed</b><span>New replies are disabled.</span></div></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor("ticketReplyEditor", "Ticket reply", "Write a reply\u2026")}${fileDrop("ticketReplyFileInput", "ticketReplyFileLabel")}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero("paper", "s")}Send reply</button></div></form>`}
         </article>
-        <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="badge ${statusTone(data.ticket.status)} s">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="badge ${priorityTone(data.ticket.priority)} s">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>
+        <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="pill ${statusTone(data.ticket.status)}">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="pill ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>
       </div>`;
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div><a class="btn sec s" href="/app/support" data-app-route="tickets">Back to support</a>`;
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load ticket</b><span>${esc(error.message)}</span></div></div><a class="btn sec s" style="margin-top:12px" href="/app/support" data-app-route="tickets">Back to support</a>`;
     }
   }
   async function fileAsBase64(file) {

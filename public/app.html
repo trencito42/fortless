@@ -348,17 +348,18 @@
 
     <!-- TICKETS SECTION -->
     <section id="section-tickets" class="view-section" style="display:none">
-      <div class="card flat support-center" style="padding:24px">
-        <div class="section-card-head">
-          <div class="tx">
-            <h2 style="font:700 18px var(--font)">Support conversations</h2>
-            <p style="color:var(--ink2);font-size:13.5px">Account-scoped ticket threads. No response-time or staffing claim is implied.</p>
-          </div>
-          <a href="/app/support/new" data-app-route="ticket-new" class="btn s" style="font-size:13px;font-weight:700"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>Open ticket</a>
+      <div class="hd" style="margin-bottom:14px">
+        <div class="tx">
+          <span class="pill info">Support</span>
+          <h2>Support conversations</h2>
+          <p>Account-scoped ticket threads.</p>
         </div>
-        <div class="support-toolbar">
-          <div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="ticketSearch" type="search" placeholder="Search tickets" aria-label="Search support tickets"></div>
-          <div class="seg s support-status" role="radiogroup" aria-label="Filter by ticket status">
+        <a href="/app/support/new" data-app-route="ticket-new" class="btn"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>Open ticket</a>
+      </div>
+      <div class="card" style="padding:20px">
+        <div class="ch" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
+          <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="ticketSearch" type="search" placeholder="Search tickets" aria-label="Search support tickets"></label>
+          <div class="seg s" role="radiogroup" aria-label="Filter by ticket status">
             <label><input type="radio" name="ticketStatus" value="ALL" checked><span>All</span></label>
             <label><input type="radio" name="ticketStatus" value="OPEN"><span>Open</span></label>
             <label><input type="radio" name="ticketStatus" value="RESOLVED"><span>Resolved</span></label>
@@ -367,7 +368,7 @@
           <small id="ticketResultCount" class="muted"></small>
         </div>
         <div id="ticketsList">
-          <div class="z-skb" role="status"><span class="sr">Loading support conversations</span><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div><div class="skel" style="width:100%;height:52px;border-radius:16px"></div></div>
+          <div class="sk" role="status" aria-label="Loading support conversations"><i></i><i></i><i></i></div>
         </div>
       </div>
     </section>
