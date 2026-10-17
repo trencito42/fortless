@@ -1394,7 +1394,43 @@ ${node.textContent || ""}
     selectedRegionId: "reg_fra_1",
     activeCoupon: null
   };
+  var deployStep = 0;
+  function showDeployStep(nextStep) {
+    deployStep = Math.max(0, Math.min(2, nextStep));
+    document.querySelectorAll("[data-deploy-pane]").forEach((pane) => {
+      pane.classList.toggle("on", Number(pane.dataset.deployPane) === deployStep);
+    });
+    document.querySelectorAll("[data-deploy-step-indicator]").forEach((indicator) => {
+      const index = Number(indicator.dataset.deployStepIndicator);
+      indicator.className = `step${index < deployStep ? " done" : index === deployStep ? " cur" : ""}`;
+      const marker = indicator.querySelector("i");
+      if (marker) marker.textContent = index < deployStep ? "\u2713" : String(index + 1);
+    });
+    const back = document.getElementById("deployBackBtn");
+    const next = document.getElementById("deployNextBtn");
+    if (back) back.disabled = deployStep === 0;
+    if (next) next.textContent = deployStep === 2 ? "Review order" : "Continue";
+  }
+  function bindDeployWizard() {
+    const wizard = document.getElementById("deployWizard");
+    if (!wizard || wizard.dataset.bound === "true") {
+      showDeployStep(deployStep);
+      return;
+    }
+    wizard.dataset.bound = "true";
+    document.getElementById("deployBackBtn")?.addEventListener("click", () => showDeployStep(deployStep - 1));
+    document.getElementById("deployNextBtn")?.addEventListener("click", () => {
+      if (deployStep === 0 && !deployState.selectedPlanId) return toast("Select a plan first.", "warn");
+      if (deployStep === 1 && !deployState.selectedRegionId) return toast("Select an available region.", "warn");
+      if (deployStep < 2) return showDeployStep(deployStep + 1);
+      const name = document.getElementById("deployServerName")?.value.trim();
+      if (!name || name.length < 3) return toast("Enter a service label with at least 3 characters.", "warn");
+      document.querySelector(".summary-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    showDeployStep(deployStep);
+  }
   async function renderDeploy() {
+    bindDeployWizard();
     if (deployState.plans.length && deployState.regions.length) {
       return renderCatalog();
     }
@@ -1464,9 +1500,7 @@ ${node.textContent || ""}
     const price = plan.prices[0];
     const subtotal = price?.priceMinorUnits || 0;
     const discount = deployState.activeCoupon ? deployState.activeCoupon.discountMinorUnits : 0;
-    const taxableSubtotal = Math.max(0, subtotal - discount);
-    const tax = Math.round(taxableSubtotal * 0.19);
-    const total = taxableSubtotal + tax;
+    const estimatedSubtotal = Math.max(0, subtotal - discount);
     const sumPlan = document.getElementById("sumPlan");
     const sumReg = document.getElementById("sumReg");
     const sumVat = document.getElementById("sumVat");
@@ -1475,19 +1509,22 @@ ${node.textContent || ""}
     const selReg = deployState.regions.find((r) => r.id === deployState.selectedRegionId);
     if (sumReg) sumReg.textContent = selReg ? `${selReg.name} (${selReg.code})` : "Frankfurt (catalog)";
     const rowDisc = document.getElementById("rowDiscount");
+    const discountLabel = document.getElementById("sumDiscountLabel");
     if (rowDisc) {
       if (deployState.activeCoupon && discount > 0) {
-        rowDisc.style.display = "flex";
+        rowDisc.hidden = false;
+        if (discountLabel) discountLabel.hidden = false;
         const sumCode = document.getElementById("sumCouponCode");
         const sumDisc = document.getElementById("sumDiscount");
-        if (sumCode) sumCode.textContent = deployState.activeCoupon.code;
+        if (sumCode) sumCode.textContent = `(${deployState.activeCoupon.code})`;
         if (sumDisc) sumDisc.textContent = `-${money(discount, price?.currency || "EUR")}`;
       } else {
-        rowDisc.style.display = "none";
+        rowDisc.hidden = true;
+        if (discountLabel) discountLabel.hidden = true;
       }
     }
-    if (sumVat) sumVat.textContent = money(tax, price?.currency || "EUR");
-    if (sumTotal) sumTotal.textContent = money(total, price?.currency || "EUR");
+    if (sumVat) sumVat.textContent = "Calculated by secure quote";
+    if (sumTotal) sumTotal.textContent = money(estimatedSubtotal, price?.currency || "EUR");
   }
   async function beginCheckout() {
     const button = document.getElementById("doDeployBtn");
@@ -1548,7 +1585,7 @@ ${node.textContent || ""}
       const { tlds } = await api("/api/v1/domains/tlds");
       host.innerHTML = Object.values(tlds).map(
         (t) => `
-        <span class="badge ${t.popular ? "accent" : ""} s" style="cursor:pointer" data-tld="${esc(t.tld)}">
+        <span class="badge ${t.popular ? "accent" : ""} s" data-tld="${esc(t.tld)}">
           <b>${esc(t.tld)}</b> ${money(t.annualPriceMinorUnits, t.currency)}/yr
         </span>
       `
@@ -1571,7 +1608,7 @@ ${node.textContent || ""}
         return;
       }
       host.innerHTML = `
-      <table class="tbl">
+      <div class="z-scroll"><table class="tbl">
         <thead>
           <tr>
             <th>Domain Name</th>
@@ -1586,7 +1623,7 @@ ${node.textContent || ""}
           ${zones.map((z) => {
         const ns = JSON.parse(z.nameservers || "[]");
         return `
-              <tr class="mobile-record">
+              <tr class="mobile-record" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(" ")}`.toLowerCase())}">
                 <td data-label="Domain">
                   <div class="row" style="gap:8px">
                     <svg class="ic s" style="color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -1606,8 +1643,9 @@ ${node.textContent || ""}
             `;
       }).join("")}
         </tbody>
-      </table>
+      </table></div>
     `;
+      filterZones();
       host.querySelectorAll(".manage-dns-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           const zid = btn.dataset.zoneId;
@@ -1618,6 +1656,18 @@ ${node.textContent || ""}
     } catch (err) {
       host.innerHTML = `<div class="state-message" style="color:var(--bad)">Failed to load domains: ${esc(err.message)}</div>`;
     }
+  }
+  function filterZones() {
+    const query = document.getElementById("zoneSearch")?.value.trim().toLowerCase() || "";
+    const rows = [...document.querySelectorAll("#domainZonesContainer [data-zone-search]")];
+    let visible = 0;
+    rows.forEach((row) => {
+      const match = !query || (row.dataset.zoneSearch || "").includes(query);
+      row.hidden = !match;
+      if (match) visible++;
+    });
+    const count = document.getElementById("zoneResultCount");
+    if (count) count.textContent = rows.length ? `${visible} of ${rows.length} zones` : "";
   }
   async function searchDomains(query) {
     const host = document.getElementById("domainSearchResults");
@@ -1635,19 +1685,17 @@ ${node.textContent || ""}
         return;
       }
       host.innerHTML = `
-      <div class="col" style="gap:8px;margin-top:14px">
+      <div class="z-ss domain-results">
         ${res.results.map((item) => {
         const isAvail = item.available && item.status === "AVAILABLE";
         const badgeClass = isAvail ? "good" : "bad";
         return `
-            <div class="card s2 row" style="padding:12px 16px;justify-content:space-between">
-              <div class="row" style="gap:12px">
-                <span class="badge ${badgeClass} s">${esc(item.status)}</span>
-                <b class="mono" style="font-size:15px">${esc(item.domain)}</b>
-              </div>
-              <div class="row" style="gap:12px">
+            <div class="z-ssr">
+              <span class="ico-b ${isAvail ? "good" : ""}"><svg class="ic"><use href="#i-globe"/></svg></span>
+              <div class="tx"><b>${esc(item.domain)} <span class="badge ${badgeClass} s">${esc(item.status)}</span></b><small>Catalog result \xB7 registrar checkout is not connected</small></div>
+              <div class="actions row">
                 ${item.annualPriceMinorUnits !== null ? `<span class="num" style="font-weight:700">${money(item.annualPriceMinorUnits, item.currency || "EUR")} <small class="muted">/yr</small></span>` : ""}
-                ${isAvail ? `<button type="button" class="btn accent s register-domain-btn" data-domain="${esc(item.domain)}">Register</button>` : `<span class="badge s">Unavailable</span>`}
+                ${isAvail ? `<button type="button" class="btn sec s register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : `<span class="badge s">Unavailable</span>`}
               </div>
             </div>
           `;
@@ -1666,13 +1714,13 @@ ${node.textContent || ""}
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ domainName: domain, autoRenew: true, whoisPrivacy: true, periodYears: 1 })
             });
-            toast(`Domain "${domain}" zone created successfully.`, "good");
+            toast(`Authoritative DNS zone for "${domain}" was created. No registrar purchase was made.`, "good");
             await loadZones();
             await searchDomains(domain);
           } catch (err) {
             toast(err.message, "bad");
             btn.disabled = false;
-            btn.textContent = "Register";
+            btn.textContent = "Create DNS zone";
           }
         });
       });
@@ -1758,6 +1806,9 @@ ${node.textContent || ""}
     }
   }
   function bindDomainEvents() {
+    const section = document.getElementById("section-domains");
+    if (!section || section.dataset.bound === "true") return;
+    section.dataset.bound = "true";
     const searchInput = document.getElementById("domainSearchInput");
     const searchBtn = document.getElementById("domainSearchBtn");
     searchBtn?.addEventListener("click", () => {
@@ -1770,6 +1821,7 @@ ${node.textContent || ""}
       }
     });
     document.getElementById("refreshZonesBtn")?.addEventListener("click", loadZones);
+    document.getElementById("zoneSearch")?.addEventListener("input", filterZones);
     const addRecordForm = document.getElementById("addDnsRecordForm");
     addRecordForm?.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -1823,12 +1875,39 @@ ${node.textContent || ""}
   }
 
   // src/frontend/client/pages/billing/index.ts
+  var invoiceCache = [];
+  function invoiceRow(invoice) {
+    const badgeClass = invoice.status === "PAID" ? "good" : invoice.status === "DRAFT" ? "" : "info";
+    return `<tr class="mobile-record">
+    <td data-label="Invoice"><b>${esc(invoice.invoice_number || "Draft")}</b></td>
+    <td data-label="Issued" class="muted">${esc(formatDate(invoice.created_at))}</td>
+    <td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
+    <td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
+    <td data-label="Status"><span class="badge ${badgeClass} s">${esc(invoice.status)}</span></td>
+    <td data-label="Record" class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download>${hero("document", "xs")}Receipt</a></td>
+  </tr>`;
+  }
+  function filterBilling() {
+    const host = document.getElementById("invoicesTableBody");
+    if (!host) return;
+    const query = document.getElementById("invoiceSearch")?.value.trim().toLowerCase() || "";
+    const status = document.querySelector('input[name="invoiceStatus"]:checked')?.value || "ALL";
+    const records = invoiceCache.filter((invoice) => {
+      const matchesStatus = status === "ALL" || (status === "OPEN" ? ["DRAFT", "OPEN", "PENDING"].includes(invoice.status) : invoice.status === status);
+      const haystack = `${invoice.invoice_number || "draft"} ${invoice.status} ${invoice.currency}`.toLowerCase();
+      return matchesStatus && (!query || haystack.includes(query));
+    });
+    const count = document.getElementById("invoiceResultCount");
+    if (count) count.textContent = `${records.length} of ${invoiceCache.length} records`;
+    host.innerHTML = records.length ? records.map(invoiceRow).join("") : `<tr><td colspan="6">${renderEmptyState({ icon: "document", title: invoiceCache.length ? "No matching invoices" : "No invoices", message: invoiceCache.length ? "Try another number or status." : "Issued billing records will appear here." })}</td></tr>`;
+  }
   async function renderBilling() {
     const host = document.getElementById("invoicesTableBody");
     if (!host) return;
     host.innerHTML = '<tr><td colspan="6" class="muted" style="text-align:center;padding:30px">Loading billing records\u2026</td></tr>';
     try {
       const { invoices } = await api("/api/v1/invoices");
+      invoiceCache = invoices;
       const paid = invoices.filter((inv) => inv.status === "PAID").reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
       const pending = invoices.filter((inv) => ["DRAFT", "OPEN", "PENDING"].includes(inv.status)).reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
       const currency = invoices[0]?.currency || "EUR";
@@ -1840,31 +1919,7 @@ ${node.textContent || ""}
         <div><small>Invoices</small><b>${invoices.length}</b></div>
       `;
       }
-      if (!invoices.length) {
-        host.innerHTML = `<tr><td colspan="6">${renderEmptyState({
-          icon: "document",
-          title: "No invoices",
-          message: "Issued billing records will appear here."
-        })}</td></tr>`;
-      } else {
-        host.innerHTML = invoices.map((invoice) => {
-          const badgeClass = invoice.status === "PAID" ? "good" : invoice.status === "DRAFT" ? "" : "info";
-          return `
-            <tr class="mobile-record">
-              <td data-label="Invoice"><b>${esc(invoice.invoice_number || "Draft")}</b></td>
-              <td data-label="Issued" class="muted">${esc(formatDate(invoice.created_at))}</td>
-              <td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
-              <td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
-              <td data-label="Status"><span class="badge ${badgeClass} s">${esc(invoice.status)}</span></td>
-              <td data-label="Record" class="r">
-                <a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download style="font-size:11px;padding:4px 8px;height:28px">
-                  ${hero("document", "xs")}Receipt
-                </a>
-              </td>
-            </tr>
-          `;
-        }).join("");
-      }
+      filterBilling();
       const subHost = document.getElementById("subscriptionsContainer");
       if (subHost) {
         try {
@@ -2148,11 +2203,16 @@ ${node.textContent || ""}
     if (!host) return;
     const searchInput = document.getElementById("auditSearch");
     const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
-    const logs = auditLogs.filter(
-      (item) => [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id].some(
+    const type = document.querySelector('input[name="auditType"]:checked')?.value || "ALL";
+    const logs = auditLogs.filter((item) => {
+      const action = String(item.action || "").toUpperCase();
+      const matchesType = type === "ALL" || (type === "AUTH" ? /LOGIN|LOGOUT|SESSION|PASSWORD|MFA|EMAIL/.test(action) : type === "SUPPORT" ? /TICKET|SUPPORT/.test(action) : /BILL|INVOICE|PAYMENT|SUBSCRIPTION|ORDER|QUOTE/.test(action));
+      return matchesType && [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id].some(
         (value) => String(value || "").toLowerCase().includes(query)
-      )
-    );
+      );
+    });
+    const count = document.getElementById("auditResultCount");
+    if (count) count.textContent = `${logs.length} of ${auditLogs.length} events`;
     if (!logs.length) {
       host.innerHTML = renderEmptyState({
         icon: "shield",
@@ -2462,26 +2522,26 @@ ${node.textContent || ""}
         return;
       }
       host.innerHTML = `
-      <div class="table-card" style="margin-top:8px">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <div class="z-scroll" style="margin-top:8px">
+        <table class="tbl">
           <thead>
-            <tr style="text-align:left;border-bottom:1px solid var(--s3);color:var(--ink2)">
-              <th style="padding:8px">Member</th>
-              <th style="padding:8px">Role</th>
-              <th style="padding:8px">Joined</th>
-              <th style="padding:8px;text-align:right">Action</th>
+            <tr>
+              <th>Member</th>
+              <th>Role</th>
+              <th>Joined</th>
+              <th class="r">Action</th>
             </tr>
           </thead>
           <tbody>
             ${data.members.map(
         (m) => `
-              <tr style="border-bottom:1px solid var(--s2)">
-                <td style="padding:10px 8px"><b>${esc(m.name)}</b><br><small class="muted">${esc(m.email)}</small></td>
-                <td style="padding:10px 8px"><span class="badge ${m.role === "OWNER" ? "accent" : "info"} s">${esc(
+              <tr class="mobile-record">
+                <td data-label="Member"><b>${esc(m.name)}</b><br><small class="muted">${esc(m.email)}</small></td>
+                <td data-label="Role"><span class="badge ${m.role === "OWNER" ? "accent" : "info"} s">${esc(
           m.role
         )}</span></td>
-                <td style="padding:10px 8px" class="muted">${formatDate(m.createdAt)}</td>
-                <td style="padding:10px 8px;text-align:right">
+                <td data-label="Joined" class="muted">${formatDate(m.createdAt)}</td>
+                <td data-label="Action" class="r">
                   ${m.isOwner ? '<span class="badge good s">Workspace Owner</span>' : `<button class="btn badt xs" type="button" data-revoke-member="${esc(m.id)}">Remove</button>`}
                 </td>
               </tr>
@@ -2508,14 +2568,8 @@ ${node.textContent || ""}
         live: '<span class="badge good s">LIVE TRANSPORT</span>'
       };
       host.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border-radius:12px;">
-        <span>Transport Mode</span>
-        ${modeBadges[status.mode] || status.mode}
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border-radius:12px;">
-        <span>Outbox Queue</span>
-        <span><b>${status.pendingCount}</b> pending \xB7 <b>${status.sentCount}</b> sent \xB7 <b>${status.failedCount}</b> failed</span>
-      </div>
+      <div class="li card s2"><span class="ico-b">${hero("paper")}</span><span class="tx"><b>Transport mode</b><span>Current transactional email provider state</span></span>${modeBadges[status.mode] || status.mode}</div>
+      <div class="li card s2"><span class="ico-b">${hero("document")}</span><span class="tx"><b>Outbox queue</b><span>${status.pendingCount} pending \xB7 ${status.sentCount} sent \xB7 ${status.failedCount} failed</span></span></div>
     `;
     } catch (error) {
       host.innerHTML = `<div class="state-message bad"><span>${esc(error.message)}</span></div>`;
@@ -2883,6 +2937,10 @@ ${node.textContent || ""}
         filterTickets();
         return;
       }
+      if (target.id === "invoiceSearch") {
+        filterBilling();
+        return;
+      }
       if (target.id === "serviceSearch") {
         filterServices();
         return;
@@ -2913,6 +2971,8 @@ ${node.textContent || ""}
       const target = event.target;
       if (target.id === "newTicketFileInput" || target.id === "ticketReplyFileInput") updateFileLabel(target);
       if (target.name === "ticketStatus") filterTickets();
+      if (target.name === "invoiceStatus") filterBilling();
+      if (target.name === "auditType") filterActivity();
       if (target.name === "serviceState" || target.id === "serviceTypeFilter") filterServices();
     });
   }

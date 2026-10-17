@@ -9,6 +9,35 @@ import { money } from '../../../core/utils/formatting.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { hero, renderEmptyState, toast } from '../../../petal/index.js';
 
+let invoiceCache: any[] = [];
+
+function invoiceRow(invoice: any): string {
+  const badgeClass = invoice.status === 'PAID' ? 'good' : invoice.status === 'DRAFT' ? '' : 'info';
+  return `<tr class="mobile-record">
+    <td data-label="Invoice"><b>${esc(invoice.invoice_number || 'Draft')}</b></td>
+    <td data-label="Issued" class="muted">${esc(formatDate(invoice.created_at))}</td>
+    <td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
+    <td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
+    <td data-label="Status"><span class="badge ${badgeClass} s">${esc(invoice.status)}</span></td>
+    <td data-label="Record" class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download>${hero('document', 'xs')}Receipt</a></td>
+  </tr>`;
+}
+
+export function filterBilling(): void {
+  const host = document.getElementById('invoicesTableBody');
+  if (!host) return;
+  const query = (document.getElementById('invoiceSearch') as HTMLInputElement | null)?.value.trim().toLowerCase() || '';
+  const status = document.querySelector<HTMLInputElement>('input[name="invoiceStatus"]:checked')?.value || 'ALL';
+  const records = invoiceCache.filter((invoice) => {
+    const matchesStatus = status === 'ALL' || (status === 'OPEN' ? ['DRAFT', 'OPEN', 'PENDING'].includes(invoice.status) : invoice.status === status);
+    const haystack = `${invoice.invoice_number || 'draft'} ${invoice.status} ${invoice.currency}`.toLowerCase();
+    return matchesStatus && (!query || haystack.includes(query));
+  });
+  const count = document.getElementById('invoiceResultCount');
+  if (count) count.textContent = `${records.length} of ${invoiceCache.length} records`;
+  host.innerHTML = records.length ? records.map(invoiceRow).join('') : `<tr><td colspan="6">${renderEmptyState({ icon: 'document', title: invoiceCache.length ? 'No matching invoices' : 'No invoices', message: invoiceCache.length ? 'Try another number or status.' : 'Issued billing records will appear here.' })}</td></tr>`;
+}
+
 export async function renderBilling(): Promise<void> {
   const host = document.getElementById('invoicesTableBody');
   if (!host) return;
@@ -17,6 +46,7 @@ export async function renderBilling(): Promise<void> {
 
   try {
     const { invoices } = await api<{ invoices: any[] }>('/api/v1/invoices');
+    invoiceCache = invoices;
     const paid = invoices
       .filter((inv) => inv.status === 'PAID')
       .reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
@@ -34,33 +64,7 @@ export async function renderBilling(): Promise<void> {
       `;
     }
 
-    if (!invoices.length) {
-      host.innerHTML = `<tr><td colspan="6">${renderEmptyState({
-        icon: 'document',
-        title: 'No invoices',
-        message: 'Issued billing records will appear here.',
-      })}</td></tr>`;
-    } else {
-      host.innerHTML = invoices
-        .map((invoice) => {
-          const badgeClass = invoice.status === 'PAID' ? 'good' : invoice.status === 'DRAFT' ? '' : 'info';
-          return `
-            <tr class="mobile-record">
-              <td data-label="Invoice"><b>${esc(invoice.invoice_number || 'Draft')}</b></td>
-              <td data-label="Issued" class="muted">${esc(formatDate(invoice.created_at))}</td>
-              <td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
-              <td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
-              <td data-label="Status"><span class="badge ${badgeClass} s">${esc(invoice.status)}</span></td>
-              <td data-label="Record" class="r">
-                <a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download style="font-size:11px;padding:4px 8px;height:28px">
-                  ${hero('document', 'xs')}Receipt
-                </a>
-              </td>
-            </tr>
-          `;
-        })
-        .join('');
-    }
+    filterBilling();
 
     // Load Subscriptions
     const subHost = document.getElementById('subscriptionsContainer');

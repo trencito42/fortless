@@ -15,7 +15,7 @@ import { renderServices, powerService, filterServices } from './pages/dashboard/
 import { renderServiceDetail } from './pages/services/index.js';
 import { renderDeploy, deployState, updateSummary, beginCheckout } from './pages/deploy/index.js';
 import { renderDomains } from './pages/domains/index.js';
-import { renderBilling, cancelSubscription } from './pages/billing/index.js';
+import { renderBilling, cancelSubscription, filterBilling } from './pages/billing/index.js';
 import {
   renderTickets,
   renderNewTicket,
@@ -445,6 +445,10 @@ function bindDelegatedEvents() {
       filterTickets();
       return;
     }
+    if (target.id === 'invoiceSearch') {
+      filterBilling();
+      return;
+    }
     if (target.id === 'serviceSearch') {
       filterServices();
       return;
@@ -478,6 +482,8 @@ function bindDelegatedEvents() {
     const target = event.target as HTMLInputElement;
     if (target.id === 'newTicketFileInput' || target.id === 'ticketReplyFileInput') updateFileLabel(target);
     if (target.name === 'ticketStatus') filterTickets();
+    if (target.name === 'invoiceStatus') filterBilling();
+    if (target.name === 'auditType') filterActivity();
     if (target.name === 'serviceState' || target.id === 'serviceTypeFilter') filterServices();
   });
 }

@@ -8,10 +8,13 @@ Widths: 375, 390, 430, 768, 1024, 1440 and 1920 px. Themes: light and dark. Mobi
 |---|---|---|---|---|---|
 | Dashboard | pending | pending | pending | pending | Must verify populated and empty states |
 | Services | pending | pending | pending | pending | Service detail included |
+| Deploy | pending | pending | pending | pending | Wizard, horizontal plan scroller and summary |
+| Domains | pending | pending | pending | pending | Catalog result truth copy, zones and DNS records |
 | Support list | pending | pending | pending | pending | Search/status filters |
 | New ticket | pending | pending | pending | pending | Editor, toolbar, picker, validation |
 | Ticket detail | pending | pending | pending | pending | Long thread and partial upload error |
 | Billing | pending | pending | pending | pending | Empty and populated records |
+| Activity | pending | pending | pending | pending | Search, segmented categories and expanded details |
 | Settings | pending | pending | pending | pending | TOTP QR, passkeys, sessions, team |
 
 ## Automated checks

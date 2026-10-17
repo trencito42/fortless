@@ -676,3 +676,18 @@ button.li{width:100%;border:0;background:none;text-align:left}
 @media (max-width:980px){.mbrand{display:block!important;flex:none}.mbrand svg{width:38px;height:22px}.tabbar{left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px))}}
 .pop .menu{background:var(--s3)}.pop .menu a:hover,.pop .menu button:hover{background:var(--s4)}.pop .menu .sep{background:var(--s4)}
 @media (min-width:981px){.top{margin-inline:-4px;padding-inline:4px}}
+
+/* Original Petal components extracted from parts/z4 and parts/z6. */
+.z-wz{display:flex;flex-direction:column;gap:18px;width:100%}
+.z-wz .steps{flex-wrap:wrap}
+.z-wz .z-pane{display:none;flex-direction:column;gap:14px}.z-wz .z-pane.on{display:flex;animation:in .3s var(--ease) both}
+.z-wz .z-foot{display:flex;gap:8px;justify-content:space-between}
+.z-sum{display:grid;grid-template-columns:auto 1fr;gap:8px 18px;padding:14px 16px;border-radius:16px;background:var(--s2);font-size:13.5px}
+.z-sum dt{color:var(--ink2)}.z-sum dd{margin:0;font-weight:650;text-align:right;min-width:0;overflow-wrap:anywhere}
+.z-cl{display:flex;flex-direction:column;gap:2px;overflow:auto;border-radius:20px;background:var(--s2);padding:8px;min-height:0}
+.z-cv{display:flex;align-items:center;gap:10px;padding:10px;border:0;border-radius:14px;background:none;text-align:left;width:100%;color:var(--ink);transition:background .15s}
+.z-cv:hover{background:var(--s3)}.z-cv.on{background:var(--s1)}
+.z-cv .tx{flex:1;min-width:0}.z-cv .tx b{display:flex;justify-content:space-between;gap:8px;font-weight:700;font-size:13.5px}.z-cv .tx b small{color:var(--ink3);font-weight:600;font-size:11.5px}
+.z-cv .tx span{display:block;color:var(--ink2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.z-cv .u{min-width:20px;height:20px;padding:0 6px;border-radius:99px;background:var(--accent);color:var(--on-accent);font:700 11px/20px var(--font);text-align:center}
+@media (max-width:560px){.z-wz .step+.step::before{width:12px}.z-wz .steps{gap:6px;flex-wrap:nowrap}}

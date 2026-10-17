@@ -32,12 +32,18 @@ export function filterActivity(): void {
 
   const searchInput = document.getElementById('auditSearch') as HTMLInputElement | null;
   const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const type = document.querySelector<HTMLInputElement>('input[name="auditType"]:checked')?.value || 'ALL';
 
-  const logs = auditLogs.filter((item) =>
-    [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id].some(
+  const logs = auditLogs.filter((item) => {
+    const action = String(item.action || '').toUpperCase();
+    const matchesType = type === 'ALL' || (type === 'AUTH' ? /LOGIN|LOGOUT|SESSION|PASSWORD|MFA|EMAIL/.test(action) : type === 'SUPPORT' ? /TICKET|SUPPORT/.test(action) : /BILL|INVOICE|PAYMENT|SUBSCRIPTION|ORDER|QUOTE/.test(action));
+    return matchesType && [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id].some(
       (value) => String(value || '').toLowerCase().includes(query)
-    )
-  );
+    );
+  });
+
+  const count = document.getElementById('auditResultCount');
+  if (count) count.textContent = `${logs.length} of ${auditLogs.length} events`;
 
   if (!logs.length) {
     host.innerHTML = renderEmptyState({

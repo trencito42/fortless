@@ -37,8 +37,19 @@
 - Preserved tenant-scoped create/reply/attachment APIs and explicit partial-upload errors.
 - Backend support lifecycle and attachments have automated coverage.
 
-## M6–M8 (pending)
+## M6 — Commerce, domains and account records (implemented, visual review pending)
 
-- Remaining area redesign, responsive/theme/accessibility QA, screenshot comparison and dead-code cleanup.
+- Replaced the stacked deploy form with Petal's original multi-step wizard and plan selectors.
+- Replaced the hand-built order summary with Petal `z-sum`/`z-plsum` primitives.
+- Removed browser-computed VAT and total claims; only the server-created signed quote is authoritative for final tax and total.
+- Added Petal invoice search/status controls and Petal activity category filters.
+- Converted domain zones and workspace members to Petal tables with native mobile record cards.
+- Domain catalog actions now say “Create DNS zone” and explicitly do not claim registrar purchase.
+- Fixed the support inbox regression caused by missing canonical `z6.css` extraction.
+
+## M7–M8 (pending)
+
+- Authenticated browser screenshot comparison across desktop, portrait and landscape remains pending.
+- Accessibility pass, notification focus/dismiss polish and dead-code cleanup remain pending.
 
 Latest automated evidence: `npm run build` passes; full suite status is recorded after the current route-test update in `VISUAL_QA.md`.

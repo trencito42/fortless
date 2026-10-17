@@ -366,27 +366,27 @@ export async function loadTeamMembers(): Promise<void> {
     }
 
     host.innerHTML = `
-      <div class="table-card" style="margin-top:8px">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <div class="z-scroll" style="margin-top:8px">
+        <table class="tbl">
           <thead>
-            <tr style="text-align:left;border-bottom:1px solid var(--s3);color:var(--ink2)">
-              <th style="padding:8px">Member</th>
-              <th style="padding:8px">Role</th>
-              <th style="padding:8px">Joined</th>
-              <th style="padding:8px;text-align:right">Action</th>
+            <tr>
+              <th>Member</th>
+              <th>Role</th>
+              <th>Joined</th>
+              <th class="r">Action</th>
             </tr>
           </thead>
           <tbody>
             ${data.members
               .map(
                 (m) => `
-              <tr style="border-bottom:1px solid var(--s2)">
-                <td style="padding:10px 8px"><b>${esc(m.name)}</b><br><small class="muted">${esc(m.email)}</small></td>
-                <td style="padding:10px 8px"><span class="badge ${m.role === 'OWNER' ? 'accent' : 'info'} s">${esc(
+              <tr class="mobile-record">
+                <td data-label="Member"><b>${esc(m.name)}</b><br><small class="muted">${esc(m.email)}</small></td>
+                <td data-label="Role"><span class="badge ${m.role === 'OWNER' ? 'accent' : 'info'} s">${esc(
                   m.role
                 )}</span></td>
-                <td style="padding:10px 8px" class="muted">${formatDate(m.createdAt)}</td>
-                <td style="padding:10px 8px;text-align:right">
+                <td data-label="Joined" class="muted">${formatDate(m.createdAt)}</td>
+                <td data-label="Action" class="r">
                   ${
                     m.isOwner
                       ? '<span class="badge good s">Workspace Owner</span>'
@@ -421,14 +421,8 @@ export async function loadEmailStatus(): Promise<void> {
     };
 
     host.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border-radius:12px;">
-        <span>Transport Mode</span>
-        ${modeBadges[status.mode] || status.mode}
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--s2);border-radius:12px;">
-        <span>Outbox Queue</span>
-        <span><b>${status.pendingCount}</b> pending · <b>${status.sentCount}</b> sent · <b>${status.failedCount}</b> failed</span>
-      </div>
+      <div class="li card s2"><span class="ico-b">${hero('paper')}</span><span class="tx"><b>Transport mode</b><span>Current transactional email provider state</span></span>${modeBadges[status.mode] || status.mode}</div>
+      <div class="li card s2"><span class="ico-b">${hero('document')}</span><span class="tx"><b>Outbox queue</b><span>${status.pendingCount} pending · ${status.sentCount} sent · ${status.failedCount} failed</span></span></div>
     `;
   } catch (error: any) {
     host.innerHTML = `<div class="state-message bad"><span>${esc(error.message)}</span></div>`;

@@ -25,7 +25,46 @@ export const deployState: DeployState = {
   activeCoupon: null,
 };
 
+let deployStep = 0;
+
+function showDeployStep(nextStep: number): void {
+  deployStep = Math.max(0, Math.min(2, nextStep));
+  document.querySelectorAll<HTMLElement>('[data-deploy-pane]').forEach((pane) => {
+    pane.classList.toggle('on', Number(pane.dataset.deployPane) === deployStep);
+  });
+  document.querySelectorAll<HTMLElement>('[data-deploy-step-indicator]').forEach((indicator) => {
+    const index = Number(indicator.dataset.deployStepIndicator);
+    indicator.className = `step${index < deployStep ? ' done' : index === deployStep ? ' cur' : ''}`;
+    const marker = indicator.querySelector('i');
+    if (marker) marker.textContent = index < deployStep ? '✓' : String(index + 1);
+  });
+  const back = document.getElementById('deployBackBtn') as HTMLButtonElement | null;
+  const next = document.getElementById('deployNextBtn') as HTMLButtonElement | null;
+  if (back) back.disabled = deployStep === 0;
+  if (next) next.textContent = deployStep === 2 ? 'Review order' : 'Continue';
+}
+
+function bindDeployWizard(): void {
+  const wizard = document.getElementById('deployWizard');
+  if (!wizard || wizard.dataset.bound === 'true') {
+    showDeployStep(deployStep);
+    return;
+  }
+  wizard.dataset.bound = 'true';
+  document.getElementById('deployBackBtn')?.addEventListener('click', () => showDeployStep(deployStep - 1));
+  document.getElementById('deployNextBtn')?.addEventListener('click', () => {
+    if (deployStep === 0 && !deployState.selectedPlanId) return toast('Select a plan first.', 'warn');
+    if (deployStep === 1 && !deployState.selectedRegionId) return toast('Select an available region.', 'warn');
+    if (deployStep < 2) return showDeployStep(deployStep + 1);
+    const name = (document.getElementById('deployServerName') as HTMLInputElement | null)?.value.trim();
+    if (!name || name.length < 3) return toast('Enter a service label with at least 3 characters.', 'warn');
+    document.querySelector('.summary-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  showDeployStep(deployStep);
+}
+
 export async function renderDeploy(): Promise<void> {
+  bindDeployWizard();
   if (deployState.plans.length && deployState.regions.length) {
     return renderCatalog();
   }
@@ -115,9 +154,7 @@ export function updateSummary(): void {
   const price = plan.prices[0];
   const subtotal = price?.priceMinorUnits || 0;
   const discount = deployState.activeCoupon ? deployState.activeCoupon.discountMinorUnits : 0;
-  const taxableSubtotal = Math.max(0, subtotal - discount);
-  const tax = Math.round(taxableSubtotal * 0.19);
-  const total = taxableSubtotal + tax;
+  const estimatedSubtotal = Math.max(0, subtotal - discount);
 
   const sumPlan = document.getElementById('sumPlan');
   const sumReg = document.getElementById('sumReg');
@@ -129,20 +166,23 @@ export function updateSummary(): void {
   if (sumReg) sumReg.textContent = selReg ? `${selReg.name} (${selReg.code})` : 'Frankfurt (catalog)';
 
   const rowDisc = document.getElementById('rowDiscount');
+  const discountLabel = document.getElementById('sumDiscountLabel');
   if (rowDisc) {
     if (deployState.activeCoupon && discount > 0) {
-      rowDisc.style.display = 'flex';
+      rowDisc.hidden = false;
+      if (discountLabel) discountLabel.hidden = false;
       const sumCode = document.getElementById('sumCouponCode');
       const sumDisc = document.getElementById('sumDiscount');
-      if (sumCode) sumCode.textContent = deployState.activeCoupon.code;
+      if (sumCode) sumCode.textContent = `(${deployState.activeCoupon.code})`;
       if (sumDisc) sumDisc.textContent = `-${money(discount, price?.currency || 'EUR')}`;
     } else {
-      rowDisc.style.display = 'none';
+      rowDisc.hidden = true;
+      if (discountLabel) discountLabel.hidden = true;
     }
   }
 
-  if (sumVat) sumVat.textContent = money(tax, price?.currency || 'EUR');
-  if (sumTotal) sumTotal.textContent = money(total, price?.currency || 'EUR');
+  if (sumVat) sumVat.textContent = 'Calculated by secure quote';
+  if (sumTotal) sumTotal.textContent = money(estimatedSubtotal, price?.currency || 'EUR');
 }
 
 export async function beginCheckout(): Promise<void> {

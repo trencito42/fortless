@@ -62,7 +62,7 @@ async function loadTldPricing(): Promise<void> {
     host.innerHTML = Object.values(tlds)
       .map(
         (t) => `
-        <span class="badge ${t.popular ? 'accent' : ''} s" style="cursor:pointer" data-tld="${esc(t.tld)}">
+        <span class="badge ${t.popular ? 'accent' : ''} s" data-tld="${esc(t.tld)}">
           <b>${esc(t.tld)}</b> ${money(t.annualPriceMinorUnits, t.currency)}/yr
         </span>
       `
@@ -91,7 +91,7 @@ export async function loadZones(): Promise<void> {
     }
 
     host.innerHTML = `
-      <table class="tbl">
+      <div class="z-scroll"><table class="tbl">
         <thead>
           <tr>
             <th>Domain Name</th>
@@ -107,7 +107,7 @@ export async function loadZones(): Promise<void> {
             .map((z) => {
               const ns = JSON.parse(z.nameservers || '[]') as string[];
               return `
-              <tr class="mobile-record">
+              <tr class="mobile-record" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(' ')}`.toLowerCase())}">
                 <td data-label="Domain">
                   <div class="row" style="gap:8px">
                     <svg class="ic s" style="color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
@@ -128,8 +128,10 @@ export async function loadZones(): Promise<void> {
             })
             .join('')}
         </tbody>
-      </table>
+      </table></div>
     `;
+
+    filterZones();
 
     host.querySelectorAll<HTMLButtonElement>('.manage-dns-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -141,6 +143,19 @@ export async function loadZones(): Promise<void> {
   } catch (err: unknown) {
     host.innerHTML = `<div class="state-message" style="color:var(--bad)">Failed to load domains: ${esc((err as Error).message)}</div>`;
   }
+}
+
+function filterZones(): void {
+  const query = (document.getElementById('zoneSearch') as HTMLInputElement | null)?.value.trim().toLowerCase() || '';
+  const rows = [...document.querySelectorAll<HTMLElement>('#domainZonesContainer [data-zone-search]')];
+  let visible = 0;
+  rows.forEach((row) => {
+    const match = !query || (row.dataset.zoneSearch || '').includes(query);
+    row.hidden = !match;
+    if (match) visible++;
+  });
+  const count = document.getElementById('zoneResultCount');
+  if (count) count.textContent = rows.length ? `${visible} of ${rows.length} zones` : '';
 }
 
 export async function searchDomains(query: string): Promise<void> {
@@ -163,18 +178,16 @@ export async function searchDomains(query: string): Promise<void> {
     }
 
     host.innerHTML = `
-      <div class="col" style="gap:8px;margin-top:14px">
+      <div class="z-ss domain-results">
         ${res.results
           .map((item) => {
             const isAvail = item.available && item.status === 'AVAILABLE';
             const badgeClass = isAvail ? 'good' : 'bad';
             return `
-            <div class="card s2 row" style="padding:12px 16px;justify-content:space-between">
-              <div class="row" style="gap:12px">
-                <span class="badge ${badgeClass} s">${esc(item.status)}</span>
-                <b class="mono" style="font-size:15px">${esc(item.domain)}</b>
-              </div>
-              <div class="row" style="gap:12px">
+            <div class="z-ssr">
+              <span class="ico-b ${isAvail ? 'good' : ''}"><svg class="ic"><use href="#i-globe"/></svg></span>
+              <div class="tx"><b>${esc(item.domain)} <span class="badge ${badgeClass} s">${esc(item.status)}</span></b><small>Catalog result · registrar checkout is not connected</small></div>
+              <div class="actions row">
                 ${
                   item.annualPriceMinorUnits !== null
                     ? `<span class="num" style="font-weight:700">${money(item.annualPriceMinorUnits, item.currency || 'EUR')} <small class="muted">/yr</small></span>`
@@ -182,7 +195,7 @@ export async function searchDomains(query: string): Promise<void> {
                 }
                 ${
                   isAvail
-                    ? `<button type="button" class="btn accent s register-domain-btn" data-domain="${esc(item.domain)}">Register</button>`
+                    ? `<button type="button" class="btn sec s register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>`
                     : `<span class="badge s">Unavailable</span>`
                 }
               </div>
@@ -205,13 +218,13 @@ export async function searchDomains(query: string): Promise<void> {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ domainName: domain, autoRenew: true, whoisPrivacy: true, periodYears: 1 }),
           });
-          toast(`Domain "${domain}" zone created successfully.`, 'good');
+          toast(`Authoritative DNS zone for "${domain}" was created. No registrar purchase was made.`, 'good');
           await loadZones();
           await searchDomains(domain);
         } catch (err: unknown) {
           toast((err as Error).message, 'bad');
           btn.disabled = false;
-          btn.textContent = 'Register';
+          btn.textContent = 'Create DNS zone';
         }
       });
     });
@@ -308,6 +321,9 @@ export async function loadDnsRecords(zoneId: string): Promise<void> {
 }
 
 function bindDomainEvents(): void {
+  const section = document.getElementById('section-domains');
+  if (!section || section.dataset.bound === 'true') return;
+  section.dataset.bound = 'true';
   const searchInput = document.getElementById('domainSearchInput') as HTMLInputElement | null;
   const searchBtn = document.getElementById('domainSearchBtn');
 
@@ -323,6 +339,7 @@ function bindDomainEvents(): void {
   });
 
   document.getElementById('refreshZonesBtn')?.addEventListener('click', loadZones);
+  document.getElementById('zoneSearch')?.addEventListener('input', filterZones);
 
   // New DNS Record Form submission
   const addRecordForm = document.getElementById('addDnsRecordForm') as HTMLFormElement | null;

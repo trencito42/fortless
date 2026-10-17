@@ -273,83 +273,50 @@
 
     <!-- DEPLOY WIZARD -->
     <section id="section-deploy" class="view-section" style="display:none">
-      <div style="display:grid;grid-template-columns:2fr 1fr;gap:24px">
-        <div class="col" style="gap:24px">
-          <!-- Step 1: Workload -->
-          <div class="card" style="padding:24px">
-            <h3 style="font:700 18px var(--font);margin-bottom:16px">1. Select Game / Workload</h3>
-            <div class="z-pls" id="planSelector">
-              <div class="state-message"><span>Loading catalog…</span></div>
+      <div class="deploy-layout">
+        <div class="card deploy-wizard-card">
+          <div class="z-wz" id="deployWizard" data-zw="wizard">
+            <div class="steps" aria-label="Service configuration progress">
+              <div class="step cur" data-deploy-step-indicator="0"><i>1</i><span>Plan</span></div>
+              <div class="step" data-deploy-step-indicator="1"><i>2</i><span>Region</span></div>
+              <div class="step" data-deploy-step-indicator="2"><i>3</i><span>Details</span></div>
             </div>
-          </div>
-
-          <!-- Step 2: Datacenter -->
-          <div class="card" style="padding:24px">
-            <h3 style="font:700 18px var(--font);margin-bottom:16px">2. Datacenter Location</h3>
-            <div class="z-pls region-grid" id="regionSelector">
-              <button type="button" class="z-plc reg-card region-choice" data-reg="fra-1" data-region-id="reg_fra_1" aria-pressed="true"><b>🇩🇪 Frankfurt, Germany (fra-1)</b><small class="f">Catalog region · live availability is not yet verified</small></button>
-              <button type="button" class="z-plc reg-card region-choice" data-reg="lon-1" data-region-id="reg_lon_1" aria-pressed="false"><b>🇬🇧 London, United Kingdom (lon-1)</b><small class="f">Catalog region · live availability is not yet verified</small></button>
+            <div class="z-pane on" data-deploy-pane="0">
+              <div class="section-card-head"><span class="ico-b accent"><svg class="ic"><use href="#i-flash"/></svg></span><div class="tx"><h2>Select a workload</h2><p>Choose a published plan from the live Fortless catalog.</p></div></div>
+              <div class="z-pls" id="planSelector"><div class="state-message"><span>Loading catalog…</span></div></div>
             </div>
-          </div>
-
-          <!-- Step 3: Instance Details -->
-          <div class="card" style="padding:24px">
-            <h3 style="font:700 18px var(--font);margin-bottom:16px">3. Instance Name</h3>
-            <div class="field">
-              <label style="font-weight:600;font-size:13px;color:var(--ink2);margin-bottom:6px;display:block">Server Label / Identifier</label>
-              <div class="inp">
-                <input type="text" id="deployServerName" placeholder="e.g. survival-smp-eu" value="my-game-server">
-              </div>
+            <div class="z-pane" data-deploy-pane="1">
+              <div class="section-card-head"><span class="ico-b info"><svg class="ic"><use href="#i-globe"/></svg></span><div class="tx"><h2>Datacenter location</h2><p>Availability is read from current catalog capacity.</p></div></div>
+              <div class="z-pls region-grid" id="regionSelector"><div class="state-message"><span>Loading regions…</span></div></div>
+            </div>
+            <div class="z-pane" data-deploy-pane="2">
+              <div class="section-card-head"><span class="ico-b violet"><svg class="ic"><use href="#i-edit-01"/></svg></span><div class="tx"><h2>Instance details</h2><p>Give this service a recognizable label.</p></div></div>
+              <div class="field"><label for="deployServerName">Server label / identifier</label><div class="inp"><input type="text" id="deployServerName" placeholder="e.g. survival-smp-eu" value="my-game-server" autocomplete="off"></div><div class="hint">You can change the display name later.</div></div>
+            </div>
+            <div class="z-foot">
+              <button type="button" class="btn sec" id="deployBackBtn" disabled>Back</button>
+              <button type="button" class="btn" id="deployNextBtn">Continue</button>
             </div>
           </div>
         </div>
 
-        <!-- Sidebar Summary -->
-        <div class="col" style="gap:16px">
-          <div class="card" style="padding:24px;position:sticky;top:20px">
-            <h3 style="font:700 18px var(--font);margin-bottom:16px">Order Summary</h3>
-            <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;padding-bottom:16px">
-              <div style="display:flex;justify-content:space-between">
-                <span class="muted">Configuration</span>
-                <b id="sumPlan">Loading catalog…</b>
-              </div>
-              <div style="display:flex;justify-content:space-between">
-                <span class="muted">Region</span>
-                <b id="sumReg">Frankfurt (catalog)</b>
-              </div>
-              <div style="display:flex;justify-content:space-between">
-                <span class="muted">Billing Term</span>
-                <b>Monthly (Recurring)</b>
-              </div>
-              <div id="rowDiscount" style="display:none;justify-content:space-between;color:var(--emerald)">
-                <span>Discount (<span id="sumCouponCode"></span>)</span>
-                <b id="sumDiscount">-€0.00</b>
-              </div>
-              <div style="display:flex;justify-content:space-between">
-                <span class="muted">VAT (19%)</span>
-                <b id="sumVat">—</b>
-              </div>
-            </div>
-
-            <div style="display:flex;gap:8px;margin-bottom:16px">
-              <input type="text" id="couponInput" class="inp" placeholder="Coupon / Promo code" style="padding:8px 12px;font-size:13px;text-transform:uppercase;flex:1">
-              <button type="button" id="applyCouponBtn" class="btn sec s" style="font-size:12px;white-space:nowrap">Apply</button>
-            </div>
-
-            <div style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 0">
-              <span style="font-weight:700;font-size:15px">Total Due</span>
-              <span id="sumTotal" style="font:800 24px var(--font);color:var(--accent)">—</span>
-            </div>
-
-            <button id="doDeployBtn" class="btn" style="width:100%;padding:14px;font-size:15px;font-weight:700;gap:8px">
+        <aside class="card summary-card">
+          <div class="section-card-head"><span class="ico-b accent"><svg class="ic"><use href="#i-document"/></svg></span><div class="tx"><h2>Order summary</h2><p>Final tax and total come from a signed server quote.</p></div></div>
+          <dl class="z-sum deploy-summary">
+            <dt>Configuration</dt><dd id="sumPlan">Loading catalog…</dd>
+            <dt>Region</dt><dd id="sumReg">—</dd>
+            <dt>Billing term</dt><dd>Monthly · recurring</dd>
+            <dt id="sumDiscountLabel" hidden>Discount</dt><dd id="rowDiscount" hidden><span id="sumCouponCode"></span> <b id="sumDiscount"></b></dd>
+            <dt>Tax</dt><dd id="sumVat">Calculated by secure quote</dd>
+          </dl>
+          <div class="field deploy-coupon"><label for="couponInput">Promotion code</label><div class="inp"><input type="text" id="couponInput" placeholder="Coupon code" autocomplete="off"><button type="button" id="applyCouponBtn" class="btn s">Apply</button></div></div>
+          <div class="z-plsum deploy-total"><div class="tx"><small>Estimated subtotal</small><b>Tax is added by the authoritative quote</b></div><strong id="sumTotal">—</strong></div>
+          <button id="doDeployBtn" class="btn deploy-checkout">
               <svg style="width:16px;height:16px;flex:none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.09 13.285C3.842 11.02 3.842 7.373 6.09 5.108C8.338 2.843 11.952 2.843 14.2 5.108L17.272 8.217M6.09 13.285L3 16.416M6.09 13.285L9.162 16.393M17.91 10.715C20.158 12.98 20.158 16.627 17.91 18.892C15.662 21.157 12.048 21.157 9.8 18.892L6.728 15.783M17.91 10.715L21 7.584M17.91 10.715L14.838 7.607"/></svg>
               <span>Ordering unavailable</span>
-            </button>
-            <p style="font-size:11.5px;color:var(--ink3);text-align:center;margin-top:12px">
-              Payment and infrastructure integrations are disabled until sandbox verification is complete.
-            </p>
-          </div>
-        </div>
+          </button>
+          <p class="truth-note deploy-capability-note">Payment and infrastructure integrations are disabled until sandbox verification is complete.</p>
+        </aside>
       </div>
     </section>
 
@@ -359,8 +326,8 @@
       <div class="card flat" style="padding:24px;margin-bottom:20px">
         <div class="section-card-head" style="margin-bottom:16px">
           <div class="tx">
-            <h2 style="font:700 18px var(--font)">Search & Register Domains</h2>
-            <p style="color:var(--ink2);font-size:13.5px">Search domain availability across our TLD catalog or manage DNS zones.</p>
+            <h2 style="font:700 18px var(--font)">Domain catalog</h2>
+            <p style="color:var(--ink2);font-size:13.5px">Check the configured catalog and create authoritative DNS zones. Registrar purchasing is not enabled.</p>
           </div>
         </div>
         <div class="row" style="gap:10px;margin-bottom:12px">
@@ -382,6 +349,7 @@
           </div>
           <button id="refreshZonesBtn" type="button" class="btn sec s" style="font-size:12px">Refresh</button>
         </div>
+        <div class="z-bar domain-toolbar"><div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="zoneSearch" type="search" placeholder="Filter domains" aria-label="Filter domain zones"></div><small id="zoneResultCount" class="muted"></small></div>
         <div id="domainZonesContainer" style="margin-top:14px">
           <div class="state-message">Loading domain zones…</div>
         </div>
@@ -462,6 +430,15 @@
         </div>
         <div class="z-iv">
           <div id="invoiceSummary" class="z-ivs"></div>
+          <div class="z-bar billing-toolbar">
+            <div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="invoiceSearch" type="search" placeholder="Search invoices" aria-label="Search invoices"></div>
+            <div class="seg s" role="radiogroup" aria-label="Filter invoice status">
+              <label><input type="radio" name="invoiceStatus" value="ALL" checked><span>All</span></label>
+              <label><input type="radio" name="invoiceStatus" value="OPEN"><span>Open</span></label>
+              <label><input type="radio" name="invoiceStatus" value="PAID"><span>Paid</span></label>
+            </div>
+            <small id="invoiceResultCount" class="muted"></small>
+          </div>
           <div class="z-scroll">
           <table class="tbl">
             <thead>
@@ -526,7 +503,16 @@
           </div>
         </div>
         <div id="auditLog" class="z-au">
-          <div class="z-bar"><div class="inp" style="flex:1;min-width:220px"><input id="auditSearch" type="search" placeholder="Search activity" aria-label="Search activity"></div></div>
+          <div class="z-bar activity-toolbar">
+            <div class="inp s pill"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="auditSearch" type="search" placeholder="Search activity" aria-label="Search activity"></div>
+            <div class="seg s" role="radiogroup" aria-label="Filter activity type">
+              <label><input type="radio" name="auditType" value="ALL" checked><span>All</span></label>
+              <label><input type="radio" name="auditType" value="AUTH"><span>Sign-in</span></label>
+              <label><input type="radio" name="auditType" value="SUPPORT"><span>Support</span></label>
+              <label><input type="radio" name="auditType" value="BILLING"><span>Billing</span></label>
+            </div>
+            <small id="auditResultCount" class="muted"></small>
+          </div>
           <div id="auditList"><div class="state-message"><span>Loading audit events…</span></div></div>
         </div>
       </div>
