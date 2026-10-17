@@ -1,0 +1,58 @@
+{
+  "00_GLOBAL_CONTRACT.md": {
+    "bytes": 7399,
+    "sha256": "6bc721d97eba9f8827f06b5349ef402c822edee5d1b4a43102be6f50faf3243d"
+  },
+  "01_AUDIT_AND_REALITY_MAP.md": {
+    "bytes": 4906,
+    "sha256": "037aaf3801ca1c126d61a98ef6e37d9551c0225ea4f399809b42f7fe129d8851"
+  },
+  "02_PRODUCTION_FOUNDATION.md": {
+    "bytes": 4806,
+    "sha256": "cb48a9e74737118f69a5a72862de6a4449648bd583eb7ce007540a5e56cb5e2e"
+  },
+  "03_AUTH_SECURITY_AND_EMAIL.md": {
+    "bytes": 4523,
+    "sha256": "97e1560ba5aacd314cf823889721b3b03c1ad01bcc119c96f00839dc0f18e7c3"
+  },
+  "04_ADMIN_CONTROL_PLANE.md": {
+    "bytes": 8505,
+    "sha256": "10d356f42081303b0e65dbf86b05291ff401d310b1758bfc73f1b55e7b6b0386"
+  },
+  "05_CATALOG_INVENTORY_COMMERCE.md": {
+    "bytes": 5454,
+    "sha256": "be1f88689ef363efb117057a765ffd05ffe31ffc912e3dd0a1f63b91e6cb7269"
+  },
+  "06_BILLING_STRIPE_TAX.md": {
+    "bytes": 8455,
+    "sha256": "7d040fbd1324fb7827203f44352347ece8f21fc1aed458e90925142bd81e9d88"
+  },
+  "07_PTERODACTYL_PROVISIONING.md": {
+    "bytes": 6917,
+    "sha256": "8c8f1de4eef06ce720318bd6197473ecc0d6c620417ffc26eebc3234703af01d"
+  },
+  "08_CUSTOMER_APP_SUPPORT_LIFECYCLE.md": {
+    "bytes": 5241,
+    "sha256": "e7fa265d1cbde575a9085afd50df71b29786822d3435147ead29525f53218e5d"
+  },
+  "09_OPTIONAL_PROVIDER_EXPANSION.md": {
+    "bytes": 4202,
+    "sha256": "c2e940cb825f5e3d8d9789b5c66ed3412e84cd39f432c9cb312aaac9621471c1"
+  },
+  "10_RELEASE_SECURITY_OPERATIONS.md": {
+    "bytes": 5786,
+    "sha256": "3629e4f409c45478c99a11b035d8d3cc429a2b87318adfa71de3e5d9f08a305c"
+  },
+  "11_MASTER_ORCHESTRATOR_PROMPT.md": {
+    "bytes": 4809,
+    "sha256": "f1343583e799b1ae150ce8dd96d73d50e9bad0421824587dc108ce47de1703d3"
+  },
+  "ALL_STAGES_ONE_FILE.md": {
+    "bytes": 76961,
+    "sha256": "31ef95e52550cd08758b23eb706adaf7e528bff5d99684e5ae7b18c7a0f1a0a4"
+  },
+  "README_START_HERE.md": {
+    "bytes": 5147,
+    "sha256": "8d4c06609a86d1ebb69f97c6d8eaf1784be3755269c160c76210172e2071537e"
+  }
+}

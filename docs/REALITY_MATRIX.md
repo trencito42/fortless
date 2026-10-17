@@ -1,0 +1,119 @@
+# Fortless Reality Matrix
+
+Last Updated: 2026-10-17  
+Standard: Production Integrity, Zero Placeholders, Strict Evidence Protocol
+
+## Verification Tiers
+
+- **`UI_ONLY`**: Rendered in client UI only; no authoritative backend logic or state backing.
+- **`MOCKED`**: Simulated locally with mock fixtures, in-memory adapters, or placeholder responses.
+- **`LOCAL_VERIFIED`**: Implemented with real backend logic and local persistence; verified with passing automated test evidence.
+- **`SANDBOX_VERIFIED`**: Validated against actual external vendor staging/sandbox environments (Stripe, Pterodactyl, Email).
+- **`PRODUCTION_VERIFIED`**: Validated in live production under authorized operations.
+- **`BLOCKED`**: Missing external dependency, credentials, or undefined business/legal policy.
+
+---
+
+## 1. Public & Customer Routes
+
+| Route | Type | Status | Evidence / Notes |
+|---|---|---|---|
+| `/` | Page | `LOCAL_VERIFIED` | Real landing page served by Fastify, Petal design system, session-aware CTAs (no guest-action flash). |
+| `/login` | Page | `LOCAL_VERIFIED` | Auth UI, Argon2id verify, single-origin CSRF, HttpOnly session cookie, redirect guards. |
+| `/register` | Page | `LOCAL_VERIFIED` | New accounts created with `PENDING_VERIFICATION` status, single-use 24h verification token. |
+| `/verify-email` | Page | `LOCAL_VERIFIED` | Consumes single-use SHA-256 hashed verification token, activates identity. |
+| `/forgot-password` | Page | `LOCAL_VERIFIED` | Non-enumerating token request; 15-minute expiration window. |
+| `/reset-password` | Page | `LOCAL_VERIFIED` | Consumes password reset token, revokes all active sessions upon reset. |
+| `/mfa/challenge` | Page | `LOCAL_VERIFIED` | 6-digit TOTP challenge or single-use recovery code authentication. |
+| `/app` | Page / Shell | `LOCAL_VERIFIED` | Server-side authentication guard; History API deep-links; Petal mobile/desktop adaptive layout. |
+| `/app/deploy` | Page | `LOCAL_VERIFIED` | Plan selector backed by DB catalog (`/api/v1/catalog`). Fail-closed checkout. |
+| `/app/billing` | Page | `LOCAL_VERIFIED` | Renders sequential fiscal invoices (`/api/v1/invoices`) with EUR minor units. |
+| `/app/support` | Page | `LOCAL_VERIFIED` | Customer support thread list and ticket view (`/api/v1/tickets`). |
+| `/app/activity` | Page | `LOCAL_VERIFIED` | Audit trail viewer (`/api/v1/audit`) scoped strictly to tenant account. |
+| `/app/settings` | Page | `LOCAL_VERIFIED` | Active session inventory, remote session revocation, TOTP enrollment/disablement. |
+
+---
+
+## 2. Staff & Administrative Routes
+
+| Route | Type | Status | Evidence / Notes |
+|---|---|---|---|
+| `/admin` | Page / Workspace | `LOCAL_VERIFIED` | Server-guarded by `staff_memberships` role check + active MFA verification on every request. |
+| `/admin/accounts` | Page | `LOCAL_VERIFIED` | Global account search omitting credential/session material. |
+| `/admin/services` | Page | `LOCAL_VERIFIED` | Global instance inventory derived from SQLite `services` table. |
+| `/admin/tickets` | Page | `LOCAL_VERIFIED` | Cross-tenant support queue for staff triage. |
+| `/admin/audit` | Page | `LOCAL_VERIFIED` | Global immutable audit event log with actor and IP tracking. |
+| `/admin/staff` | Page | `LOCAL_VERIFIED` | Staff directory; mutations require `OWNER` role + fresh password/TOTP step-up. |
+
+---
+
+## 3. API Endpoints
+
+### Identity & Authentication
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `/api/v1/auth/register` | POST | `LOCAL_VERIFIED` | Memory-hard Argon2id, IP/identifier throttling, `PENDING_VERIFICATION`. |
+| `/api/v1/auth/verify-email` | POST | `LOCAL_VERIFIED` | Constant-time token lookup, marks `ACTIVE`. |
+| `/api/v1/auth/login` | POST | `LOCAL_VERIFIED` | Validates credentials, checks MFA status, issues SHA-256 hashed session. |
+| `/api/v1/auth/mfa/challenge` | POST | `LOCAL_VERIFIED` | Verifies TOTP or recovery code; throttles invalid attempts. |
+| `/api/v1/auth/mfa/enroll/begin` | POST | `LOCAL_VERIFIED` | Password-gated; returns QR payload + encrypted secret. |
+| `/api/v1/auth/mfa/enroll/confirm` | POST | `LOCAL_VERIFIED` | Confirms live RFC 6238 code; generates 10 one-time recovery codes. |
+| `/api/v1/auth/mfa/disable` | POST | `LOCAL_VERIFIED` | Requires password + live TOTP; revokes factor. |
+| `/api/v1/auth/step-up` | POST | `LOCAL_VERIFIED` | Generates 10-minute session-scoped privilege evidence for destructive actions. |
+| `/api/v1/auth/sessions` | GET | `LOCAL_VERIFIED` | Lists active sessions for current user with device/IP info. |
+| `/api/v1/auth/sessions/:id` | DELETE | `LOCAL_VERIFIED` | Revokes specific session; tenant-scoped. |
+| `/api/v1/auth/sessions/revoke-others` | POST | `LOCAL_VERIFIED` | Revokes all other sessions except current. |
+| `/api/v1/auth/logout` | POST | `LOCAL_VERIFIED` | Destroys current session token and clears cookie. |
+
+### Catalog & Pricing
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `/api/v1/catalog` | GET | `LOCAL_VERIFIED` | Seeded products (`minecraft`, `discord-bot`) and plan versions. |
+| `/api/v1/pricing/quote` | POST | `LOCAL_VERIFIED` | Server-signed HMAC-SHA256 quotes; minor units, EU VAT, B2B reverse charge. |
+
+### Checkout & Payments
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `/api/v1/checkout` | POST | `LOCAL_VERIFIED` | Idempotent checkout attempt; fails closed with typed error if Stripe unconfigured. |
+| `/api/v1/webhooks/stripe` | POST | `LOCAL_VERIFIED` | Raw-body HMAC-SHA256 signature verification; idempotent inbox; fails closed without secret. |
+| `/api/v1/invoices` | GET | `LOCAL_VERIFIED` | Returns sequential fiscal invoices (`INV-YYYY-XXXXX`) for tenant. |
+| `/api/v1/invoices/:id` | GET | `LOCAL_VERIFIED` | Returns invoice with immutable line items. |
+
+### Infrastructure & Provisioning
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `/api/v1/services` | GET | `LOCAL_VERIFIED` | Returns tenant services from SQLite database. |
+| `/api/v1/services/:id/power` | POST | `MOCKED` | Tested via `MockPterodactylAdapter`; returns `PROVIDER_NOT_CONFIGURED` if live disabled. |
+| `/api/v1/orders/instant-deploy` | POST | `LOCAL_VERIFIED` | 410 LEGACY_FLOW_DISABLED in production; test harness handles outbox flow. |
+
+### Support & Audit
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `/api/v1/tickets` | GET/POST | `LOCAL_VERIFIED` | Tenant-scoped support tickets with transactional initial message. |
+| `/api/v1/tickets/:id` | GET | `LOCAL_VERIFIED` | Customer thread history with staff reply distinction. |
+| `/api/v1/tickets/:id/messages` | POST | `LOCAL_VERIFIED` | Customer reply append; fails closed if ticket is closed. |
+| `/api/v1/audit` | GET | `LOCAL_VERIFIED` | Tenant-scoped immutable audit stream. |
+
+### Staff Operations (`/api/v1/admin/*`)
+| Endpoint | Method | Status | Notes |
+|---|---|---|---|
+| `/api/v1/admin/overview` | GET | `LOCAL_VERIFIED` | Derived from DB counts; reports capability status truthfully. |
+| `/api/v1/admin/accounts` | GET | `LOCAL_VERIFIED` | Bounded pagination; owner info without passwords/tokens. |
+| `/api/v1/admin/services` | GET | `LOCAL_VERIFIED` | Cross-tenant instance inspection. |
+| `/api/v1/admin/tickets` | GET | `LOCAL_VERIFIED` | Cross-tenant support triage. |
+| `/api/v1/admin/audit` | GET | `LOCAL_VERIFIED` | Global administrative mutation stream. |
+| `/api/v1/admin/staff` | GET | `LOCAL_VERIFIED` | Staff directory with active/revoked memberships. |
+| `/api/v1/admin/staff` | POST | `LOCAL_VERIFIED` | Owner-only grant; requires step-up, target MFA, reason. |
+| `/api/v1/admin/staff/:id` | PATCH/DELETE | `LOCAL_VERIFIED` | Owner-only role modification / revocation; final owner protected. |
+
+---
+
+## 4. External Integrations
+
+| Integration | Verification Tier | Blockers / Next Steps |
+|---|---|---|
+| **Transactional Email** | `BLOCKED` | Provider (Postmark/SES/Resend) not configured; emails currently log or return tokens in tests. |
+| **Stripe Payments** | `MOCKED` |authoritative HMAC validation implemented & tested with test fixtures; real Stripe sandbox keys needed. |
+| **Pterodactyl Panel** | `MOCKED` | Outbox worker & timeout recovery saga verified with `MockPterodactylAdapter`; live sandbox instance needed. |
+| **Database Engine** | `LOCAL_VERIFIED` | SQLite with WAL mode & foreign keys active; PostgreSQL migration tooling required before production. |
+| **Distributed Cache/KV** | `BLOCKED` | In-process rate limiting active; Redis required for multi-replica deployments. |
