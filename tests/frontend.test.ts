@@ -141,9 +141,13 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
     it('keeps rich editor focus and service tabs on the canonical Petal contracts', () => {
       const appCss = readFileSync(new URL('../public/assets/app-ui.css', import.meta.url), 'utf8');
       const appHtml = readFileSync(new URL('../public/app.html', import.meta.url), 'utf8');
+      // Service detail tabs are JS-rendered into #serviceDetailView; verify host div exists
+      const serviceDetailSrc = readFileSync(new URL('../src/frontend/client/pages/services/index.ts', import.meta.url), 'utf8');
       expect(appCss).not.toContain('.rta:focus{box-shadow');
-      expect(appHtml).toContain('class="tabs under service-detail-tabs"');
-      expect(appHtml).toContain('role="tabpanel"');
+      expect(appHtml).toContain('id="serviceDetailView"');
+      expect(serviceDetailSrc).toContain('class="tabs under"');
+      expect(serviceDetailSrc).toContain('role="tabpanel"');
+      expect(serviceDetailSrc).not.toContain('class="tab-btn');
       expect(appHtml).not.toContain('class="tab-btn');
     });
   });

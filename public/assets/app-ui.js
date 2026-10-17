@@ -813,6 +813,49 @@ ${node.textContent || ""}
     return `<div class="z-skb" role="status" aria-live="polite"><span class="sr">${label}</span>${views[kind]}</div>`;
   }
 
+  // src/frontend/petal/components/tabs.ts
+  function initTabs(container) {
+    const el = typeof container === "string" ? document.querySelector(container) : container;
+    if (!el) return () => {
+    };
+    const buttons = () => Array.from(el.querySelectorAll('[role="tab"]'));
+    function activate(btn, focus = false) {
+      buttons().forEach((b) => {
+        const panel2 = document.getElementById(b.getAttribute("aria-controls") || "");
+        const isActive = b === btn;
+        b.setAttribute("aria-selected", String(isActive));
+        b.tabIndex = isActive ? 0 : -1;
+        if (panel2) {
+          panel2.hidden = !isActive;
+          panel2.classList.toggle("on", isActive);
+        }
+      });
+      if (focus) btn.focus();
+    }
+    const handleClick = (e) => {
+      const btn = e.target.closest('[role="tab"]');
+      if (btn && el.contains(btn)) activate(btn);
+    };
+    const handleKeydown = (e) => {
+      const ke = e;
+      const current = ke.target.closest('[role="tab"]');
+      if (!current || !el.contains(current)) return;
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(ke.key)) return;
+      const tabs = buttons();
+      const idx = tabs.indexOf(current);
+      const next = ke.key === "Home" ? 0 : ke.key === "End" ? tabs.length - 1 : (idx + (ke.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      ke.preventDefault();
+      const nextBtn = tabs[next];
+      if (nextBtn) activate(nextBtn, true);
+    };
+    el.addEventListener("click", handleClick);
+    el.addEventListener("keydown", handleKeydown);
+    return () => {
+      el.removeEventListener("click", handleClick);
+      el.removeEventListener("keydown", handleKeydown);
+    };
+  }
+
   // src/frontend/core/utils/dates.ts
   function formatDate(value) {
     if (!value) return "\u2014";
@@ -1322,63 +1365,97 @@ ${node.textContent || ""}
 
   // src/frontend/client/pages/dashboard/index.ts
   var serviceInventory = [];
+  var RT = { RUNNING: "good", INSTALLING: "warn", ERROR: "bad" };
+  function metricCard2(label, value) {
+    return `<div class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div></div>`;
+  }
   function renderServiceInventory() {
     const host = document.getElementById("serversContainer");
     if (!host) return;
     const query = document.getElementById("serviceSearch")?.value.trim().toLowerCase() || "";
     const type = document.getElementById("serviceTypeFilter")?.value || "ALL";
     const state = document.querySelector('input[name="serviceState"]:checked')?.value || "ALL";
-    const filtered = serviceInventory.filter((service) => {
-      const runtime = service.runtime_state || "UNKNOWN";
-      const matchesQuery = !query || [service.plan_name, service.identifier, service.id, service.node_name].some((value) => String(value || "").toLowerCase().includes(query));
-      const matchesType = type === "ALL" || service.plan_name === type;
-      const matchesState = state === "ALL" || (state === "RUNNING" ? runtime === "RUNNING" : runtime !== "RUNNING");
-      return matchesQuery && matchesType && matchesState;
+    const filtered = serviceInventory.filter((svc) => {
+      const rt = svc.runtime_state || "UNKNOWN";
+      const matchQ = !query || [svc.plan_name, svc.identifier, svc.id, svc.node_name].some((v) => String(v || "").toLowerCase().includes(query));
+      const matchT = type === "ALL" || svc.plan_name === type;
+      const matchS = state === "ALL" || (state === "RUNNING" ? rt === "RUNNING" : rt !== "RUNNING");
+      return matchQ && matchT && matchS;
     });
     const count = document.getElementById("serviceResultCount");
-    if (count) count.textContent = `${filtered.length} of ${serviceInventory.length} services`;
+    if (count) count.textContent = `${filtered.length} of ${serviceInventory.length}`;
     if (!filtered.length) {
-      host.innerHTML = renderEmptyState({ icon: "search", title: serviceInventory.length ? "No matching services" : "No services yet", message: serviceInventory.length ? "Try a different name, product or runtime filter." : "Ordering stays unavailable until payment and infrastructure providers are configured and verified.", actionHtml: serviceInventory.length ? "" : `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>` });
+      host.innerHTML = `<div class="es">${hero("server", "xl")}<h4>${esc(serviceInventory.length ? "No matching services" : "No services yet")}</h4><p>${esc(serviceInventory.length ? "Try a different name, product or runtime filter." : "Ordering stays unavailable until payment and infrastructure providers are configured and verified.")}</p>${serviceInventory.length ? "" : `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>`}</div>`;
       return;
     }
     const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
-    host.innerHTML = `<div class="col" style="gap:8px">${filtered.map((service) => {
-      const runtime = service.runtime_state || "UNKNOWN";
-      const runningNow = runtime === "RUNNING";
-      const badge = runningNow ? "good" : runtime === "INSTALLING" ? "warn" : runtime === "ERROR" ? "bad" : "info";
-      const endpoint = service.identifier ? `Provider ID \xB7 ${service.identifier}` : "Provisioning record";
-      return `<article class="li card s2 service-row">
-      <span class="ico-b ${badge}">${hero("servers")}</span><div class="tx"><div class="title-row"><b>${esc(service.plan_name || "Hosting service")}</b><span class="badge ${badge} s">${esc(runtime)}</span><span class="badge s">${esc(service.contract_status)}</span></div><div class="meta">${esc(service.node_name || service.node_id)} \xB7 ${Number(service.memory_limit_mb || 0) / 1024} GB RAM \xB7 ${esc(service.cpu_limit_pct || 0)}% CPU \xB7 ${Number(service.disk_limit_mb || 0) / 1024} GB disk</div></div>
-      <code class="endpoint">${esc(endpoint)}</code><div class="actions">${providerReady ? `<button class="btn s sec" data-power="RESTART" data-service="${esc(service.id)}" ${runningNow ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn s badt" data-power="STOP" data-service="${esc(service.id)}" ${runningNow ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn s goodt" data-power="START" data-service="${esc(service.id)}" ${runningNow ? "disabled" : ""}>${hero("play", "xs")}Start</button>` : `<span class="badge warn s">Provider controls unavailable</span>`}<a href="/app/services/${esc(service.id)}" class="btn s tint" data-app-route="service-detail">${hero("chevron", "xs")}Manage</a></div>
-    </article>`;
-    }).join("")}</div>`;
+    host.innerHTML = filtered.map((svc) => {
+      const rt = svc.runtime_state || "UNKNOWN";
+      const tone = RT[rt] || "info";
+      const running = rt === "RUNNING";
+      const mem = `${(Number(svc.memory_limit_mb || 0) / 1024).toFixed(Number(svc.memory_limit_mb) ? 1 : 0)} GB`;
+      const powers = providerReady ? `<button class="btn xs sec" data-power="RESTART" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn xs badt" data-power="STOP" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn xs goodt" data-power="START" data-service="${esc(svc.id)}" ${running ? "disabled" : ""}>${hero("play", "xs")}Start</button>` : "";
+      return `<div class="li"><span class="tile ${tone} sm">${hero("server")}</span><span class="tx"><b>${esc(svc.plan_name || "Hosting service")}</b><small>${esc(svc.node_name || svc.node_id || "\u2014")} \xB7 ${esc(mem)} RAM \xB7 ${esc(String(svc.cpu_limit_pct || 0))}% CPU</small></span><span class="row" style="gap:6px;flex-shrink:0">${powers}<span class="pill ${tone} d">${esc(rt)}</span><a href="/app/services/${esc(svc.id)}" class="btn xs sec" data-app-route="service-detail">${hero("chevron", "xs")}Manage</a></span></div>`;
+    }).join("");
   }
   function filterServices() {
     renderServiceInventory();
   }
   async function renderServices() {
-    const host = document.getElementById("serversContainer");
+    const host = document.getElementById("servicesView");
     if (!host) return;
-    host.innerHTML = renderSkeleton("list", "Loading services");
+    host.innerHTML = `<div class="sk" role="status" aria-label="Loading services"><i></i><i></i><i></i></div>`;
     try {
       const { services } = await api("/api/v1/services");
       serviceInventory = services;
       const running = services.filter((s) => s.runtime_state === "RUNNING").length;
       const memory = services.reduce((sum, s) => sum + Number(s.memory_limit_mb || 0), 0);
       const cpu = services.reduce((sum, s) => sum + Number(s.cpu_limit_pct || 0), 0);
-      const statRunning = document.getElementById("statRunning");
-      const statTotal = document.getElementById("statTotal");
-      const statRam = document.getElementById("statRam");
-      const statCpu = document.getElementById("statCpu");
-      if (statRunning) statRunning.textContent = String(running);
-      if (statTotal) statTotal.textContent = String(services.length);
-      if (statRam) statRam.textContent = `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`;
-      if (statCpu) statCpu.textContent = `${cpu}%`;
-      const typeFilter = document.getElementById("serviceTypeFilter");
-      if (typeFilter) typeFilter.innerHTML = `<option value="ALL">All products</option>${Array.from(new Set(services.map((item) => String(item.plan_name || "Hosting service")))).sort().map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join("")}`;
+      const typeOpts = Array.from(new Set(services.map((s) => String(s.plan_name || "Hosting service")))).sort().map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+      host.innerHTML = `
+      <div class="hd">
+        <div class="tx">
+          <span class="pill acc">Services</span>
+          <h2>Your services.</h2>
+          <p>Provider-observed runtime records for this account.</p>
+        </div>
+        <div class="act">
+          <a class="btn pri" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}Deploy service</a>
+        </div>
+      </div>
+
+      <div class="g g4 k2" style="margin-bottom:12px">
+        ${metricCard2("Running", running)}
+        ${metricCard2("Total services", services.length)}
+        ${metricCard2("Allocated RAM", `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`)}
+        ${metricCard2("Allocated CPU", `${cpu}%`)}
+      </div>
+
+      <div class="card" style="padding:20px">
+        <div class="ch" style="margin-bottom:14px">
+          <div class="row" style="gap:10px;flex-wrap:wrap;flex:1">
+            <label class="sch" style="flex:1;min-width:180px">
+              ${hero("search", "s")}
+              <input id="serviceSearch" type="search" placeholder="Search name or identifier" aria-label="Search services">
+            </label>
+            <div class="inp sel s"><select id="serviceTypeFilter" aria-label="Filter by product"><option value="ALL">All products</option>${typeOpts}</select></div>
+            <div class="seg s" role="radiogroup" aria-label="Filter service state">
+              <label><input type="radio" name="serviceState" value="ALL" checked><span>All</span></label>
+              <label><input type="radio" name="serviceState" value="RUNNING"><span>Running</span></label>
+              <label><input type="radio" name="serviceState" value="OTHER"><span>Other</span></label>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <small id="serviceResultCount" class="muted"></small>
+            <button class="ib s" id="refreshServicesBtn" aria-label="Refresh services">${hero("refresh", "s")}</button>
+          </div>
+        </div>
+        <div id="serversContainer"></div>
+      </div>`;
       renderServiceInventory();
+      document.getElementById("refreshServicesBtn")?.addEventListener("click", renderServices);
     } catch (error) {
-      host.innerHTML = `<div class="state-message bad">${hero("warning")}<span>${esc(error.message)}</span></div>`;
+      host.innerHTML = `<div class="alert bad">${hero("warning", "s")}<div><b>Failed to load services</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   async function powerService(id, action, button) {
@@ -1398,80 +1475,118 @@ ${node.textContent || ""}
   }
 
   // src/frontend/client/pages/services/index.ts
-  function copyValue(value, label) {
-    if (!value) return '<code class="mono">Pending</code>';
-    return `<span class="row service-copy"><code class="cd2">${esc(value)}</code><button class="btn xs sq sec" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy", "xs")}</button></span>`;
+  function copyField(value, label) {
+    if (!value) return '<code class="mono muted">Pending</code>';
+    return `<span class="cpf"><code>${esc(value)}</code><button class="ib xs" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy", "xs")}</button></span>`;
+  }
+  function kv(pairs) {
+    return `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
   }
   async function renderServiceDetail(serviceId) {
-    if (!serviceId) return;
+    const host = document.getElementById("serviceDetailView");
+    if (!serviceId || !host) return;
+    host.innerHTML = `<div class="sk" role="status" aria-label="Loading service"><i></i><i></i><i></i></div>`;
     try {
       const { service } = await api(`/api/v1/services/${encodeURIComponent(serviceId)}`);
-      const breadcrumb = document.getElementById("detailBreadcrumbName");
-      const heading = document.getElementById("detailHeadingName");
-      const subtitle = document.getElementById("detailSubtitle");
-      if (breadcrumb) breadcrumb.textContent = service.planName || service.id;
-      if (heading) heading.textContent = service.planName || "Service Detail";
-      if (subtitle)
-        subtitle.textContent = `${service.nodeName} (${service.regionName}) \xB7 ${service.identifier ? "Provider ID " + service.identifier : "Provisioning"}`;
-      const runtimeBadge = document.getElementById("detailRuntimeBadge");
-      const contractBadge = document.getElementById("detailContractBadge");
       const runtime = service.observedState?.runtimeState || "UNKNOWN";
-      if (runtimeBadge) {
-        runtimeBadge.textContent = runtime;
-        runtimeBadge.className = `badge s ${runtime === "RUNNING" ? "good" : runtime === "INSTALLING" ? "warn" : runtime === "ERROR" ? "bad" : "info"}`;
-      }
-      if (contractBadge) {
-        contractBadge.textContent = service.contractStatus;
-        contractBadge.className = `badge s ${service.contractStatus === "ACTIVE" ? "good" : "warn"}`;
-      }
+      const tone = runtime === "RUNNING" ? "good" : runtime === "INSTALLING" ? "warn" : runtime === "ERROR" ? "bad" : "info";
       const runningNow = runtime === "RUNNING";
       const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
-      const powerActions = document.getElementById("detailPowerActions");
-      if (powerActions && !providerReady) {
-        powerActions.innerHTML = '<span class="badge warn">Provider controls unavailable</span>';
-      }
-      const restartBtn = document.getElementById("detailRestartBtn");
-      const stopBtn = document.getElementById("detailStopBtn");
-      const startBtn = document.getElementById("detailStartBtn");
-      if (restartBtn && providerReady) {
-        restartBtn.disabled = !runningNow;
-        restartBtn.onclick = () => powerService(service.id, "RESTART", restartBtn);
-      }
-      if (stopBtn && providerReady) {
-        stopBtn.disabled = !runningNow;
-        stopBtn.onclick = () => powerService(service.id, "STOP", stopBtn);
-      }
-      if (startBtn && providerReady) {
-        startBtn.disabled = runningNow;
-        startBtn.onclick = () => powerService(service.id, "START", startBtn);
-      }
-      const specsList = document.getElementById("detailSpecsList");
-      if (specsList) {
-        specsList.innerHTML = `<dl class="kv service-kv"><dt>Service ID</dt><dd>${copyValue(service.id, "service ID")}</dd><dt>Allocated RAM</dt><dd>${Number(service.desiredConfig?.memoryLimitMb || 0) / 1024} GB</dd><dt>CPU limit</dt><dd>${esc(service.desiredConfig?.cpuLimitPct || 0)}%</dd><dt>Allocated disk</dt><dd>${Number(service.desiredConfig?.diskLimitMb || 0) / 1024} GB SSD</dd><dt>Provider type</dt><dd><span class="badge s">${esc(service.providerType)}</span></dd></dl>`;
-      }
-      const connList = document.getElementById("detailConnectionList");
-      if (connList) {
-        connList.innerHTML = `<dl class="kv service-kv"><dt>Node hostname</dt><dd>${copyValue(service.nodeFqdn, "node hostname")}</dd><dt>Datacenter</dt><dd>${esc(service.regionName)} (${esc(service.regionCode)})</dd><dt>Remote ID</dt><dd>${copyValue(service.externalId, "remote ID")}</dd><dt>Short identifier</dt><dd>${copyValue(service.identifier, "short identifier")}</dd><dt>Created</dt><dd>${formatDate(service.createdAt)}</dd></dl>`;
-      }
       const ramMb = Number(service.desiredConfig?.memoryLimitMb || 0);
       const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
       const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
-      const gaugeRamVal = document.getElementById("gaugeRamValue");
-      const gaugeCpuVal = document.getElementById("gaugeCpuValue");
-      const gaugeDiskVal = document.getElementById("gaugeDiskValue");
-      if (gaugeRamVal) gaugeRamVal.textContent = `${(ramMb / 1024).toFixed(1)} GB`;
-      if (gaugeCpuVal) gaugeCpuVal.textContent = `${cpuPct}%`;
-      if (gaugeDiskVal) gaugeDiskVal.textContent = `${(diskMb / 1024).toFixed(0)} GB`;
-      const timeline = document.getElementById("detailAuditTimeline");
-      if (timeline) {
-        if (!service.auditTrail || !service.auditTrail.length) {
-          timeline.innerHTML = renderEmptyState({ icon: "shield", title: "No recorded activity", message: "Provider and account events for this service will appear here." });
-        } else {
-          timeline.className = "tl";
-          timeline.innerHTML = service.auditTrail.map((ev) => `<div class="tli"><span class="ico-b ${ev.action.includes("power") ? "info" : "accent"} round">${hero(ev.action.includes("power") ? "refresh" : "shield", "s")}</span><div class="tx"><b>${esc(String(ev.action || "").replaceAll(".", " \xB7 "))}</b><span>${formatDate(ev.createdAt)}${ev.metadata ? ` \xB7 ${esc(ev.metadata)}` : ""}</span></div></div>`).join("");
-        }
+      const powerBtns = providerReady ? `<button class="btn s sec" id="dtlRestartBtn" ${runningNow ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn s badt" id="dtlStopBtn" ${runningNow ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn s goodt" id="dtlStartBtn" ${runningNow ? "disabled" : ""}>${hero("play", "xs")}Start</button>` : `<span class="pill warn">Provider controls unavailable</span>`;
+      const auditHtml = service.auditTrail?.length ? `<div class="tl2">${service.auditTrail.map((ev) => {
+        const ispower = String(ev.action || "").includes("power");
+        return `<div class="tl2-row"><span class="tile ${ispower ? "info" : "acc"} sm">${hero(ispower ? "refresh" : "shield")}</span><span class="tx"><b>${esc(String(ev.action || "").replace(/\./g, " \xB7 "))}</b><small>${esc(formatDate(ev.createdAt))}${ev.metadata ? ` \xB7 ${esc(String(ev.metadata))}` : ""}</small></span></div>`;
+      }).join("")}</div>` : `<div class="es">${hero("shield", "xl")}<h4>No recorded activity</h4><p>Provider and account events for this service will appear here.</p></div>`;
+      host.innerHTML = `
+      <nav class="breadcrumb-bar" aria-label="Breadcrumb" style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px">
+        <a href="/app/services" data-app-route="services" style="color:var(--accent);font-weight:600">Services</a>
+        <span aria-hidden="true" class="muted">/</span>
+        <b>${esc(service.planName || service.id)}</b>
+      </nav>
+
+      <div class="hd" style="margin-bottom:0">
+        <div class="tx">
+          <div class="row" style="gap:8px;margin-bottom:6px">
+            <span class="pill ${tone} d">${esc(runtime)}</span>
+            <span class="pill ${service.contractStatus === "ACTIVE" ? "good" : "warn"}">${esc(service.contractStatus)}</span>
+          </div>
+          <h2>${esc(service.planName || "Service Detail")}</h2>
+          <p>${esc(service.nodeName || "\u2014")} (${esc(service.regionName || "\u2014")}) \xB7 ${service.identifier ? `Provider ID ${esc(service.identifier)}` : "Provisioning"}</p>
+        </div>
+        <div class="act" style="gap:8px">
+          ${powerBtns}
+        </div>
+      </div>
+
+      <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:20px 0 0">
+        <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true">Overview</button>
+        <button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1">Allocation</button>
+        <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1">Activity</button>
+      </div>
+
+      <div id="dtlPaneOverview" role="tabpanel" class="tp">
+        <div class="g g2">
+          <section class="card">
+            <h3 style="font:700 16px var(--font);margin-bottom:14px">Technical Specifications</h3>
+            ${kv([
+        ["Service ID", copyField(service.id, "service ID")],
+        ["Allocated RAM", esc(`${(ramMb / 1024).toFixed(1)} GB`)],
+        ["CPU limit", esc(`${cpuPct}%`)],
+        ["Allocated disk", esc(`${(diskMb / 1024).toFixed(0)} GB SSD`)],
+        ["Provider type", `<span class="pill">${esc(service.providerType)}</span>`]
+      ])}
+          </section>
+          <section class="card">
+            <h3 style="font:700 16px var(--font);margin-bottom:14px">Connection &amp; Datacenter</h3>
+            ${kv([
+        ["Node hostname", copyField(service.nodeFqdn, "node hostname")],
+        ["Datacenter", esc(`${service.regionName || "\u2014"} (${service.regionCode || "\u2014"})`)],
+        ["Remote ID", copyField(service.externalId, "remote ID")],
+        ["Short identifier", copyField(service.identifier, "short identifier")],
+        ["Created", esc(formatDate(service.createdAt))]
+      ])}
+          </section>
+        </div>
+      </div>
+
+      <div id="dtlPaneAllocation" role="tabpanel" class="tp" hidden>
+        <div class="g g3">
+          <section class="card">
+            <span class="muted" style="font-size:12px">Memory Allocation</span>
+            <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${(ramMb / 1024).toFixed(1)} GB`)}</b>
+            <small class="muted">Purchased limit, not live utilization.</small>
+          </section>
+          <section class="card">
+            <span class="muted" style="font-size:12px">CPU Share Limit</span>
+            <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${cpuPct}%`)}</b>
+            <small class="muted">Configured CPU limit, not measured usage.</small>
+          </section>
+          <section class="card">
+            <span class="muted" style="font-size:12px">Storage Allocation</span>
+            <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${(diskMb / 1024).toFixed(0)} GB`)}</b>
+            <small class="muted">Purchased storage, not current disk use.</small>
+          </section>
+        </div>
+      </div>
+
+      <div id="dtlPaneActivity" role="tabpanel" class="tp" hidden>
+        <section class="card" style="padding:20px">
+          <h3 style="font:700 16px var(--font);margin-bottom:14px">Service Audit Events</h3>
+          ${auditHtml}
+        </section>
+      </div>`;
+      const tabsEl = document.getElementById("serviceDetailTabs");
+      if (tabsEl) initTabs(tabsEl);
+      if (providerReady) {
+        document.getElementById("dtlRestartBtn")?.addEventListener("click", (e) => powerService(service.id, "RESTART", e.currentTarget));
+        document.getElementById("dtlStopBtn")?.addEventListener("click", (e) => powerService(service.id, "STOP", e.currentTarget));
+        document.getElementById("dtlStartBtn")?.addEventListener("click", (e) => powerService(service.id, "START", e.currentTarget));
       }
     } catch (error) {
+      host.innerHTML = `<div class="alert bad">${hero("warning", "s")}<div><b>Failed to load service</b><span>${esc(error.message)}</span></div></div>`;
       toast(error.message, "bad");
     }
   }
@@ -2708,18 +2823,6 @@ ${node.textContent || ""}
 
   // src/frontend/client/index.ts
   var appShell = new AppShell();
-  function activateServiceDetailTab(tabKey, focus = false) {
-    const tabs = [...document.querySelectorAll("[data-detail-tab]")];
-    tabs.forEach((tab) => {
-      const selected = tab.dataset.detailTab === tabKey;
-      tab.setAttribute("aria-selected", String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-      if (selected && focus) tab.focus();
-    });
-    document.querySelectorAll(".detail-pane").forEach((pane) => {
-      pane.hidden = pane.id !== `detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`;
-    });
-  }
   async function copyText(value, label = "value") {
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
@@ -2777,7 +2880,6 @@ ${node.textContent || ""}
   });
   router.register("service-detail", async (ctx) => {
     updateNavigationChrome("service-detail");
-    activateServiceDetailTab("overview");
     const id = ctx.params.id;
     if (id) await renderServiceDetail(id);
   });
@@ -2814,7 +2916,6 @@ ${node.textContent || ""}
     await renderSettings();
   });
   function bindDelegatedEvents() {
-    document.getElementById("refreshServersBtn")?.addEventListener("click", renderServices);
     document.getElementById("refreshInvoicesBtn")?.addEventListener("click", renderBilling);
     document.getElementById("refreshAuditBtn")?.addEventListener("click", renderActivity);
     document.getElementById("doDeployBtn")?.addEventListener("click", beginCheckout);
@@ -2858,11 +2959,6 @@ ${node.textContent || ""}
         if (sheet) sheet.hidden = true;
         document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
         router.navigate(href);
-        return;
-      }
-      const detailTab = target.closest("[data-detail-tab]");
-      if (detailTab) {
-        activateServiceDetailTab(detailTab.dataset.detailTab || "overview");
         return;
       }
       const notifBell = target.closest("#notifBellBtn");
@@ -2987,15 +3083,6 @@ ${node.textContent || ""}
           });
         }
       }
-    });
-    document.addEventListener("keydown", (event) => {
-      const current = event.target.closest("[data-detail-tab]");
-      if (!current || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-      const tabs = [...document.querySelectorAll("[data-detail-tab]")];
-      const index = tabs.indexOf(current);
-      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-      event.preventDefault();
-      activateServiceDetailTab(tabs[next]?.dataset.detailTab || "overview", true);
     });
     document.addEventListener("submit", (event) => {
       const target = event.target;

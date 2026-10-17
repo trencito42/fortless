@@ -45,19 +45,6 @@ import { installCustomSelects, installRichTextEditors } from '../petal/index.js'
 
 const appShell = new AppShell();
 
-function activateServiceDetailTab(tabKey: string, focus = false): void {
-  const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-detail-tab]')];
-  tabs.forEach((tab) => {
-    const selected = tab.dataset.detailTab === tabKey;
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    if (selected && focus) tab.focus();
-  });
-  document.querySelectorAll<HTMLElement>('.detail-pane').forEach((pane) => {
-    pane.hidden = pane.id !== `detailTab${tabKey.charAt(0).toUpperCase() + tabKey.slice(1)}`;
-  });
-}
-
 async function copyText(value: string, label = 'value'): Promise<void> {
   try {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
@@ -125,7 +112,6 @@ router.register('services', async () => {
 
 router.register('service-detail', async (ctx: RouteMatch) => {
   updateNavigationChrome('service-detail');
-  activateServiceDetailTab('overview');
   const id = ctx.params.id;
   if (id) await renderServiceDetail(id);
 });
@@ -171,7 +157,6 @@ router.register('settings', async () => {
 });
 
 function bindDelegatedEvents() {
-  document.getElementById('refreshServersBtn')?.addEventListener('click', renderServices);
   document.getElementById('refreshInvoicesBtn')?.addEventListener('click', renderBilling);
   document.getElementById('refreshAuditBtn')?.addEventListener('click', renderActivity);
   document.getElementById('doDeployBtn')?.addEventListener('click', beginCheckout);
@@ -225,13 +210,6 @@ function bindDelegatedEvents() {
       if (sheet) sheet.hidden = true;
       document.getElementById('mobileMoreBtn')?.setAttribute('aria-expanded', 'false');
       router.navigate(href);
-      return;
-    }
-
-    // Service Detail Tabs
-    const detailTab = target.closest<HTMLElement>('[data-detail-tab]');
-    if (detailTab) {
-      activateServiceDetailTab(detailTab.dataset.detailTab || 'overview');
       return;
     }
 
@@ -390,16 +368,6 @@ function bindDelegatedEvents() {
           });
       }
     }
-  });
-
-  document.addEventListener('keydown', (event: KeyboardEvent) => {
-    const current = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-detail-tab]');
-    if (!current || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-detail-tab]')];
-    const index = tabs.indexOf(current);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
-    event.preventDefault();
-    activateServiceDetailTab(tabs[next]?.dataset.detailTab || 'overview', true);
   });
 
   // Global Submit Handler
