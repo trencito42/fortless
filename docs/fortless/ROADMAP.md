@@ -150,8 +150,8 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 
 - [x] **Slice 5.1: Node.js & Containerized Web App Hosting Engine**
   - Migration 13 applied; Web & Cloud Apps category seeded with Node.js Starter & Pro plans; Git repo validation & anti-SSRF; outbox worker environment variable mapping verified (`WEBAPP-01` to `WEBAPP-03`).
-- [ ] **Slice 5.2: cPanel / WHM Shared Hosting Provisioning Adapter**
-  - Typed `CpanelProviderAdapter` with automated account creation, package synchronization, and anti-SSRF protections.
+- [x] **Slice 5.2: cPanel / WHM Shared Hosting Provisioning Adapter**
+  - Typed `CpanelProviderAdapter` and `MockCpanelAdapter` with automated account creation, package synchronization, Unknown Outcome recovery, and anti-SSRF protections (`CPANEL-01` to `CPANEL-04`).
 - [ ] **Slice 5.3: Domain Search, Registration & DNS Management Layer**
   - Domain lookup API (`/api/v1/domains/search`), TLD pricing catalog, and multi-tenant DNS zone editor (`A`, `AAAA`, `CNAME`, `MX`, `TXT`, `SRV`).
 - [ ] **Slice 5.4: Cloud VPS Compute Instances (Proxmox / KVM Adapter Interface)**

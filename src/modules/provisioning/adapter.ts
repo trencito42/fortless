@@ -1,3 +1,5 @@
+import { validateSafeOutboundUrl } from '../../utils/ssrf.js';
+
 export interface ProvisioningSpec {
   serviceId: string;
   name: string;
@@ -359,3 +361,247 @@ export class MockPterodactylAdapter implements ProviderAdapter {
     return this.servers.size;
   }
 }
+
+/**
+ * Real HTTP Provider Adapter for cPanel / WHM 11.x+ API.
+ * Uses WHM JSON API v1 for shared hosting account creation, package assignment,
+ * suspension, unsuspension, and termination with strict anti-SSRF protection.
+ */
+export class CpanelHttpAdapter implements ProviderAdapter {
+  readonly providerType = 'CPANEL' as const;
+  readonly version = 'WHM-JSON-API-v1';
+
+  private readonly baseUrl: string;
+  private readonly apiToken: string;
+  private readonly username: string;
+  private readonly timeoutMs: number;
+
+  constructor(options: {
+    whmUrl: string;
+    apiToken: string;
+    username?: string;
+    timeoutMs?: number;
+  }) {
+    if (!options.whmUrl || !options.apiToken) {
+      throw new ProviderAuthenticationError('WHM URL and API token are required for cPanel provider.');
+    }
+    this.baseUrl = options.whmUrl.replace(/\/$/, '');
+    this.apiToken = options.apiToken;
+    this.username = options.username || 'root';
+    this.timeoutMs = options.timeoutMs || 10000;
+  }
+
+  private async request(endpoint: string, params: Record<string, string>): Promise<any> {
+    const url = new URL(`${this.baseUrl}${endpoint}`);
+    url.searchParams.set('api.version', '1');
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, v);
+    }
+
+    // SSRF validation
+    await validateSafeOutboundUrl(url.toString());
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          'Authorization': `whm ${this.username}:${this.apiToken}`,
+          'Accept': 'application/json',
+        },
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new ProviderAuthenticationError(`WHM authorization failed (${res.status}).`, res.status);
+        }
+        throw new ProviderError(`WHM request failed with status ${res.status}`, 'WHM_HTTP_ERROR', res.status);
+      }
+
+      const json = await res.json() as any;
+      if (json.metadata && json.metadata.result === 0) {
+        throw new ProviderError(json.metadata.reason || 'WHM operation rejected', 'WHM_API_ERROR');
+      }
+      return json;
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new ProviderNetworkError('Connection to WHM timed out.');
+      }
+      if (err instanceof ProviderError) throw err;
+      throw new ProviderError(err.message || 'WHM request failed', 'WHM_REQUEST_FAILED');
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  async provision(spec: ProvisioningSpec): Promise<{ externalId: string; identifier: string }> {
+    const existing = await this.lookupByCorrelationTag(spec.correlationTag);
+    if (existing) {
+      return { externalId: existing.externalId, identifier: existing.identifier };
+    }
+
+    const cpUsername = spec.correlationTag.replace(/[^a-z0-9]/gi, '').slice(0, 12).toLowerCase() || 'cp' + spec.serviceId.slice(-8);
+    const domain = spec.environmentVariables?.DOMAIN || `${cpUsername}.fortless.cloud`;
+    const plan = spec.environmentVariables?.PLAN || 'standard';
+
+    try {
+      await this.request('/json-api/createacct', {
+        username: cpUsername,
+        domain,
+        plan,
+        customfield: spec.correlationTag,
+      });
+
+      return { externalId: cpUsername, identifier: cpUsername };
+    } catch (err: unknown) {
+      if (err instanceof ProviderNetworkError || (err instanceof ProviderError && (err.statusCode ?? 0) >= 500)) {
+        const recovered = await this.lookupByCorrelationTag(spec.correlationTag).catch(() => null);
+        if (recovered) {
+          return { externalId: recovered.externalId, identifier: recovered.identifier };
+        }
+      }
+      throw err;
+    }
+  }
+
+  async lookupByCorrelationTag(tag: string): Promise<ObservedResource | null> {
+    try {
+      const res = await this.request('/json-api/listaccts', {
+        search: tag,
+        searchtype: 'user',
+      });
+      const accts = res?.data?.acct;
+      if (Array.isArray(accts) && accts.length > 0) {
+        const a = accts[0];
+        return {
+          externalId: a.user,
+          identifier: a.user,
+          name: a.domain || a.user,
+          status: a.suspended === 1 ? 'STOPPED' : 'RUNNING',
+          nodeId: 'cpanel_node_01',
+          limits: {
+            memoryMb: 1024,
+            cpuPct: 100,
+            diskMb: 10240,
+          },
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  async powerAction(_externalId: string, _action: 'START' | 'STOP' | 'RESTART' | 'KILL'): Promise<void> {
+    throw new ProviderError('Direct power actions are unsupported on shared cPanel hosting.', 'UNSUPPORTED_OPERATION');
+  }
+
+  async suspend(externalId: string): Promise<void> {
+    await this.request('/json-api/suspendacct', {
+      user: externalId,
+      reason: 'Billing suspension via Fortless',
+    });
+  }
+
+  async unsuspend(externalId: string): Promise<void> {
+    await this.request('/json-api/unsuspendacct', {
+      user: externalId,
+    });
+  }
+
+  async terminate(externalId: string): Promise<void> {
+    await this.request('/json-api/removeacct', {
+      user: externalId,
+    });
+  }
+}
+
+/**
+ * Deterministic in-memory Mock cPanel / WHM Adapter for automated testing.
+ */
+export class MockCpanelAdapter implements ProviderAdapter {
+  readonly providerType = 'CPANEL' as const;
+  readonly version = 'MOCK-1.0';
+
+  private accounts = new Map<string, {
+    username: string;
+    domain: string;
+    status: 'RUNNING' | 'STOPPED';
+    correlationTag: string;
+    suspended: boolean;
+  }>();
+
+  public simulateTimeoutOnNextProvision = false;
+
+  async provision(spec: ProvisioningSpec): Promise<{ externalId: string; identifier: string }> {
+    const existing = await this.lookupByCorrelationTag(spec.correlationTag);
+    if (existing) {
+      return { externalId: existing.externalId, identifier: existing.identifier };
+    }
+
+    const username = spec.correlationTag.replace(/[^a-z0-9]/gi, '').slice(0, 12).toLowerCase() || 'cp' + spec.serviceId.slice(-8);
+    const domain = spec.environmentVariables?.DOMAIN || `${username}.fortless.cloud`;
+
+    this.accounts.set(username, {
+      username,
+      domain,
+      status: 'RUNNING',
+      correlationTag: spec.correlationTag,
+      suspended: false,
+    });
+
+    if (this.simulateTimeoutOnNextProvision) {
+      this.simulateTimeoutOnNextProvision = false;
+      throw new ProviderNetworkError('ETIMEDOUT: Connection to WHM timed out after creation');
+    }
+
+    return { externalId: username, identifier: username };
+  }
+
+  async lookupByCorrelationTag(tag: string): Promise<ObservedResource | null> {
+    for (const a of this.accounts.values()) {
+      if (a.correlationTag === tag || a.username === tag) {
+        return {
+          externalId: a.username,
+          identifier: a.username,
+          name: a.domain,
+          status: a.status,
+          nodeId: 'cpanel_mock_node',
+          limits: { memoryMb: 1024, cpuPct: 100, diskMb: 10240 },
+        };
+      }
+    }
+    return null;
+  }
+
+  async powerAction(_externalId: string, _action: 'START' | 'STOP' | 'RESTART' | 'KILL'): Promise<void> {
+    throw new ProviderError('Direct power actions are unsupported on shared cPanel hosting.', 'UNSUPPORTED_OPERATION');
+  }
+
+  async suspend(externalId: string): Promise<void> {
+    const a = this.accounts.get(externalId);
+    if (!a) throw new Error(`cPanel account ${externalId} not found`);
+    a.status = 'STOPPED';
+    a.suspended = true;
+  }
+
+  async unsuspend(externalId: string): Promise<void> {
+    const a = this.accounts.get(externalId);
+    if (!a) throw new Error(`cPanel account ${externalId} not found`);
+    a.status = 'RUNNING';
+    a.suspended = false;
+  }
+
+  async terminate(externalId: string): Promise<void> {
+    if (!this.accounts.has(externalId)) throw new Error(`cPanel account ${externalId} not found`);
+    this.accounts.delete(externalId);
+  }
+
+  getAccountCount(): number {
+    return this.accounts.size;
+  }
+}
+

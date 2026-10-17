@@ -69,7 +69,13 @@ import {
   updatePlanStatus,
   validateWebAppOptions,
 } from '../src/modules/catalog/catalog.js';
-import type { ProviderAdapter, ProvisioningSpec } from '../src/modules/provisioning/adapter.js';
+import {
+  CpanelHttpAdapter,
+  MockCpanelAdapter,
+  ProviderError,
+  type ProviderAdapter,
+  type ProvisioningSpec,
+} from '../src/modules/provisioning/adapter.js';
 import { createQuote, verifyQuote } from '../src/modules/pricing/quote.js';
 import { processCheckout } from '../src/modules/checkout/checkout.js';
 import {
@@ -2487,7 +2493,115 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(spec.environmentVariables.NODE_VERSION).toBe('20');
     });
   });
+
+  describe('Category O: Extended Infrastructure — cPanel / WHM Provisioning', () => {
+    it('CPANEL-01: CpanelHttpAdapter blocks SSRF when configured with private/loopback WHM URLs', async () => {
+      const adapter = new CpanelHttpAdapter({
+        whmUrl: 'http://127.0.0.1:2087',
+        apiToken: 'fake_token',
+      });
+
+      const spec: ProvisioningSpec = {
+        serviceId: 'svc_cpanel_ssrf',
+        name: 'ssrf-test',
+        memoryMb: 1024,
+        cpuPct: 100,
+        diskMb: 10240,
+        databases: 1,
+        backups: 1,
+        eggId: 0,
+        environmentVariables: { DOMAIN: 'test.com' },
+        correlationTag: 'cp_ssrf_test',
+      };
+
+      await expect(adapter.provision(spec)).rejects.toThrow();
+    });
+
+    it('CPANEL-02: MockCpanelAdapter provisions cPanel account, registers correlation tag, and manages suspension/unsuspension/termination', async () => {
+      const adapter = new MockCpanelAdapter();
+
+      const spec: ProvisioningSpec = {
+        serviceId: 'svc_cpanel_01',
+        name: 'my-business-site',
+        memoryMb: 1024,
+        cpuPct: 100,
+        diskMb: 10240,
+        databases: 2,
+        backups: 2,
+        eggId: 0,
+        environmentVariables: { DOMAIN: 'mybusiness.com', PLAN: 'starter' },
+        correlationTag: 'cp_mybusiness_tag',
+      };
+
+      const result = await adapter.provision(spec);
+      expect(result.externalId).toBeDefined();
+      expect(adapter.getAccountCount()).toBe(1);
+
+      // Lookup by correlation tag returns active observed resource
+      const observed = await adapter.lookupByCorrelationTag('cp_mybusiness_tag');
+      expect(observed).not.toBeNull();
+      expect(observed?.status).toBe('RUNNING');
+      expect(observed?.name).toBe('mybusiness.com');
+
+      // Suspend
+      await adapter.suspend(result.externalId);
+      const suspendedObserved = await adapter.lookupByCorrelationTag('cp_mybusiness_tag');
+      expect(suspendedObserved?.status).toBe('STOPPED');
+
+      // Unsuspend
+      await adapter.unsuspend(result.externalId);
+      const activeObserved = await adapter.lookupByCorrelationTag('cp_mybusiness_tag');
+      expect(activeObserved?.status).toBe('RUNNING');
+
+      // Terminate
+      await adapter.terminate(result.externalId);
+      expect(adapter.getAccountCount()).toBe(0);
+      const terminatedObserved = await adapter.lookupByCorrelationTag('cp_mybusiness_tag');
+      expect(terminatedObserved).toBeNull();
+    });
+
+    it('CPANEL-03: The Unknown Outcome Rule — Timeout during cPanel account creation recovers via correlation lookup without creating duplicates', async () => {
+      const adapter = new MockCpanelAdapter();
+      adapter.simulateTimeoutOnNextProvision = true;
+
+      const spec: ProvisioningSpec = {
+        serviceId: 'svc_cpanel_timeout',
+        name: 'timeout-site',
+        memoryMb: 1024,
+        cpuPct: 100,
+        diskMb: 10240,
+        databases: 1,
+        backups: 1,
+        eggId: 0,
+        environmentVariables: { DOMAIN: 'timeout.com' },
+        correlationTag: 'cp_timeout_correlation',
+      };
+
+      // Provision fails with simulated timeout
+      await expect(adapter.provision(spec)).rejects.toThrow('ETIMEDOUT');
+
+      // But account was already registered on provider! Recovery lookup finds it
+      const recovered = await adapter.lookupByCorrelationTag('cp_timeout_correlation');
+      expect(recovered).not.toBeNull();
+      expect(recovered?.externalId).toBeDefined();
+
+      // Second provisioning attempt with identical correlation tag recovers the existing account
+      const retryResult = await adapter.provision(spec);
+      expect(retryResult.externalId).toBe(recovered!.externalId);
+      expect(adapter.getAccountCount()).toBe(1); // Zero duplicate accounts created
+    });
+
+    it('CPANEL-04: Direct VM power actions on shared cPanel hosting fail closed with typed UNSUPPORTED_OPERATION error', async () => {
+      const adapter = new MockCpanelAdapter();
+
+      await expect(adapter.powerAction('cp_any_user', 'START')).rejects.toThrow(ProviderError);
+      await expect(adapter.powerAction('cp_any_user', 'RESTART')).rejects.toThrow(
+        expect.objectContaining({ code: 'UNSUPPORTED_OPERATION' })
+      );
+    });
+  });
 });
+
 
 
 

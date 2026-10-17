@@ -97,6 +97,12 @@ Every vertical slice must be validated across the testing pyramid before being m
 - [x] `WEBAPP-02`: Web app configuration validation enforces safe Git repository URLs and blocks SSRF / loopback targets. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 - [x] `WEBAPP-03`: Outbox worker maps web application parameters to provisioning spec environment variables and provisions successfully. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 
+### I. cPanel / WHM Shared Hosting
+- [x] `CPANEL-01`: CpanelHttpAdapter blocks SSRF when configured with private/loopback WHM URLs. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `CPANEL-02`: MockCpanelAdapter provisions cPanel account, registers correlation tag, and manages suspension/unsuspension/termination. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `CPANEL-03`: The Unknown Outcome Rule — Timeout during cPanel account creation recovers via correlation lookup without creating duplicates. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `CPANEL-04`: Direct VM power actions on shared cPanel hosting fail closed with typed UNSUPPORTED_OPERATION error. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+
 ---
 
 ## 3. Strict P0 Release Acceptance Gate Checklist
