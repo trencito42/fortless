@@ -38,11 +38,26 @@ export function filterBilling(): void {
   host.innerHTML = records.length ? records.map(invoiceRow).join('') : `<tr><td colspan="6">${renderEmptyState({ icon: 'document', title: invoiceCache.length ? 'No matching invoices' : 'No invoices', message: invoiceCache.length ? 'Try another number or status.' : 'Issued billing records will appear here.' })}</td></tr>`;
 }
 
+async function loadBillingProfile(): Promise<void> {
+  try {
+    const data = await api<{ user: any; account: any }>('/api/v1/auth/me');
+    const name = document.getElementById('billProfileName');
+    const workspace = document.getElementById('billProfileWorkspace');
+    const email = document.getElementById('billProfileEmail');
+    if (name) name.textContent = data.user?.name || data.account?.name || '—';
+    if (workspace) workspace.textContent = data.account?.name || '—';
+    if (email) email.textContent = data.user?.email || '—';
+  } catch {
+    // non-blocking
+  }
+}
+
 export async function renderBilling(): Promise<void> {
   const host = document.getElementById('invoicesTableBody');
   if (!host) return;
 
   host.innerHTML = `<tr><td colspan="6">${renderSkeleton('table', 'Loading billing records')}</td></tr>`;
+  loadBillingProfile();
 
   try {
     const { invoices } = await api<{ invoices: any[] }>('/api/v1/invoices');

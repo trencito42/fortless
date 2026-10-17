@@ -298,51 +298,66 @@
     <section id="section-billing" class="view-section" style="display:none">
       <div class="hd" style="margin-bottom:14px">
         <div class="tx">
-          <span class="pill acc">Billing</span>
           <h2>Invoices &amp; Billing</h2>
-          <p>Active subscriptions, draft and issued billing records.</p>
+          <p>Recurring renewals, invoices and receipts.</p>
         </div>
+        <button id="exportInvoicesBtn" class="btn">Export</button>
       </div>
 
-      <div class="card" style="margin-bottom:12px;padding:20px">
-        <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Active Subscriptions</h3><p>Recurring renewals and billing intervals.</p></div></div>
-        <div id="subscriptionsContainer">
-          <div class="sk" role="status" aria-label="Loading subscriptions"><i></i><i></i></div>
-        </div>
-      </div>
+      <div id="invoiceSummary" class="grid g3 k2" style="margin-bottom:12px"></div>
 
-      <div class="card" style="padding:20px">
-        <div class="ch" style="margin-bottom:14px">
-          <div class="tx"><h3>Billing records</h3><p>Draft and issued records returned by the current API.</p></div>
-          <button id="refreshInvoicesBtn" class="ib s" aria-label="Refresh invoices"><svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg></button>
-        </div>
-        <div id="invoiceSummary" class="grid g3" style="margin-bottom:14px"></div>
-        <div class="ch" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
-          <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="invoiceSearch" type="search" placeholder="Search invoices" aria-label="Search invoices"></label>
-          <div class="seg s" role="radiogroup" aria-label="Filter invoice status">
-            <label><input type="radio" name="invoiceStatus" value="ALL" checked><span>All</span></label>
-            <label><input type="radio" name="invoiceStatus" value="OPEN"><span>Open</span></label>
-            <label><input type="radio" name="invoiceStatus" value="PAID"><span>Paid</span></label>
+      <div class="g c21">
+        <div class="col" style="gap:12px">
+          <div class="card">
+            <div class="ch"><div class="tx"><h3>Active subscriptions</h3><p>Recurring renewals and billing intervals.</p></div></div>
+            <div id="subscriptionsContainer">
+              <div class="sk" role="status" aria-label="Loading subscriptions"><i></i><i></i></div>
+            </div>
           </div>
-          <small id="invoiceResultCount" class="muted"></small>
+
+          <div class="card">
+            <div class="ch" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
+              <div class="tx"><h3>Billing records</h3><p>Draft and issued records.</p></div>
+              <button id="refreshInvoicesBtn" class="btn s" aria-label="Refresh invoices">Refresh</button>
+            </div>
+            <div class="row" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
+              <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="invoiceSearch" type="search" placeholder="Search invoices" aria-label="Search invoices"></label>
+              <div class="seg s" role="radiogroup" aria-label="Filter invoice status">
+                <label><input type="radio" name="invoiceStatus" value="ALL" checked><span>All</span></label>
+                <label><input type="radio" name="invoiceStatus" value="OPEN"><span>Open</span></label>
+                <label><input type="radio" name="invoiceStatus" value="PAID"><span>Paid</span></label>
+              </div>
+              <small id="invoiceResultCount" class="muted"></small>
+            </div>
+            <div style="overflow-x:auto">
+              <table class="tbl rsp">
+                <thead>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Date</th>
+                    <th>Tax</th>
+                    <th class="r">Total</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="invoicesTableBody">
+                  <tr><td colspan="6"><div class="sk" role="status" aria-label="Loading invoices"><i></i><i></i><i></i></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <div style="overflow-x:auto">
-          <table class="tbl rsp">
-            <thead>
-              <tr>
-                <th>Invoice #</th>
-                <th>Date</th>
-                <th>Tax</th>
-                <th class="r">Total</th>
-                <th>Status</th>
-                <th class="r">Action</th>
-              </tr>
-            </thead>
-            <tbody id="invoicesTableBody">
-              <tr><td colspan="6"><div class="sk" role="status" aria-label="Loading invoices"><i></i><i></i><i></i></div></td></tr>
-            </tbody>
-          </table>
-        </div>
+
+        <aside class="card" style="align-self:start">
+          <div class="ch"><div class="tx"><h3>Billing profile</h3><p>Used on every invoice.</p></div></div>
+          <dl class="kv" id="billingProfileKv">
+            <dt>Name</dt><dd id="billProfileName"><span class="sk" style="width:120px;display:inline-block"><i></i></span></dd>
+            <dt>Workspace</dt><dd id="billProfileWorkspace"><span class="sk" style="width:100px;display:inline-block"><i></i></span></dd>
+            <dt>Email</dt><dd id="billProfileEmail"><span class="sk" style="width:160px;display:inline-block"><i></i></span></dd>
+          </dl>
+          <button class="btn blk" style="margin-top:16px" disabled>Edit billing profile</button>
+        </aside>
       </div>
     </section>
 
@@ -407,30 +422,89 @@
     <!-- SETTINGS & TEAM SECTION -->
     <section id="section-settings" class="view-section" style="display:none">
       <div class="hd" style="margin-bottom:14px">
-        <div class="tx"><span class="pill">Settings</span><h2>Account &amp; Settings</h2></div>
+        <div class="tx"><h2>Security &amp; Team</h2><p>Profile, sign-in protection, workspace members and devices.</p></div>
       </div>
-      <div class="grid g2">
-        <div class="card" style="padding:20px">
-          <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Profile</h3></div></div>
-          <dl class="kv">
-            <dt>Name</dt>
-            <dd id="profName">Loading…</dd>
-            <dt>Workspace</dt>
-            <dd id="profWorkspace">Loading…</dd>
-            <dt>Email</dt>
-            <dd id="profEmail">Loading…</dd>
-            <dt>Role</dt>
-            <dd id="profRole"><span class="pill acc">OWNER</span></dd>
-            <dt>Email status</dt>
-            <dd><span class="pill good">Verified</span></dd>
-          </dl>
-        </div>
+      <div class="tabs" id="settingsTabs" role="tablist">
+        <button role="tab" aria-selected="false" aria-controls="settings-p" tabindex="-1">Profile</button>
+        <button role="tab" aria-selected="true" aria-controls="settings-s" tabindex="0">Security</button>
+        <button role="tab" aria-selected="false" aria-controls="settings-t" tabindex="-1">Team</button>
+        <button role="tab" aria-selected="false" aria-controls="settings-d" tabindex="-1">Sessions</button>
+      </div>
 
-        <div class="card" style="padding:20px">
-          <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Security invariants</h3></div></div>
-          <div class="li"><span class="tile good sm"></span><span class="tx"><b>Argon2id Authentication</b><small>Memory-hard password hashing with cryptographically secure session IDs.</small></span><span class="pill good">PASS</span></div>
-          <div class="li"><span class="tile good sm"></span><span class="tx"><b>Anti-SSRF Blacklist</b><small>DNS resolution strictly blocking loopback and metadata endpoints.</small></span><span class="pill good">PASS</span></div>
-          <div class="li"><span class="tile good sm"></span><span class="tx"><b>Transactional Outbox</b><small>All side-effects committed atomically before external worker dispatch.</small></span><span class="pill good">PASS</span></div>
+      <!-- Profile tab -->
+      <div id="settings-p" class="tp" hidden>
+        <div class="grid g2" style="margin-bottom:12px">
+          <div class="card">
+            <div class="ch"><div class="tx"><h3>Account &amp; tenant profile</h3></div></div>
+            <dl class="kv">
+              <dt>Name</dt><dd id="profName">Loading…</dd>
+              <dt>Workspace</dt><dd id="profWorkspace">Loading…</dd>
+              <dt>Email</dt><dd id="profEmail">Loading…</dd>
+              <dt>Role</dt><dd id="profRole"><span class="pill acc">OWNER</span></dd>
+              <dt>Email status</dt><dd><span class="pill good">Verified</span></dd>
+            </dl>
+            <button class="btn blk" style="margin-top:16px" disabled>Edit profile</button>
+          </div>
+          <div class="card">
+            <div class="ch"><div class="tx"><h3>Account protection</h3><p>How sign-in is protected.</p></div></div>
+            <div class="col" style="gap:7px">
+              <div class="li"><span class="tile good sm"></span><span class="tx"><b>Argon2id password hashing</b><small>Memory-hard, with random session ids</small></span></div>
+              <div class="li"><span class="tile info sm"></span><span class="tx"><b>Sessions revoked on reset</b><small>Every device signs out</small></span></div>
+              <div class="li"><span class="tile violet sm"></span><span class="tx"><b>Single-use recovery codes</b><small>Each code works once</small></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="ch"><div class="tx"><h3>Change password</h3><p>Update your credentials. Revokes other active sessions.</p></div></div>
+          <form id="changePasswordForm" class="col" style="gap:12px;margin-top:12px">
+            <div class="fld"><label for="curPass">Current password</label><div class="inp"><input id="curPass" name="currentPassword" type="password" required autocomplete="current-password"></div></div>
+            <div class="fld"><label for="newPass">New password</label><div class="inp"><input id="newPass" name="newPassword" type="password" required minlength="12" autocomplete="new-password"></div></div>
+            <div class="row" style="justify-content:flex-end"><button class="btn s" type="submit">Update password</button></div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Security tab (default active) -->
+      <div id="settings-s" class="tp on">
+        <div class="grid g2">
+          <div class="card">
+            <div class="ch"><div class="tx"><h3>Two-step verification</h3><p>Authenticator app.</p></div></div>
+            <div id="mfaControl">
+              <div class="sk" role="status" aria-label="Loading two-step verification"><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ch"><div class="tx"><h3>Email delivery</h3><p>Transactional email outbox status.</p></div></div>
+            <div id="emailDeliveryStatus">
+              <div class="sk" role="status" aria-label="Loading email status"><i></i><i></i></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Team tab -->
+      <div id="settings-t" class="tp" hidden>
+        <div class="card">
+          <div class="ch">
+            <div class="tx"><h3>Workspace members</h3><p>People with access to this workspace.</p></div>
+            <button id="openInviteModalBtn" class="btn s" type="button">Invite member</button>
+          </div>
+          <div id="teamMemberList">
+            <div class="sk" role="status" aria-label="Loading team members"><i></i><i></i></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sessions tab -->
+      <div id="settings-d" class="tp" hidden>
+        <div class="card">
+          <div class="ch">
+            <div class="tx"><h3>Signed-in devices</h3><p>Review and sign out sessions.</p></div>
+            <button id="revokeOtherSessionsBtn" class="btn s bad" type="button">Loading…</button>
+          </div>
+          <div id="sessionList">
+            <div class="sk" role="status" aria-label="Loading active devices"><i></i><i></i></div>
+          </div>
         </div>
       </div>
     </section>

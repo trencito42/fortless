@@ -1025,113 +1025,6 @@ ${node.textContent || ""}
       if (aP) aP.textContent = "Recorded audit events; this UI does not claim independent tamper-proof certification.";
       const newTicketBtn = document.getElementById("newTicketBtn");
       if (newTicketBtn) newTicketBtn.innerHTML = `${hero("plus", "s")}Open ticket`;
-      const profileCard = document.querySelector("#section-settings .card:first-child");
-      if (profileCard) {
-        const h2 = profileCard.querySelector("h2");
-        if (h2) h2.textContent = "Account profile";
-        if (!profileCard.querySelector(".settings-actions")) {
-          profileCard.insertAdjacentHTML(
-            "beforeend",
-            `<div class="settings-actions"><a class="btn sec s" href="/app/activity" data-app-route="audit">${hero(
-              "shield",
-              "s"
-            )}View account activity</a></div>`
-          );
-        }
-      }
-      const securityCard = document.querySelector("#section-settings .card:nth-child(2)");
-      if (securityCard && !securityCard.classList.contains("configured")) {
-        securityCard.classList.add("configured");
-        securityCard.innerHTML = `
-        <div class="section-card-head">
-          <span class="ico-b accent">${hero("shield")}</span>
-          <div class="tx">
-            <h2>Account protection</h2>
-            <p>Security controls currently protecting this account.</p>
-          </div>
-        </div>
-        <div class="col" style="gap:6px">
-          <div class="li card s2">
-            <span class="ico-b good">${hero("check")}</span>
-            <span class="tx"><b>Verified identity</b><span>Email ownership is confirmed before dashboard access.</span></span>
-          </div>
-          <div class="li card s2">
-            <span class="ico-b good">${hero("check")}</span>
-            <span class="tx"><b>Protected sessions</b><span>Opaque session tokens are hashed at rest and browser mutations require CSRF validation.</span></span>
-          </div>
-        </div>
-      `;
-      }
-      const settingsGrid = document.querySelector("#section-settings .grid");
-      if (settingsGrid && !settingsGrid.querySelector(".mfa-card")) {
-        const mfaCard = document.createElement("div");
-        mfaCard.className = "card mfa-card";
-        mfaCard.innerHTML = `
-        <div class="section-card-head">
-          <span class="ico-b accent">${hero("shield")}</span>
-          <div class="tx"><h2>Two-step verification</h2><p>Protect sign-in with a standards-based authenticator app.</p></div>
-        </div>
-        <div id="mfaControl" class="mfa-control">
-          <div class="state-message">${hero("refresh")}<span>Loading two-step verification\u2026</span></div>
-        </div>
-      `;
-        settingsGrid.appendChild(mfaCard);
-        const sessionsCard = document.createElement("div");
-        sessionsCard.className = "card sessions-card";
-        sessionsCard.innerHTML = `
-        <div class="section-card-head">
-          <span class="ico-b accent">${hero("device")}</span>
-          <div class="tx"><h2>Active devices</h2><p>Review every valid session and sign out devices you no longer use.</p></div>
-          <div class="actions"><button id="revokeOtherSessionsBtn" class="btn sec s" type="button">Loading devices\u2026</button></div>
-        </div>
-        <div id="sessionList" class="z-ss">
-          <div class="state-message">${hero("refresh")}<span>Loading active devices\u2026</span></div>
-        </div>
-      `;
-        settingsGrid.appendChild(sessionsCard);
-        const teamCard = document.createElement("div");
-        teamCard.className = "card team-card";
-        teamCard.innerHTML = `
-        <div class="section-card-head">
-          <span class="ico-b accent">${hero("cube")}</span>
-          <div class="tx"><h2>Workspace team</h2><p>Collaborators and administrators for this workspace.</p></div>
-          <div class="actions"><button id="openInviteModalBtn" class="btn sec s" type="button">${hero(
-          "plus",
-          "s"
-        )}Invite member</button></div>
-        </div>
-        <div id="teamMemberList">
-          <div class="state-message">${hero("refresh")}<span>Loading team members\u2026</span></div>
-        </div>
-      `;
-        settingsGrid.appendChild(teamCard);
-        const passwordCard = document.createElement("div");
-        passwordCard.className = "card password-card";
-        passwordCard.innerHTML = `
-        <div class="section-card-head">
-          <span class="ico-b accent">${hero("shield")}</span>
-          <div class="tx"><h2>Change password</h2><p>Update your credentials. Revokes other active device sessions.</p></div>
-        </div>
-        <form id="changePasswordForm" class="col" style="gap:12px;margin-top:12px">
-          <div class="field"><label for="curPass">Current password</label><div class="inp"><input id="curPass" name="currentPassword" type="password" required autocomplete="current-password"></div></div>
-          <div class="field"><label for="newPass">New password</label><div class="inp"><input id="newPass" name="newPassword" type="password" required minlength="12" autocomplete="new-password"></div></div>
-          <div class="row" style="justify-content:flex-end"><button class="btn s" type="submit">Update password</button></div>
-        </form>
-      `;
-        settingsGrid.appendChild(passwordCard);
-        const emailCard = document.createElement("div");
-        emailCard.className = "card email-card";
-        emailCard.innerHTML = `
-        <div class="section-card-head">
-          <span class="ico-b accent">${hero("paper")}</span>
-          <div class="tx"><h2>Email delivery</h2><p>Durable transactional email outbox status.</p></div>
-        </div>
-        <div id="emailDeliveryStatus" class="col" style="gap:8px;margin-top:8px">
-          <div class="state-message">${hero("refresh")}<span>Checking delivery status\u2026</span></div>
-        </div>
-      `;
-        settingsGrid.appendChild(emailCard);
-      }
     }
     async loadSession() {
       const data = await api("/api/v1/auth/me");
@@ -2081,10 +1974,23 @@ ${node.textContent || ""}
     if (count) count.textContent = `${records.length} of ${invoiceCache.length} records`;
     host.innerHTML = records.length ? records.map(invoiceRow).join("") : `<tr><td colspan="6">${renderEmptyState({ icon: "document", title: invoiceCache.length ? "No matching invoices" : "No invoices", message: invoiceCache.length ? "Try another number or status." : "Issued billing records will appear here." })}</td></tr>`;
   }
+  async function loadBillingProfile() {
+    try {
+      const data = await api("/api/v1/auth/me");
+      const name = document.getElementById("billProfileName");
+      const workspace = document.getElementById("billProfileWorkspace");
+      const email = document.getElementById("billProfileEmail");
+      if (name) name.textContent = data.user?.name || data.account?.name || "\u2014";
+      if (workspace) workspace.textContent = data.account?.name || "\u2014";
+      if (email) email.textContent = data.user?.email || "\u2014";
+    } catch {
+    }
+  }
   async function renderBilling() {
     const host = document.getElementById("invoicesTableBody");
     if (!host) return;
     host.innerHTML = `<tr><td colspan="6">${renderSkeleton("table", "Loading billing records")}</td></tr>`;
+    loadBillingProfile();
     try {
       const { invoices } = await api("/api/v1/invoices");
       invoiceCache = invoices;
@@ -2349,6 +2255,43 @@ ${node.textContent || ""}
   }
 
   // src/frontend/client/pages/activity/index.ts
+  function actionIcon(action) {
+    const a = String(action || "").toLowerCase();
+    if (/password|recovery|key/.test(a)) return ["key-01", ""];
+    if (/mfa|totp|otp|two.step|finger/.test(a)) return ["finger-print-scan", "good"];
+    if (/login|logout|session|auth/.test(a)) return ["lock", "good"];
+    if (/ticket|support|message/.test(a)) return ["message-01", "info"];
+    if (/provision|deploy|service|server/.test(a)) return ["rocket-01", "violet"];
+    if (/invoice|billing|payment|subscription|order/.test(a)) return ["invoice-01", "warn"];
+    return ["shield", ""];
+  }
+  function dayLabel(ts) {
+    const d = new Date(ts);
+    const now = /* @__PURE__ */ new Date();
+    const todayStr = now.toDateString();
+    const dStr = d.toDateString();
+    if (dStr === todayStr) return "Today";
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (dStr === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  }
+  function groupByDay(logs) {
+    const groups = /* @__PURE__ */ new Map();
+    for (const item of logs) {
+      const label = item.created_at ? dayLabel(item.created_at) : "Unknown";
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(item);
+    }
+    return groups;
+  }
+  function renderTimeline(items) {
+    return '<div class="tl2">' + items.map((item) => {
+      const [icon, tone] = actionIcon(item.action);
+      const time = item.created_at ? new Date(item.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+      return `<div class="ev"><span class="tile ${tone} sm">${hero(icon, "s")}</span><div><b>${esc(item.actor_name || item.actor_type)} \xB7 ${esc(item.action.replaceAll(".", " \xB7 "))}</b><small>${esc(item.resource_type || "")}${item.resource_id ? " \xB7 " + esc(compactId(item.resource_id)) : ""}${item.ip_address ? " \xB7 " + esc(item.ip_address) : ""}</small></div><small>${esc(time)}</small></div>`;
+    }).join("") + "</div>";
+  }
   var auditLogs = [];
   async function renderActivity() {
     const host = document.getElementById("auditList");
@@ -2379,20 +2322,21 @@ ${node.textContent || ""}
     if (count) count.textContent = `${logs.length} of ${auditLogs.length} events`;
     if (!logs.length) {
       host.innerHTML = renderEmptyState({
-        icon: "shield",
+        icon: "history",
         title: query ? "No matching activity" : "No account activity yet",
         message: query ? "Try a different actor, action or resource." : "Security-relevant account events will appear here."
       });
       return;
     }
-    host.innerHTML = logs.map(
-      (item) => `<div class="li"><span class="tile sm">${hero("shield", "s")}</span><span class="tx"><b>${esc(item.actor_name || item.actor_type)} \xB7 ${esc(item.action.replaceAll(".", " \xB7 "))}</b><small>${esc(item.resource_type)} \xB7 ${esc(compactId(item.resource_id))} \xB7 ${esc(item.ip_address || "\u2014")}</small></span><span class="muted" style="font-size:12px;flex-shrink:0">${esc(formatDate(item.created_at))}</span></div>`
-    ).join("");
+    const groups = groupByDay(logs);
+    host.innerHTML = Array.from(groups.entries()).map(([day, items]) => `<div class="dh">${esc(day)}</div>${renderTimeline(items)}`).join("");
   }
 
   // src/frontend/client/pages/settings/index.ts
   var mfaEnrollmentState = null;
   async function renderSettings() {
+    const tabsEl = document.getElementById("settingsTabs");
+    if (tabsEl) initTabs(tabsEl);
     await Promise.all([loadMfa(), loadSessions(), loadTeamMembers(), loadEmailStatus()]);
   }
   function describeDevice(userAgent) {

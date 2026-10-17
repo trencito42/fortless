@@ -7,6 +7,7 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { hero, renderSkeleton, toast } from '../../../petal/index.js';
+import { initTabs } from '../../../petal/components/tabs.js';
 
 declare global {
   interface Window {
@@ -17,6 +18,8 @@ declare global {
 let mfaEnrollmentState: any = null;
 
 export async function renderSettings(): Promise<void> {
+  const tabsEl = document.getElementById('settingsTabs');
+  if (tabsEl) initTabs(tabsEl);
   await Promise.all([loadMfa(), loadSessions(), loadTeamMembers(), loadEmailStatus()]);
 }
 
