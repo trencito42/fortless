@@ -281,7 +281,7 @@
 
         <div class="card" style="padding:16px;background:var(--s2)">
           <h4 style="font:700 14px var(--font);margin-bottom:12px">Add Resource Record</h4>
-          <form id="addDnsRecordForm" class="g g4 k2" style="gap:10px;align-items:flex-end">
+          <form id="addDnsRecordForm" class="grid g4 k2" style="gap:10px;align-items:flex-end">
             <div class="fld"><label for="dnsRecordType">Type</label><div class="inp sel s"><select id="dnsRecordType"><option value="A">A (IPv4)</option><option value="AAAA">AAAA (IPv6)</option><option value="CNAME">CNAME (Alias)</option><option value="MX">MX (Mail)</option><option value="TXT">TXT (Text/SPF)</option><option value="SRV">SRV (Service)</option><option value="NS">NS (Nameserver)</option></select></div></div>
             <div class="fld"><label for="dnsRecordName">Name</label><div class="inp"><input id="dnsRecordName" type="text" placeholder="@ for root" required></div></div>
             <div class="fld"><label for="dnsRecordContent">Target / Content</label><div class="inp"><input id="dnsRecordContent" type="text" placeholder="192.0.2.1" required></div></div>
@@ -316,7 +316,7 @@
           <div class="tx"><h3>Billing records</h3><p>Draft and issued records returned by the current API.</p></div>
           <button id="refreshInvoicesBtn" class="ib s" aria-label="Refresh invoices"><svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg></button>
         </div>
-        <div id="invoiceSummary" class="g g3 k2" style="margin-bottom:14px"></div>
+        <div id="invoiceSummary" class="grid g3" style="margin-bottom:14px"></div>
         <div class="ch" style="margin-bottom:10px;flex-wrap:wrap;gap:10px">
           <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="invoiceSearch" type="search" placeholder="Search invoices" aria-label="Search invoices"></label>
           <div class="seg s" role="radiogroup" aria-label="Filter invoice status">
@@ -409,7 +409,7 @@
       <div class="hd" style="margin-bottom:14px">
         <div class="tx"><span class="pill">Settings</span><h2>Account &amp; Settings</h2></div>
       </div>
-      <div class="g g2">
+      <div class="grid g2">
         <div class="card" style="padding:20px">
           <div class="ch" style="margin-bottom:14px"><div class="tx"><h3>Profile</h3></div></div>
           <dl class="kv">

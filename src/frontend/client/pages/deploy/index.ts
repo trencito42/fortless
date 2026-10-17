@@ -110,7 +110,7 @@ export function renderCatalog(): void {
       })
       .join('');
     host.innerHTML = planHtml
-      ? `<div class="g g2">${planHtml}</div>`
+      ? `<div class="grid g2">${planHtml}</div>`
       : `<div class="alert warn">${hero('warning', 's')}<div><b>No published plans available</b></div></div>`;
   }
 
@@ -129,7 +129,7 @@ export function renderCatalog(): void {
         return `<button type="button" class="sel" data-region-id="${esc(reg.id)}" aria-pressed="${selected}"${reg.isSoldOut ? ' disabled' : ''}><span class="row nw"><b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${avail}</span><small class="f">${esc(statusText)}</small></button>`;
       })
       .join('');
-    regHost.innerHTML = `<div class="g g2">${regHtml}</div>`;
+    regHost.innerHTML = `<div class="grid g2">${regHtml}</div>`;
   }
 
   updateSummary();

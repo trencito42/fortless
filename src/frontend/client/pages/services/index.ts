@@ -77,7 +77,7 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
       </div>
 
       <div id="dtlPaneOverview" role="tabpanel" class="tp">
-        <div class="g g2">
+        <div class="grid g2">
           <section class="card">
             <h3 style="font:700 16px var(--font);margin-bottom:14px">Technical Specifications</h3>
             ${kv([
@@ -102,7 +102,7 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
       </div>
 
       <div id="dtlPaneAllocation" role="tabpanel" class="tp" hidden>
-        <div class="g g3">
+        <div class="grid g3">
           <section class="card">
             <span class="muted" style="font-size:12px">Memory Allocation</span>
             <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${(ramMb / 1024).toFixed(1)} GB`)}</b>

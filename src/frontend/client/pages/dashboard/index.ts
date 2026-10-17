@@ -84,7 +84,7 @@ export async function renderServices(): Promise<void> {
         </div>
       </div>
 
-      <div class="g g4 k2" style="margin-bottom:12px">
+      <div class="grid g4 k2" style="margin-bottom:12px">
         ${metricCard('Running', running)}
         ${metricCard('Total services', services.length)}
         ${metricCard('Allocated RAM', `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`)}

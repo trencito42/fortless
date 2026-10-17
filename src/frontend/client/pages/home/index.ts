@@ -134,7 +134,7 @@ export async function renderHome(): Promise<void> {
       </div>
     </div>
 
-    <div class="g g4 k2" style="margin-bottom:12px">
+    <div class="grid g4 k2" style="margin-bottom:12px">
       ${metricCard('Active services', services.filter((s) => s.contract_status === 'ACTIVE').length, 'server', 'good')}
       ${metricCard('Total services', services.length, 'cube', '')}
       ${metricCard('Open tickets', openTickets.length, 'support', openTickets.length ? 'warn' : '')}
@@ -148,7 +148,7 @@ export async function renderHome(): Promise<void> {
       </section>
     </div>
 
-    <div class="g g2">
+    <div class="grid g2">
       ${panel('My services', 'Provider-observed contract and runtime state.', servicesBody, '/app/services', 'View all')}
       ${panel('Support', 'Recent account conversations.', supportBody, '/app/support', 'View support')}
       ${panel('Billing', 'Latest issued account records.', billingBody, '/app/billing', 'View billing')}

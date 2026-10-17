@@ -1334,7 +1334,7 @@ ${node.textContent || ""}
       </div>
     </div>
 
-    <div class="g g4 k2" style="margin-bottom:12px">
+    <div class="grid g4 k2" style="margin-bottom:12px">
       ${metricCard("Active services", services.filter((s) => s.contract_status === "ACTIVE").length, "server", "good")}
       ${metricCard("Total services", services.length, "cube", "")}
       ${metricCard("Open tickets", openTickets.length, "support", openTickets.length ? "warn" : "")}
@@ -1348,7 +1348,7 @@ ${node.textContent || ""}
       </section>
     </div>
 
-    <div class="g g2">
+    <div class="grid g2">
       ${panel("My services", "Provider-observed contract and runtime state.", servicesBody, "/app/services", "View all")}
       ${panel("Support", "Recent account conversations.", supportBody, "/app/support", "View support")}
       ${panel("Billing", "Latest issued account records.", billingBody, "/app/billing", "View billing")}
@@ -1424,7 +1424,7 @@ ${node.textContent || ""}
         </div>
       </div>
 
-      <div class="g g4 k2" style="margin-bottom:12px">
+      <div class="grid g4 k2" style="margin-bottom:12px">
         ${metricCard2("Running", running)}
         ${metricCard2("Total services", services.length)}
         ${metricCard2("Allocated RAM", `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`)}
@@ -1528,7 +1528,7 @@ ${node.textContent || ""}
       </div>
 
       <div id="dtlPaneOverview" role="tabpanel" class="tp">
-        <div class="g g2">
+        <div class="grid g2">
           <section class="card">
             <h3 style="font:700 16px var(--font);margin-bottom:14px">Technical Specifications</h3>
             ${kv([
@@ -1553,7 +1553,7 @@ ${node.textContent || ""}
       </div>
 
       <div id="dtlPaneAllocation" role="tabpanel" class="tp" hidden>
-        <div class="g g3">
+        <div class="grid g3">
           <section class="card">
             <span class="muted" style="font-size:12px">Memory Allocation</span>
             <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${(ramMb / 1024).toFixed(1)} GB`)}</b>
@@ -1672,7 +1672,7 @@ ${node.textContent || ""}
         const tone = plan.categorySlug === "game-servers" ? "acc" : "violet";
         return `<button type="button" class="sel" data-plan-id="${esc(plan.planVersionId)}" aria-pressed="${selected}"><span class="pill ${tone}">${esc(plan.categoryName)}</span><b>${esc(plan.planName)}</b><span class="p">${price ? money(price.priceMinorUnits, price.currency) : "Unavailable"} <small>/${esc((price?.interval || "").toLowerCase())}</small></span><small class="f">${esc(plan.productName)} \xB7 ${plan.resources.memoryMb / 1024} GB RAM \xB7 ${plan.resources.cpuPct}% CPU \xB7 ${plan.resources.diskMb / 1024} GB disk</small></button>`;
       }).join("");
-      host.innerHTML = planHtml ? `<div class="g g2">${planHtml}</div>` : `<div class="alert warn">${hero("warning", "s")}<div><b>No published plans available</b></div></div>`;
+      host.innerHTML = planHtml ? `<div class="grid g2">${planHtml}</div>` : `<div class="alert warn">${hero("warning", "s")}<div><b>No published plans available</b></div></div>`;
     }
     const regHost = document.getElementById("regionSelector");
     if (regHost && deployState.regions.length) {
@@ -1683,7 +1683,7 @@ ${node.textContent || ""}
         const avail = reg.isSoldOut ? `<span class="pill bad" style="margin-left:auto">Sold out</span>` : `<span class="pill good" style="margin-left:auto">Available</span>`;
         return `<button type="button" class="sel" data-region-id="${esc(reg.id)}" aria-pressed="${selected}"${reg.isSoldOut ? " disabled" : ""}><span class="row nw"><b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${avail}</span><small class="f">${esc(statusText)}</small></button>`;
       }).join("");
-      regHost.innerHTML = `<div class="g g2">${regHtml}</div>`;
+      regHost.innerHTML = `<div class="grid g2">${regHtml}</div>`;
     }
     updateSummary();
   }
