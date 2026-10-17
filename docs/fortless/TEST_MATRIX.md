@@ -117,6 +117,15 @@ Every vertical slice must be validated across the testing pyramid before being m
 - [x] `VPS-05`: The Unknown Outcome Rule — Timeout during VM provisioning recovers via correlation lookup without creating duplicate VMs. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 - [x] `VPS-06`: Outbox worker maps VPS provisioning spec to hypervisor adapter and marks service ACTIVE. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
 
+### L. AI-Assisted Operations & Advanced Diagnostics
+- [x] `AI-01`: Input redactor strictly masks credit cards, API keys, private keys, passwords, and tokens before LLM dispatch. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `AI-02`: Guardrail enforcement: AI outputs strictly read-only diagnostics; monetary and destructive action attempts fail closed. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `AI-03`: OpenAiCompatibleAdapter validates base URL with anti-SSRF protections, rejecting loopback and metadata endpoints. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `AI-04`: MockAiProviderAdapter diagnoses service crash states and returns structured root-cause analysis and remediation steps. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `AI-05`: Ticket triage engine analyzes customer ticket thread, assigns category, sentiment, and drafts contextually accurate staff response with relevant KB article references. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `AI-06`: Knowledge base search returns relevant articles by keywords/tags and respects multi-category filtering. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+- [x] `AI-07`: Multi-tenant isolation prevents Tenant B from running AI diagnostics on Tenant A's service or ticket. `[MOCK_ONLY]` (Verified in tests/platform.test.ts)
+
 ---
 
 ## 3. Strict P0 Release Acceptance Gate Checklist

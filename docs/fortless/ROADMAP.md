@@ -157,3 +157,13 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 - [x] **Slice 5.4: Cloud VPS Compute Instances (Proxmox / KVM Adapter Interface)**
   - Migration 15 applied; Cloud VPS catalog seeded with Micro (€8.00/mo), Standard (€16.00/mo), and Pro (€32.00/mo) KVM plans; RFC 1123 hostname, guest OS, and SSH key validation; `ProxmoxHttpAdapter` with anti-SSRF protection, cloud-init provisioning, power lifecycle, and VNC console ticket generation; `MockProxmoxAdapter` with Unknown Outcome correlation lookup (`VPS-01` to `VPS-06`).
 
+---
+
+### Phase 6: AI-Assisted Operations & Advanced Diagnostics
+*Goal: Provide guardrailed, read-only diagnostic intelligence, secret-redacted support triage, and contextual knowledge base retrieval.*
+
+- [x] **Slice 6.1: Guardrailed AI Diagnostics & Support Assistant Engine**
+  - Security redactor (`redactSensitiveData`) strips credit card PANs, CVVs, API tokens, passwords, and private keys before dispatch; `AiProviderAdapter` interface with `MockAiProviderAdapter` and `OpenAiCompatibleAiAdapter` (anti-SSRF protected); strict read-only guardrails rejecting monetary/destructive mutations; support ticket triage (`/api/v1/tickets/:id/ai-assist`, `/api/v1/admin/tickets/:ticketId/ai-assist`); service health diagnosis (`/api/v1/services/:id/diagnostics`); persistent audit logs in `ai_diagnostic_logs` (`AI-01` to `AI-05`, `AI-07`).
+- [x] **Slice 6.2: Automated Knowledge Base & Documentation Retrieval**
+  - Migration 16 applied (`knowledge_articles`); seeded authoritative guides for Minecraft EULA/OOM, Node.js port binding, cPanel SPF/DKIM, apex CNAME collisions, and VPS SSH hardening; multi-field keyword and tag ranking; public search API (`/api/v1/kb/articles`, `/api/v1/kb/articles/:slug`) (`AI-06`).
+

@@ -554,6 +554,177 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 16,
+    name: 'ai_diagnostics_and_knowledge_base',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge_articles (
+          id TEXT PRIMARY KEY,
+          slug TEXT UNIQUE NOT NULL,
+          title TEXT NOT NULL,
+          category TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          content_markdown TEXT NOT NULL,
+          tags TEXT NOT NULL,
+          is_published INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_kb_category ON knowledge_articles(category, is_published);
+        CREATE INDEX IF NOT EXISTS idx_kb_slug ON knowledge_articles(slug);
+
+        CREATE TABLE IF NOT EXISTS ai_diagnostic_logs (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          context_type TEXT NOT NULL,
+          target_resource_id TEXT,
+          prompt_summary TEXT NOT NULL,
+          suggested_action TEXT,
+          confidence_score REAL,
+          model_used TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_diag_account ON ai_diagnostic_logs(account_id, created_at);
+      `);
+
+      // Seed authoritative foundational knowledge base articles
+      const seedArticles = [
+        {
+          id: 'kb_art_mc_eula',
+          slug: 'minecraft-crash-eula-memory',
+          title: 'Minecraft Server Crash on Startup (EULA Acceptance & Memory Allocation)',
+          category: 'GAME_SERVERS',
+          summary: 'How to diagnose and resolve immediate server shutdown caused by unaccepted EULA or OutOfMemoryError exceptions.',
+          content_markdown: `## Troubleshooting Minecraft Startup Crashes
+
+### 1. Unaccepted EULA Agreement
+If your server console shows \`You need to agree to the EULA in order to run the server\`:
+1. Navigate to the **Files** manager in your Fortless server panel.
+2. Open \`eula.txt\`.
+3. Change \`eula=false\` to \`eula=true\`.
+4. Save the file and restart your server.
+
+### 2. OutOfMemoryError (OOM)
+When Minecraft exhausts its configured heap, the JVM crashes with:
+\`\`\`
+java.lang.OutOfMemoryError: Java heap space
+\`\`\`
+- Check active modpacks and view distances in \`server.properties\`. High chunk view distances (> 12) dramatically increase RAM utilization.
+- Consider upgrading your plan to a higher RAM tier if running heavy Fabric/Forge modpacks with 10+ concurrent players.`,
+          tags: JSON.stringify(['minecraft', 'eula', 'crash', 'oom', 'memory', 'java']),
+        },
+        {
+          id: 'kb_art_nodejs_env',
+          slug: 'nodejs-webapp-port-binding',
+          title: 'Node.js Web App Deployment: Binding process.env.PORT & Health Checks',
+          category: 'WEB_APPS',
+          summary: 'Configure your Node.js or containerized web service to bind to dynamic environment ports and pass health checks.',
+          content_markdown: `## Configuring Node.js Web Applications on Fortless
+
+### 1. Dynamic Port Binding
+Fortless dynamically assigns network ports to container instances via the \`PORT\` environment variable. Never hardcode \`3000\` or \`8080\` in your production server listener:
+
+\`\`\`javascript
+const port = process.env.PORT || 3000;
+server.listen(port, '0.0.0.0', () => {
+  console.log(\`Server listening on 0.0.0.0:\${port}\`);
+});
+\`\`\`
+
+### 2. EADDRINUSE Error
+If you receive \`Error: listen EADDRINUSE: address already in use\`, verify:
+- You are not starting duplicate background processes or PM2 instances inside the container.
+- Your application does not attempt to bind to privileged ports (< 1024).`,
+          tags: JSON.stringify(['nodejs', 'port', 'eaddrinuse', 'webapps', 'docker', 'healthcheck']),
+        },
+        {
+          id: 'kb_art_cpanel_dns',
+          slug: 'cpanel-spf-dkim-deliverability',
+          title: 'cPanel Email Deliverability: Configuring SPF, DKIM & Reverse DNS',
+          category: 'CPANEL',
+          summary: 'Ensure your outgoing emails reach the inbox instead of spam by validating SPF, DKIM, and MX records.',
+          content_markdown: `## Email Authentication on cPanel
+
+### 1. SPF (Sender Policy Framework)
+Add a TXT record at your domain root:
+\`\`\`
+v=spf1 include:_spf.fortless.net +ip4:185.190.140.0/24 ~all
+\`\`\`
+
+### 2. DKIM (DomainKeys Identified Mail)
+In your cPanel dashboard under **Email Deliverability**, copy the generated 2048-bit public key. In the Fortless **Domains & DNS** portal, add a \`TXT\` record with name \`default._domainkey.yourdomain.com\` containing the public key value.`,
+          tags: JSON.stringify(['cpanel', 'email', 'spf', 'dkim', 'deliverability', 'dns']),
+        },
+        {
+          id: 'kb_art_dns_cname',
+          slug: 'dns-cname-apex-collision-rfc1912',
+          title: 'DNS Configuration: Resolving CNAME Collisions at Apex (RFC 1912 §2.4)',
+          category: 'DOMAINS_DNS',
+          summary: 'Why CNAME records cannot coexist with NS, MX, or SOA records at the apex root and how to configure ALIAS/ANAME.',
+          content_markdown: `## RFC 1912 §2.4 CNAME Restrictions
+
+According to RFC 1912: *A CNAME record is not allowed to coexist with any other data at the same node.*
+
+Because the zone apex (e.g. \`example.com\`) must have \`SOA\` and \`NS\` records, creating a \`CNAME\` record for \`@\` is invalid and rejected by the Fortless DNS engine.
+
+### Recommended Solutions:
+1. Use an \`A\` record pointing to your server's public IPv4 address and an \`AAAA\` record pointing to IPv6.
+2. If targeting an external CDN or SaaS provider, point the subdomain \`www.example.com\` via \`CNAME\`, and configure a root HTTP 301 redirect.`,
+          tags: JSON.stringify(['dns', 'cname', 'rfc1912', 'apex', 'domains']),
+        },
+        {
+          id: 'kb_art_vps_ssh',
+          slug: 'cloud-vps-ssh-keys-hardening',
+          title: 'Cloud VPS KVM: SSH Key Authentication & UFW Firewall Hardening',
+          category: 'CLOUD_VPS',
+          summary: 'Secure your KVM virtual private server using Ed25519/RSA public keys and default-deny firewall policies.',
+          content_markdown: `## Hardening Cloud VPS Instances
+
+### 1. SSH Public Key Authentication
+Ensure your public key is added during provisioning or placed in \`~/.ssh/authorized_keys\` with permissions \`0600\`:
+\`\`\`bash
+ssh -i ~/.ssh/id_ed25519 root@<YOUR_VPS_IP>
+\`\`\`
+
+### 2. Firewall Protection (UFW)
+Always enable a default-deny incoming policy:
+\`\`\`bash
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw enable
+\`\`\``,
+          tags: JSON.stringify(['vps', 'kvm', 'ssh', 'firewall', 'security', 'proxmox']),
+        },
+        {
+          id: 'kb_art_billing_vat',
+          slug: 'billing-vat-invoicing-sepa',
+          title: 'Invoicing & VAT: Reverse Charge, Fiscal Receipts, and Card Settlement',
+          category: 'BILLING',
+          summary: 'Understanding European VAT reverse charge compliance, immutable invoice receipts, and billing cycles.',
+          content_markdown: `## Fortless Billing & European VAT Compliance
+
+### 1. EU B2B Reverse Charge (Article 196)
+If your business is established in an EU member state outside Romania with a validated VIES VAT number, VAT is zero-rated under the reverse charge mechanism.
+
+### 2. Sequential Invoice Numbers
+Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on confirmed settlement direct from our payment provider webhook. Invoices cannot be modified post-issuance.`,
+          tags: JSON.stringify(['billing', 'invoices', 'vat', 'reverse-charge', 'tax']),
+        },
+      ];
+
+      const insertArt = db.prepare(`
+        INSERT OR IGNORE INTO knowledge_articles (id, slug, title, category, summary, content_markdown, tags, is_published)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      `);
+
+      for (const art of seedArticles) {
+        insertArt.run(art.id, art.slug, art.title, art.category, art.summary, art.content_markdown, art.tags);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

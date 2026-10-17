@@ -123,6 +123,15 @@ import {
   deleteDnsRecord,
   TLD_CATALOG,
 } from './modules/domains/dns.js';
+import {
+  searchKnowledgeArticles,
+  getKnowledgeArticleBySlug,
+} from './modules/ai/knowledge.js';
+import {
+  runServiceDiagnostic,
+  runTicketTriage,
+} from './modules/ai/diagnostics.js';
+import { MockAiProviderAdapter } from './modules/ai/adapter.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -136,6 +145,8 @@ export function buildServer(): FastifyInstance {
     logger: false,
     trustProxy: (address) => address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1',
   });
+
+  const aiAdapter = new MockAiProviderAdapter();
 
   // 1. Raw body capture plugin for webhook signature verification
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
@@ -393,6 +404,25 @@ export function buildServer(): FastifyInstance {
       return reply.type('text/html').header('Cache-Control', 'public, max-age=60').send(html);
     }
     return reply.status(404).send('Not Found');
+  });
+
+  // Knowledge Base: Search & List Articles
+  app.get('/api/v1/kb/articles', async (req) => {
+    const query = (req.query as any)?.q || '';
+    const category = (req.query as any)?.category;
+    const limit = (req.query as any)?.limit ? Number((req.query as any).limit) : 10;
+    const articles = searchKnowledgeArticles(query, { category, limit }, getDatabase());
+    return { articles };
+  });
+
+  // Knowledge Base: Get Article by Slug
+  app.get('/api/v1/kb/articles/:slug', async (req, reply) => {
+    const { slug } = req.params as { slug: string };
+    const article = getKnowledgeArticleBySlug(slug, getDatabase());
+    if (!article) {
+      return reply.status(404).send({ error: 'Article not found.' });
+    }
+    return { article };
   });
 
   app.get('/admin', async (req, reply) => {
@@ -1233,6 +1263,31 @@ export function buildServer(): FastifyInstance {
     }
   });
 
+  // Services: AI Diagnostic Analysis (Tenant Isolated)
+  app.post('/api/v1/services/:id/diagnostics', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as { recentLogs?: string } | undefined;
+    try {
+      const report = await runServiceDiagnostic(
+        {
+          serviceId: id,
+          accountId: req.auth!.account.id,
+          userId: req.auth!.user.id,
+          recentLogs: body?.recentLogs,
+        },
+        getDatabase(),
+        aiAdapter
+      );
+      return { report };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg.includes('not found') || msg.includes('unauthorized')) {
+        return reply.status(404).send({ error: msg });
+      }
+      return reply.status(500).send({ error: msg });
+    }
+  });
+
   // Invoices: Get by ID with lines (Tenant Isolated!)
   app.get('/api/v1/invoices/:id', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = req.params as { id: string };
@@ -1633,6 +1688,30 @@ export function buildServer(): FastifyInstance {
     return reply.send(result.buffer);
   });
 
+  // Tickets: AI Diagnostic Triage & Reply Drafting (Customer self-service, tenant isolated)
+  app.post('/api/v1/tickets/:id/ai-assist', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      const triage = await runTicketTriage(
+        {
+          ticketId: id,
+          accountId: req.auth!.account.id,
+          isStaff: false,
+          userId: req.auth!.user.id,
+        },
+        getDatabase(),
+        aiAdapter
+      );
+      return { triage };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg.includes('not found') || msg.includes('unauthorized')) {
+        return reply.status(404).send({ error: msg });
+      }
+      return reply.status(500).send({ error: msg });
+    }
+  });
+
   // Admin Tickets: Staff Upload Attachment
   app.post('/api/v1/admin/tickets/:ticketId/attachments', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
     const { ticketId } = req.params as { ticketId: string };
@@ -1993,6 +2072,30 @@ export function buildServer(): FastifyInstance {
       return reply.send({ success: true, ticketId: params.data.ticketId, status: body.data.status });
     } catch (err: unknown) {
       return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  // Admin Tickets: AI Staff Assistance & Draft Generation
+  app.post('/api/v1/admin/tickets/:ticketId/ai-assist', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+    const { ticketId } = req.params as { ticketId: string };
+    try {
+      const triage = await runTicketTriage(
+        {
+          ticketId,
+          accountId: null,
+          isStaff: true,
+          userId: req.auth!.user.id,
+        },
+        getDatabase(),
+        aiAdapter
+      );
+      return { triage };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg.includes('not found') || msg.includes('unauthorized')) {
+        return reply.status(404).send({ error: msg });
+      }
+      return reply.status(500).send({ error: msg });
     }
   });
 
