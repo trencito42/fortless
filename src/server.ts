@@ -47,8 +47,13 @@ import { getProviderAdapter } from './modules/outbox/worker.js';
 import {
   getAdminOverview,
   listAdminAccounts,
+  getAdminAccountDetail,
+  updateAccountStatus,
   listAdminServices,
   listAdminTickets,
+  getAdminTicketDetail,
+  addStaffTicketReply,
+  updateTicketStatus,
   listAdminAudit,
   listAdminStaff,
 } from './modules/admin/read-model.js';
@@ -978,6 +983,35 @@ export function buildServer(): FastifyInstance {
     return listAdminAccounts(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
   });
 
+  app.get('/api/v1/admin/accounts/:accountId', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const params = z.object({ accountId: z.string().min(1) }).safeParse(req.params);
+    if (!params.success) return reply.status(400).send({ error: 'Account ID is required.' });
+    const detail = getAdminAccountDetail(params.data.accountId, getDatabase());
+    if (!detail) return reply.status(404).send({ error: 'Account not found.' });
+    return detail;
+  });
+
+  app.patch('/api/v1/admin/accounts/:accountId/status', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ accountId: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({
+      status: z.enum(['ACTIVE', 'LOCKED', 'FLAGGED_FRAUD']),
+      reason: z.string().trim().min(5).max(500),
+    }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Valid status and reason (min 5 chars) are required.' });
+    try {
+      updateAccountStatus({
+        accountId: params.data.accountId,
+        status: body.data.status,
+        reason: body.data.reason,
+        actorUserId: req.auth!.user.id,
+        ipAddress: req.ip,
+      }, getDatabase());
+      return reply.send({ success: true, accountId: params.data.accountId, status: body.data.status });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
   app.get('/api/v1/admin/services', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async (req, reply) => {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
@@ -988,6 +1022,54 @@ export function buildServer(): FastifyInstance {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
     return listAdminTickets(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/tickets/:ticketId', { preHandler: [requireAuth, requireStaffPermission('tickets:read')] }, async (req, reply) => {
+    const params = z.object({ ticketId: z.string().min(1) }).safeParse(req.params);
+    if (!params.success) return reply.status(400).send({ error: 'Ticket ID is required.' });
+    const detail = getAdminTicketDetail(params.data.ticketId, getDatabase());
+    if (!detail) return reply.status(404).send({ error: 'Ticket not found.' });
+    return detail;
+  });
+
+  app.post('/api/v1/admin/tickets/:ticketId/reply', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+    const params = z.object({ ticketId: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({
+      body: z.string().trim().min(2).max(10_000),
+      isInternalNote: z.boolean().optional().default(false),
+    }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Message body (min 2 chars) is required.' });
+    try {
+      const result = addStaffTicketReply({
+        ticketId: params.data.ticketId,
+        staffUserId: req.auth!.user.id,
+        body: body.data.body,
+        isInternalNote: body.data.isInternalNote,
+        ipAddress: req.ip,
+      }, getDatabase());
+      return reply.status(201).send({ success: true, messageId: result.messageId });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.patch('/api/v1/admin/tickets/:ticketId/status', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+    const params = z.object({ ticketId: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({
+      status: z.enum(['OPEN', 'WAITING_CUSTOMER', 'WAITING_STAFF', 'RESOLVED', 'CLOSED']),
+    }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Valid ticket status is required.' });
+    try {
+      updateTicketStatus({
+        ticketId: params.data.ticketId,
+        status: body.data.status,
+        actorUserId: req.auth!.user.id,
+        ipAddress: req.ip,
+      }, getDatabase());
+      return reply.send({ success: true, ticketId: params.data.ticketId, status: body.data.status });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
   });
 
   app.get('/api/v1/admin/audit', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (req, reply) => {

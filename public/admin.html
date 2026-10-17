@@ -74,7 +74,119 @@
     <a href="/admin/tickets" data-route="tickets"><span class="ic" data-icon="support"></span><span>Tickets</span></a>
     <a href="/admin/audit" data-route="audit"><span class="ic" data-icon="shield"></span><span>Audit</span></a>
     <a href="/admin/staff" data-route="staff"><span class="ic" data-icon="users"></span><span>Team</span></a>
-  </nav>
+  <!-- OPERATIONAL MODALS -->
+  <div id="modalTicketDetail" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="adminTicketSubject">
+    <div class="modal lg">
+      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
+        <div>
+          <h3 id="adminTicketSubject" style="margin:0;font:700 18px var(--font)">Ticket Details</h3>
+          <small id="adminTicketMeta" class="muted"></small>
+        </div>
+        <button class="btn ghost sq s" type="button" data-close-ticket-modal aria-label="Close">✕</button>
+      </div>
+      <div id="adminTicketMessages" style="max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:8px 0"></div>
+      <form id="adminTicketReplyForm" class="col" style="gap:12px;border-top:1px solid var(--s3);padding-top:12px">
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="font-size:13px;font-weight:600">Status:</label>
+          <select id="adminTicketStatusSelect" style="padding:4px 8px;border-radius:8px;border:1px solid var(--s3);background:var(--s1)">
+            <option value="OPEN">OPEN</option>
+            <option value="WAITING_CUSTOMER">WAITING CUSTOMER</option>
+            <option value="WAITING_STAFF">WAITING STAFF</option>
+            <option value="RESOLVED">RESOLVED</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+          <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-left:auto">
+            <input type="checkbox" id="adminTicketInternalNote"> Internal Note Only
+          </label>
+        </div>
+        <div class="field">
+          <label for="adminReplyBody">Response or Note</label>
+          <div class="inp ta"><textarea id="adminReplyBody" required minlength="2" placeholder="Write staff response or internal technical note…"></textarea></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button type="button" class="btn sec" data-close-ticket-modal>Close</button>
+          <button type="submit" class="btn" id="adminSendReplyBtn">Submit Reply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalAccountDetail" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="adminAccountTitle">
+    <div class="modal lg">
+      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
+        <div>
+          <h3 id="adminAccountTitle" style="margin:0;font:700 18px var(--font)">Account Profile</h3>
+          <small id="adminAccountMeta" class="muted"></small>
+        </div>
+        <button class="btn ghost sq s" type="button" data-close-account-modal aria-label="Close">✕</button>
+      </div>
+      <div id="adminAccountContent" style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:8px 0"></div>
+      <form id="adminAccountStatusForm" class="col" style="gap:12px;border-top:1px solid var(--s3);padding-top:12px">
+        <div style="display:flex;gap:12px;align-items:center">
+          <label style="font-size:13px;font-weight:600">Lock Status:</label>
+          <select id="adminAccountStatusSelect" style="padding:4px 8px;border-radius:8px;border:1px solid var(--s3);background:var(--s1)">
+            <option value="ACTIVE">ACTIVE (Normal Access)</option>
+            <option value="LOCKED">LOCKED (Access Blocked)</option>
+            <option value="FLAGGED_FRAUD">FLAGGED FRAUD</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="adminAccountReason">Audit Reason for Status Mutation</label>
+          <div class="inp"><input type="text" id="adminAccountReason" required minlength="5" placeholder="Reason for status change (min 5 chars)…"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button type="button" class="btn sec" data-close-account-modal>Close</button>
+          <button type="submit" class="btn" id="adminUpdateAccountBtn">Apply Status Change</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalStaffEditor" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="adminStaffTitle">
+    <div class="modal">
+      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
+        <div>
+          <h3 id="adminStaffTitle" style="margin:0;font:700 18px var(--font)">Edit Staff Member</h3>
+          <small id="adminStaffMeta" class="muted"></small>
+        </div>
+        <button class="btn ghost sq s" type="button" data-close-staff-modal aria-label="Close">✕</button>
+      </div>
+      <form id="adminStaffForm" class="col" style="gap:14px;padding-top:8px">
+        <input type="hidden" id="adminStaffUserId">
+        <div class="field">
+          <label for="adminStaffRoleSelect">Staff Role</label>
+          <div class="inp">
+            <select id="adminStaffRoleSelect">
+              <option value="SUPPORT">Support Agent</option>
+              <option value="BILLING">Billing Operations</option>
+              <option value="INFRASTRUCTURE">Infrastructure Technician</option>
+              <option value="AUDITOR">Security Auditor</option>
+              <option value="ADMINISTRATOR">Administrator</option>
+              <option value="OWNER">Platform Owner</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="adminStaffStatusSelect">Access Status</label>
+          <div class="inp">
+            <select id="adminStaffStatusSelect">
+              <option value="ACTIVE">ACTIVE (Access Enabled)</option>
+              <option value="REVOKED">REVOKED (Access Terminated)</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="adminStaffReason">Audit Reason (min 8 characters)</label>
+          <div class="inp"><input type="text" id="adminStaffReason" required minlength="8" placeholder="e.g. Role adjusted for support rota"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px">
+          <button type="button" class="btn sec" data-close-staff-modal>Cancel</button>
+          <button type="submit" class="btn" id="adminSaveStaffBtn">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="/assets/admin-ui.js" defer></script>
 </body>
 </html>

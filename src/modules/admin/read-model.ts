@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { runInTransaction } from '../../database/index.js';
+import { generateId } from '../identity/auth.js';
 
 export interface AdminListOptions {
   query?: string;
@@ -148,4 +150,254 @@ export function listAdminStaff(db: Database.Database, options: AdminListOptions 
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, limit, offset);
   return { staff: rows, limit, offset };
+}
+
+export interface AdminAccountDetail {
+  account: {
+    id: string;
+    name: string;
+    owner_user_id: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    owner_name?: string;
+    owner_email?: string;
+    owner_status?: string;
+    [key: string]: unknown;
+  };
+  members: Array<{
+    id: string;
+    role: string;
+    created_at: string;
+    user_id: string;
+    name: string;
+    email: string;
+    status: string;
+    [key: string]: unknown;
+  }>;
+  services: Array<{
+    id: string;
+    identifier: string | null;
+    contract_status: string;
+    created_at: string;
+    product_name: string;
+    plan_name: string;
+    [key: string]: unknown;
+  }>;
+  invoices: Array<{
+    id: string;
+    invoice_number: string;
+    total_minor_units: number;
+    currency: string;
+    status: string;
+    created_at: string;
+    [key: string]: unknown;
+  }>;
+  tickets: Array<{
+    id: string;
+    subject: string;
+    priority: string;
+    status: string;
+    created_at: string;
+    updated_at: string;
+    [key: string]: unknown;
+  }>;
+}
+
+export function getAdminAccountDetail(accountId: string, db: Database.Database): AdminAccountDetail | null {
+  const account = db.prepare(`
+    SELECT a.*, u.name AS owner_name, u.email AS owner_email, u.status AS owner_status
+    FROM accounts a
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE a.id = ?
+  `).get(accountId) as AdminAccountDetail['account'] | undefined;
+  if (!account) return null;
+
+  const members = db.prepare(`
+    SELECT m.id, m.role, m.created_at, u.id AS user_id, u.name, u.email, u.status
+    FROM memberships m
+    JOIN users u ON u.id = m.user_id
+    WHERE m.account_id = ?
+    ORDER BY m.created_at ASC
+  `).all(accountId) as AdminAccountDetail['members'];
+
+  const services = db.prepare(`
+    SELECT s.id, s.identifier, s.contract_status, s.created_at, p.name AS product_name, pv.name AS plan_name
+    FROM services s
+    JOIN order_items oi ON oi.id = s.order_item_id
+    JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    JOIN products p ON p.id = pv.product_id
+    WHERE s.account_id = ?
+    ORDER BY s.created_at DESC
+  `).all(accountId) as AdminAccountDetail['services'];
+
+  const invoices = db.prepare(`
+    SELECT id, invoice_number, total_minor_units, currency, status, created_at
+    FROM invoices
+    WHERE account_id = ?
+    ORDER BY created_at DESC
+    LIMIT 20
+  `).all(accountId) as AdminAccountDetail['invoices'];
+
+  const tickets = db.prepare(`
+    SELECT id, subject, priority, status, created_at, updated_at
+    FROM tickets
+    WHERE account_id = ?
+    ORDER BY updated_at DESC
+    LIMIT 20
+  `).all(accountId) as AdminAccountDetail['tickets'];
+
+  return { account, members, services, invoices, tickets };
+}
+
+export function updateAccountStatus(
+  data: { accountId: string; status: 'ACTIVE' | 'LOCKED' | 'FLAGGED_FRAUD'; reason: string; actorUserId: string; ipAddress: string },
+  db: Database.Database
+) {
+  runInTransaction((trx) => {
+    const account = trx.prepare('SELECT id, status FROM accounts WHERE id = ?').get(data.accountId) as { id: string; status: string } | undefined;
+    if (!account) throw new Error('Account not found.');
+
+    trx.prepare("UPDATE accounts SET status = ?, updated_at = datetime('now', 'utc') WHERE id = ?")
+      .run(data.status, data.accountId);
+
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'STAFF', 'account.status_changed', 'account', ?, ?, ?, ?)
+    `).run(
+      generateId('aud'),
+      data.accountId,
+      data.actorUserId,
+      data.accountId,
+      data.ipAddress,
+      generateId('cor'),
+      JSON.stringify({ from: account.status, to: data.status, reason: data.reason })
+    );
+  }, db);
+}
+
+export interface AdminTicketDetail {
+  ticket: {
+    id: string;
+    account_id: string;
+    created_by_user_id: string;
+    assigned_staff_id: string | null;
+    subject: string;
+    priority: string;
+    status: string;
+    service_id: string | null;
+    created_at: string;
+    updated_at: string;
+    account_name?: string;
+    creator_name?: string;
+    creator_email?: string;
+    assigned_staff_name?: string | null;
+    [key: string]: unknown;
+  };
+  messages: Array<{
+    id: string;
+    ticket_id: string;
+    author_user_id: string;
+    is_staff_internal_note: number;
+    body: string;
+    created_at: string;
+    author_name?: string;
+    author_email?: string;
+    is_staff_author?: number;
+    [key: string]: unknown;
+  }>;
+}
+
+export function getAdminTicketDetail(ticketId: string, db: Database.Database): AdminTicketDetail | null {
+  const ticket = db.prepare(`
+    SELECT t.*, a.name AS account_name, creator.name AS creator_name, creator.email AS creator_email,
+           assignee.name AS assigned_staff_name
+    FROM tickets t
+    JOIN accounts a ON a.id = t.account_id
+    JOIN users creator ON creator.id = t.created_by_user_id
+    LEFT JOIN users assignee ON assignee.id = t.assigned_staff_id
+    WHERE t.id = ?
+  `).get(ticketId) as AdminTicketDetail['ticket'] | undefined;
+  if (!ticket) return null;
+
+  const messages = db.prepare(`
+    SELECT tm.*, u.name AS author_name, u.email AS author_email,
+           CASE WHEN sm.user_id IS NOT NULL THEN 1 ELSE 0 END AS is_staff_author
+    FROM ticket_messages tm
+    JOIN users u ON u.id = tm.author_user_id
+    LEFT JOIN staff_memberships sm ON sm.user_id = u.id AND sm.status = 'ACTIVE'
+    WHERE tm.ticket_id = ?
+    ORDER BY tm.created_at ASC
+  `).all(ticketId) as AdminTicketDetail['messages'];
+
+  return { ticket, messages };
+}
+
+export function addStaffTicketReply(
+  data: { ticketId: string; staffUserId: string; body: string; isInternalNote?: boolean; ipAddress: string },
+  db: Database.Database
+): { messageId: string } {
+  return runInTransaction((trx) => {
+    const ticket = trx.prepare('SELECT id, account_id, status FROM tickets WHERE id = ?').get(data.ticketId) as { id: string; account_id: string; status: string } | undefined;
+    if (!ticket) throw new Error('Ticket not found.');
+
+    const messageId = generateId('msg');
+    const isInternal = data.isInternalNote ? 1 : 0;
+
+    trx.prepare(`
+      INSERT INTO ticket_messages (id, ticket_id, author_user_id, is_staff_internal_note, body)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(messageId, data.ticketId, data.staffUserId, isInternal, data.body);
+
+    if (!data.isInternalNote) {
+      trx.prepare(`
+        UPDATE tickets
+        SET status = 'WAITING_CUSTOMER', updated_at = datetime('now', 'utc'), assigned_staff_id = coalesce(assigned_staff_id, ?)
+        WHERE id = ?
+      `).run(data.staffUserId, data.ticketId);
+    } else {
+      trx.prepare("UPDATE tickets SET updated_at = datetime('now', 'utc') WHERE id = ?").run(data.ticketId);
+    }
+
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+      VALUES (?, ?, ?, 'STAFF', ?, 'ticket', ?, ?, ?)
+    `).run(
+      generateId('aud'),
+      ticket.account_id,
+      data.staffUserId,
+      isInternal ? 'ticket.internal_note_added' : 'ticket.staff_reply_added',
+      data.ticketId,
+      data.ipAddress,
+      generateId('cor')
+    );
+
+    return { messageId };
+  }, db);
+}
+
+export function updateTicketStatus(
+  data: { ticketId: string; status: 'OPEN' | 'WAITING_CUSTOMER' | 'WAITING_STAFF' | 'RESOLVED' | 'CLOSED'; actorUserId: string; ipAddress: string },
+  db: Database.Database
+) {
+  runInTransaction((trx) => {
+    const ticket = trx.prepare('SELECT id, account_id, status FROM tickets WHERE id = ?').get(data.ticketId) as { id: string; account_id: string; status: string } | undefined;
+    if (!ticket) throw new Error('Ticket not found.');
+
+    trx.prepare("UPDATE tickets SET status = ?, updated_at = datetime('now', 'utc') WHERE id = ?")
+      .run(data.status, data.ticketId);
+
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'STAFF', 'ticket.status_changed', 'ticket', ?, ?, ?, ?)
+    `).run(
+      generateId('aud'),
+      ticket.account_id,
+      data.actorUserId,
+      data.ticketId,
+      data.ipAddress,
+      generateId('cor'),
+      JSON.stringify({ from: ticket.status, to: data.status })
+    );
+  }, db);
 }

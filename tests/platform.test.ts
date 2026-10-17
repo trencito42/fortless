@@ -48,8 +48,13 @@ import { processOutboxQueue } from '../src/modules/outbox/worker.js';
 import {
   getAdminOverview,
   listAdminAccounts,
+  getAdminAccountDetail,
+  updateAccountStatus,
   listAdminServices,
   listAdminTickets,
+  getAdminTicketDetail,
+  addStaffTicketReply,
+  updateTicketStatus,
   listAdminAudit,
   listAdminStaff,
 } from '../src/modules/admin/read-model.js';
@@ -756,6 +761,156 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       runMigrations(db);
       expect(getStaffAccess(staff.user.id, db)?.role).toBe('ADMINISTRATOR');
       expect(getStaffAccess(customer.user.id, db)).toBeNull();
+    });
+
+    it('ADMIN-05: staff ticket reply creates persistent message, transitions status to WAITING_CUSTOMER, and records audit event', () => {
+      const customer = registerUser(
+        { email: 'cust_ticket@example.com', password: 'StrongPassword123!', name: 'Customer Ticket', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const staffUser = registerUser(
+        { email: 'staff_agent@example.com', password: 'StaffPassword123!', name: 'Staff Agent', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'SUPPORT', 'ACTIVE')").run(staffUser.user.id);
+
+      const ticket = createTicket(
+        {
+          accountId: customer.account.id,
+          userId: customer.user.id,
+          subject: 'Need help with allocation',
+          priority: 'NORMAL',
+          message: 'My instance port is unreachable',
+          ipAddress: '127.0.0.1',
+        },
+        db
+      );
+
+      // Staff reply
+      const reply = addStaffTicketReply(
+        {
+          ticketId: ticket.ticketId,
+          staffUserId: staffUser.user.id,
+          body: 'We have checked the node allocation and restarted the container.',
+          isInternalNote: false,
+          ipAddress: '10.0.0.1',
+        },
+        db
+      );
+
+      expect(reply.messageId).toMatch(/^msg_/);
+
+      const detail = getAdminTicketDetail(ticket.ticketId, db);
+      expect(detail).not.toBeNull();
+      expect(detail!.ticket.status).toBe('WAITING_CUSTOMER');
+      expect(detail!.messages).toHaveLength(2);
+      expect(detail!.messages[1]!.is_staff_internal_note).toBe(0);
+      expect(detail!.messages[1]!.body).toContain('We have checked the node allocation');
+
+      // Check audit
+      const audit = db.prepare("SELECT * FROM audit_events WHERE action = 'ticket.staff_reply_added'").all();
+      expect(audit).toHaveLength(1);
+    });
+
+    it('ADMIN-06: staff internal note persists with is_staff_internal_note = 1 without changing ticket status to customer', () => {
+      const customer = registerUser(
+        { email: 'cust_note@example.com', password: 'StrongPassword123!', name: 'Customer Note', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const staffUser = registerUser(
+        { email: 'staff_tech@example.com', password: 'StaffPassword123!', name: 'Staff Tech', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'INFRASTRUCTURE', 'ACTIVE')").run(staffUser.user.id);
+
+      const ticket = createTicket(
+        {
+          accountId: customer.account.id,
+          userId: customer.user.id,
+          subject: 'Hardware query',
+          priority: 'HIGH',
+          message: 'Hardware query details',
+          ipAddress: '127.0.0.1',
+        },
+        db
+      );
+
+      addStaffTicketReply(
+        {
+          ticketId: ticket.ticketId,
+          staffUserId: staffUser.user.id,
+          body: 'Internal note: Node fra-node-01 memory pressure elevated.',
+          isInternalNote: true,
+          ipAddress: '10.0.0.2',
+        },
+        db
+      );
+
+      const detail = getAdminTicketDetail(ticket.ticketId, db);
+      expect(detail!.ticket.status).toBe('OPEN'); // Not changed to WAITING_CUSTOMER
+      expect(detail!.messages).toHaveLength(2);
+      expect(detail!.messages[1]!.is_staff_internal_note).toBe(1);
+    });
+
+    it('ADMIN-07: account lock mutation updates status to LOCKED and records staff audit reason', () => {
+      const customer = registerUser(
+        { email: 'fraud_account@example.com', password: 'FraudPassword123!', name: 'Suspicious Workspace', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const adminUser = registerUser(
+        { email: 'super_admin@example.com', password: 'SuperPassword123!', name: 'Admin', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'OWNER', 'ACTIVE')").run(adminUser.user.id);
+
+      updateAccountStatus(
+        {
+          accountId: customer.account.id,
+          status: 'LOCKED',
+          reason: 'Chargeback risk detected by risk team',
+          actorUserId: adminUser.user.id,
+          ipAddress: '10.0.0.3',
+        },
+        db
+      );
+
+      const detail = getAdminAccountDetail(customer.account.id, db);
+      expect(detail).not.toBeNull();
+      expect(detail!.account.status).toBe('LOCKED');
+
+      const audit = db.prepare("SELECT * FROM audit_events WHERE action = 'account.status_changed'").all() as { metadata: string }[];
+      expect(audit).toHaveLength(1);
+      expect(JSON.parse(audit[0]!.metadata).reason).toBe('Chargeback risk detected by risk team');
+    });
+
+    it('ADMIN-08: staff can change ticket status (e.g. to RESOLVED) with persistent audit trail', () => {
+      const customer = registerUser(
+        { email: 'status_user@example.com', password: 'Password123!', name: 'Status Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      const adminUser = registerUser(
+        { email: 'staff_res@example.com', password: 'Password123!', name: 'Staff Resolver', ipAddress: '127.0.0.1', userAgent: 'test' },
+        db
+      );
+      db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'SUPPORT', 'ACTIVE')").run(adminUser.user.id);
+
+      const ticket = createTicket(
+        { accountId: customer.account.id, userId: customer.user.id, subject: 'Resolve me', message: 'Please resolve this issue.', priority: 'NORMAL', ipAddress: '127.0.0.1' },
+        db
+      );
+
+      updateTicketStatus(
+        { ticketId: ticket.ticketId, status: 'RESOLVED', actorUserId: adminUser.user.id, ipAddress: '10.0.0.9' },
+        db
+      );
+
+      const detail = getAdminTicketDetail(ticket.ticketId, db);
+      expect(detail).not.toBeNull();
+      expect(detail!.ticket.status).toBe('RESOLVED');
+
+      const audit = db.prepare("SELECT * FROM audit_events WHERE action = 'ticket.status_changed'").all() as { metadata: string }[];
+      expect(audit).toHaveLength(1);
+      expect(JSON.parse(audit[0]!.metadata)).toEqual({ from: 'OPEN', to: 'RESOLVED' });
     });
   });
 
