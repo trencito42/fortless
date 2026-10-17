@@ -346,9 +346,12 @@ export function buildServer(): FastifyInstance {
     });
   }
 
-  app.get('/status', async (_req, reply) => {
+  app.get('/status', async (req, reply) => {
     const filePath = path.join(publicDir, 'status.html');
-    if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'public, max-age=30').send(renderHtml('status.html'));
+    if (fs.existsSync(filePath)) {
+      const html = renderHtml('status.html').replace('__AUTH_STATE__', req.auth ? 'true' : 'false');
+      return reply.type('text/html').header('Cache-Control', 'public, max-age=30').send(html);
+    }
     return reply.status(404).send('Not Found');
   });
 
