@@ -15,7 +15,12 @@
     (function(){
       try{
         var t = localStorage.getItem('fortless_theme') || localStorage.getItem('theme') || localStorage.getItem('ftv-theme');
-        if(t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+        if(t === 'light' || t === 'dark') {
+          document.documentElement.dataset.theme = t;
+          document.documentElement.setAttribute('data-dk', t === 'dark' ? '1' : '0');
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.setAttribute('data-dk', '1');
+        }
       }catch(e){}
     })();
   </script>
@@ -84,7 +89,8 @@
           <small id="userRole">Authenticating</small>
         </span>
         <button class="ib" id="themeToggleBtn" style="width:36px;height:36px" aria-label="Toggle theme">
-          <svg class="ic s" aria-hidden="true"><use href="#i-sun-03"/></svg>
+          <span class="sun ic"><svg class="ic s" aria-hidden="true"><use href="#i-sun-03"/></svg></span>
+          <span class="moon ic"><svg class="ic s" aria-hidden="true"><use href="#i-moon-01"/></svg></span>
         </button>
         <button class="ib" id="logoutBtn" style="width:36px;height:36px;color:var(--bad)" aria-label="Sign out">
           <svg class="ic s" aria-hidden="true"><use href="#i-cancel-01"/></svg>
@@ -547,26 +553,26 @@
       </section>
     </main>
   </div>
-
-  <!-- MOBILE TABBAR -->
-  <nav class="tabbar" data-c="Bottom tab bar">
-    <a href="/app" class="on" id="tab-dashboard" data-app-route="dashboard">
-      <svg class="ic" aria-hidden="true"><use href="#i-home-01"/></svg>Home
-    </a>
-    <a href="/app/services" id="tab-services" data-app-route="services">
-      <svg class="ic" aria-hidden="true"><use href="#i-server"/></svg>Services
-    </a>
-    <a href="/app/deploy" class="mid" id="tab-deploy" data-app-route="deploy" aria-label="Deploy">
-      <svg class="ic" aria-hidden="true"><use href="#i-add-01"/></svg>
-    </a>
-    <a href="/app/support" id="tab-tickets" data-app-route="tickets">
-      <svg class="ic" aria-hidden="true"><use href="#i-message-01"/></svg>Tickets
-    </a>
-    <button type="button" id="mobileMoreBtn" aria-haspopup="dialog" aria-expanded="false">
-      <svg class="ic" aria-hidden="true"><use href="#i-menu-02"/></svg>More
-    </button>
-  </nav>
 </div>
+
+<!-- MOBILE TABBAR -->
+<nav class="tabbar" data-c="Bottom tab bar">
+  <a href="/app" class="on" id="tab-dashboard" data-app-route="dashboard">
+    <svg class="ic" aria-hidden="true"><use href="#i-home-01"/></svg>Home
+  </a>
+  <a href="/app/services" id="tab-services" data-app-route="services">
+    <svg class="ic" aria-hidden="true"><use href="#i-server"/></svg>Services
+  </a>
+  <a href="/app/deploy" class="mid" id="tab-deploy" data-app-route="deploy" aria-label="Deploy">
+    <svg class="ic" aria-hidden="true"><use href="#i-add-01"/></svg>
+  </a>
+  <a href="/app/support" id="tab-tickets" data-app-route="tickets">
+    <svg class="ic" aria-hidden="true"><use href="#i-message-01"/></svg>Tickets
+  </a>
+  <button type="button" id="mobileMoreBtn" aria-haspopup="dialog" aria-expanded="false">
+    <svg class="ic" aria-hidden="true"><use href="#i-menu-02"/></svg>More
+  </button>
+</nav>
 
 <!-- COMMAND PALETTE MODAL -->
 <div class="mdl cmd" id="cmd" role="dialog" aria-modal="true" hidden>
@@ -639,8 +645,11 @@
       </a>
     </div>
     <div class="row" style="margin-top:auto">
-      <button class="btn" id="mobileThemeBtn" style="flex:1">
-        <svg class="ic s" aria-hidden="true"><use href="#i-sun-03"/></svg>Switch theme
+      <button class="btn" id="mobileThemeBtn" style="flex:1" data-act="theme">
+        <span class="theme-icon-wrap" style="position:relative;width:18px;height:18px;display:inline-grid;place-items:center;margin-right:2px">
+          <svg class="ic s sun" aria-hidden="true"><use href="#i-sun-03"/></svg>
+          <svg class="ic s moon" aria-hidden="true"><use href="#i-moon-01"/></svg>
+        </span>Switch theme
       </button>
       <button class="btn bad" id="mobileLogoutBtn" style="flex:1" data-close-mobile-nav>
         <svg class="ic s" aria-hidden="true"><use href="#i-cancel-01"/></svg>Sign out

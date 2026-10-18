@@ -26,12 +26,20 @@ export class AppShell {
     this.cmd.bindKeyboard();
   }
 
+  public syncDkAttribute(): void {
+    const isDark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.setAttribute('data-dk', isDark ? '1' : '0');
+  }
+
   public initTheme(): void {
     const theme = localStorage.getItem('fortless_theme') || localStorage.getItem('theme');
     if (theme) document.documentElement.dataset.theme = theme;
+    this.syncDkAttribute();
     window.addEventListener('storage', (e) => {
       if ((e.key === 'fortless_theme' || e.key === 'theme') && e.newValue) {
         document.documentElement.dataset.theme = e.newValue;
+        this.syncDkAttribute();
       }
     });
   }
@@ -41,6 +49,7 @@ export class AppShell {
       (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
     const next = isDark ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
+    document.documentElement.setAttribute('data-dk', next === 'dark' ? '1' : '0');
     localStorage.setItem('fortless_theme', next);
     localStorage.setItem('theme', next);
   }

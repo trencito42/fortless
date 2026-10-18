@@ -102,6 +102,14 @@ h1,h2,h3,h4,p,ul,dl,dd{margin:0;padding:0}ul{list-style:none}
 .btn.blk{width:100%}
 .ib{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--ink2);background:transparent;flex:none;position:relative;transition:background .18s,color .18s,transform .2s var(--ease)}
 .ib:hover{background:var(--s3);color:var(--ink)}.ib:active{transform:scale(.92)}
+.ib .sun,.ib .moon,.theme-icon-wrap .sun,.theme-icon-wrap .moon{grid-area:1/1;transition:transform .5s var(--ease),opacity .3s;display:inline-grid;place-items:center}
+.ib .moon,.theme-icon-wrap .moon{transform:rotate(-80deg) scale(.4);opacity:0}
+:root[data-dk="1"] .ib .sun,:root[data-theme="dark"] .ib .sun,:root[data-dk="1"] .theme-icon-wrap .sun,:root[data-theme="dark"] .theme-icon-wrap .sun{transform:rotate(80deg) scale(.4);opacity:0}
+:root[data-dk="1"] .ib .moon,:root[data-theme="dark"] .ib .moon,:root[data-dk="1"] .theme-icon-wrap .moon,:root[data-theme="dark"] .theme-icon-wrap .moon{transform:none;opacity:1}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .ib .sun,:root:not([data-theme="light"]) .theme-icon-wrap .sun{transform:rotate(80deg) scale(.4);opacity:0}
+  :root:not([data-theme="light"]) .ib .moon,:root:not([data-theme="light"]) .theme-icon-wrap .moon{transform:none;opacity:1}
+}
 .ib .dotn{position:absolute;top:8px;right:8px;min-width:18px;height:18px;border-radius:9px;background:var(--bad);color:#fff;font:700 10.5px/18px var(--font);text-align:center;padding:0 4px}
 .pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;border-radius:999px;font:700 12px/1 var(--font);background:var(--s3);color:var(--ink2);white-space:nowrap;flex:none}
 .pill.good{background:var(--good-bg);color:var(--good)}.pill.warn{background:var(--warn-bg);color:var(--warn)}.pill.bad{background:var(--bad-bg);color:var(--bad)}.pill.info{background:var(--info-bg);color:var(--info)}.pill.violet{background:var(--violet-bg);color:var(--violet)}.pill.acc{background:var(--accent-bg);color:var(--accent)}

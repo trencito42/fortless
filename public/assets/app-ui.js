@@ -1160,12 +1160,18 @@ ${selectedOr("code")}
       this.rewriteTruthfulCopy();
       this.cmd.bindKeyboard();
     }
+    syncDkAttribute() {
+      const isDark = document.documentElement.dataset.theme === "dark" || !document.documentElement.dataset.theme && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      document.documentElement.setAttribute("data-dk", isDark ? "1" : "0");
+    }
     initTheme() {
       const theme = localStorage.getItem("fortless_theme") || localStorage.getItem("theme");
       if (theme) document.documentElement.dataset.theme = theme;
+      this.syncDkAttribute();
       window.addEventListener("storage", (e) => {
         if ((e.key === "fortless_theme" || e.key === "theme") && e.newValue) {
           document.documentElement.dataset.theme = e.newValue;
+          this.syncDkAttribute();
         }
       });
     }
@@ -1173,6 +1179,7 @@ ${selectedOr("code")}
       const isDark = document.documentElement.dataset.theme === "dark" || !document.documentElement.dataset.theme && window.matchMedia("(prefers-color-scheme: dark)").matches;
       const next = isDark ? "light" : "dark";
       document.documentElement.dataset.theme = next;
+      document.documentElement.setAttribute("data-dk", next === "dark" ? "1" : "0");
       localStorage.setItem("fortless_theme", next);
       localStorage.setItem("theme", next);
     }
@@ -5779,15 +5786,20 @@ ${selectedOr("code")}
       if (target.closest("#mobileMoreBtn")) {
         const sheet = document.getElementById("mobileNavSheet");
         const trigger = document.getElementById("mobileMoreBtn");
-        if (sheet) sheet.hidden = false;
-        trigger?.setAttribute("aria-expanded", "true");
+        if (sheet) {
+          const isOpen = !sheet.hidden;
+          sheet.hidden = isOpen;
+          trigger?.setAttribute("aria-expanded", isOpen ? "false" : "true");
+        }
         return;
       }
-      if (target.closest("[data-close-mobile-nav]") || target.id === "mobileNavSheet") {
+      if (target.closest("[data-close-mobile-nav]") || target.id === "mobileNavSheet" || target.closest(".tabbar a") && document.getElementById("mobileNavSheet")?.hidden === false) {
         const sheet = document.getElementById("mobileNavSheet");
         if (sheet) sheet.hidden = true;
         document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
-        return;
+        if (!target.closest(".tabbar a")) {
+          return;
+        }
       }
       if (target.closest("#mobileThemeBtn")) {
         appShell.toggleTheme();

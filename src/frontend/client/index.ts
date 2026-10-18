@@ -209,15 +209,20 @@ function bindDelegatedEvents() {
     if (target.closest('#mobileMoreBtn')) {
       const sheet = document.getElementById('mobileNavSheet');
       const trigger = document.getElementById('mobileMoreBtn');
-      if (sheet) sheet.hidden = false;
-      trigger?.setAttribute('aria-expanded', 'true');
+      if (sheet) {
+        const isOpen = !sheet.hidden;
+        sheet.hidden = isOpen;
+        trigger?.setAttribute('aria-expanded', isOpen ? 'false' : 'true');
+      }
       return;
     }
-    if (target.closest('[data-close-mobile-nav]') || target.id === 'mobileNavSheet') {
+    if (target.closest('[data-close-mobile-nav]') || target.id === 'mobileNavSheet' || (target.closest('.tabbar a') && document.getElementById('mobileNavSheet')?.hidden === false)) {
       const sheet = document.getElementById('mobileNavSheet');
       if (sheet) sheet.hidden = true;
       document.getElementById('mobileMoreBtn')?.setAttribute('aria-expanded', 'false');
-      return;
+      if (!target.closest('.tabbar a')) {
+        return;
+      }
     }
     if (target.closest('#mobileThemeBtn')) {
       appShell.toggleTheme();
