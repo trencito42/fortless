@@ -6,16 +6,16 @@ Needs: pip install playwright && playwright install chromium
 """
 import os, sys, asyncio, pathlib
 from playwright.async_api import async_playwright
-BASE = os.environ.get('BASE_URL', 'http://localhost:3000')
+BASE = os.environ.get('BASE_URL', 'http://localhost:3021')
 OUT = pathlib.Path('docs/design/shots'); OUT.mkdir(parents=True, exist_ok=True)
 # view id -> URL path (hash routes included). Adjust to the real router.
 ROUTES = {
- 'login':'/login.html','register':'/register.html','mfa':'/mfa-challenge.html','forgot':'/forgot-password.html',
- 'reset':'/reset-password.html?token=sample','verify':'/verify-email.html?token=sample',
- 'home':'/app.html#/home','services':'/app.html#/services','deploy':'/app.html#/deploy','domains':'/app.html#/domains',
- 'billing':'/app.html#/billing','support':'/app.html#/support','activity':'/app.html#/activity','settings':'/app.html#/settings',
- 'o-over':'/admin.html#/overview','o-acc':'/admin.html#/accounts','o-svc':'/admin.html#/services','o-tix':'/admin.html#/tickets',
- 'o-aud':'/admin.html#/audit','o-staff':'/admin.html#/staff','status':'/status.html','legal':'/legal.html',
+ 'login':'/login','register':'/register','mfa':'/mfa-challenge','forgot':'/forgot-password',
+ 'reset':'/reset-password?token=sample','verify':'/verify-email?token=sample',
+ 'home':'/app','services':'/app/services','deploy':'/app/deploy','domains':'/app/domains',
+ 'billing':'/app/billing','support':'/app/support','activity':'/app/activity','settings':'/app/settings',
+ 'o-over':'/admin','o-acc':'/admin/accounts','o-svc':'/admin/services','o-tix':'/admin/tickets',
+ 'o-aud':'/admin/audit','o-staff':'/admin/staff','status':'/status','legal':'/legal',
 }
 SIZES = {'desktop':(1400,900),'phone':(390,844)}
 async def main(ids):

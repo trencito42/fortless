@@ -122,4 +122,36 @@ describe('WebAuthn with real attestation objects', () => {
     expect(() => decodeCbor(Buffer.alloc(40, 0x81))).toThrow(/nested/);
     expect(() => decodeCbor(Buffer.from([0x99, 0xff, 0xff]))).toThrow();
   });
+
+  it('WAN-06: passkey authentication associates deviceId and supersedes prior sessions on same installation', () => {
+    const user = seedUser('usr_passkey_dev');
+    const pk = newPasskey();
+    register(user, pk);
+
+    const devA = 'dev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const devB = 'dev_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+
+    const login1 = verifyAndAuthenticatePasskey({ ...assertion(pk, { counter: 1 }), deviceId: devA }, db);
+    const session1Row = db.prepare('SELECT device_id FROM sessions WHERE id = ?')
+      .get(crypto.createHash('sha256').update(login1.token).digest('hex')) as { device_id: string };
+    expect(session1Row.device_id).toBe(devA);
+
+    // Same installation logs in again with counter 2
+    const login2 = verifyAndAuthenticatePasskey({ ...assertion(pk, { counter: 2 }), deviceId: devA }, db);
+    // Old session on devA is superseded
+    expect(db.prepare('SELECT id FROM sessions WHERE id = ?')
+      .get(crypto.createHash('sha256').update(login1.token).digest('hex'))).toBeUndefined();
+    // New session on devA is present
+    expect(db.prepare('SELECT id FROM sessions WHERE id = ?')
+      .get(crypto.createHash('sha256').update(login2.token).digest('hex'))).toBeDefined();
+
+    // Distinct device devB logs in with counter 3
+    const loginB = verifyAndAuthenticatePasskey({ ...assertion(pk, { counter: 3 }), deviceId: devB }, db);
+    // Both devA and devB are active
+    expect(db.prepare('SELECT count(*) c FROM sessions WHERE user_id = ?').get(user)).toEqual({ c: 2 });
+    expect(db.prepare('SELECT id FROM sessions WHERE id = ?')
+      .get(crypto.createHash('sha256').update(login2.token).digest('hex'))).toBeDefined();
+    expect(db.prepare('SELECT id FROM sessions WHERE id = ?')
+      .get(crypto.createHash('sha256').update(loginB.token).digest('hex'))).toBeDefined();
+  });
 });

@@ -316,6 +316,14 @@ export function createDomainZone(
     throw new Error(`Invalid domain name "${input.domainName}". Must conform to RFC 1035.`);
   }
 
+  const RESERVED_DOMAINS = new Set([
+    'fortless.net', 'fortless.cloud', 'fortless.org', 'fortless.io',
+    'localhost', 'example.com', 'example.org', 'example.net'
+  ]);
+  if (RESERVED_DOMAINS.has(norm) || norm.endsWith('.fortless.net') || norm.endsWith('.fortless.cloud')) {
+    throw new Error(`Domain "${norm}" is a reserved system domain and cannot be registered as a custom zone.`);
+  }
+
   const existing = db.prepare('SELECT id FROM domain_zones WHERE domain_name = ?').get(norm);
   if (existing) {
     throw new Error(`Domain "${norm}" is already registered or active in Fortless DNS.`);

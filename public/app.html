@@ -320,9 +320,9 @@
               </div>
               <div class="row" style="margin-bottom:10px">
                 <div class="seg" role="radiogroup" aria-label="Filter invoice status">
-                  <label><input type="radio" name="invoiceStatus" value="ALL" checked hidden><button type="button" role="tab" aria-selected="true" data-v="ALL">All</button></label>
-                  <label><input type="radio" name="invoiceStatus" value="OPEN" hidden><button type="button" role="tab" aria-selected="false" data-v="OPEN">Open</button></label>
-                  <label><input type="radio" name="invoiceStatus" value="PAID" hidden><button type="button" role="tab" aria-selected="false" data-v="PAID">Paid</button></label>
+                  <label><input type="radio" name="invoiceStatus" value="ALL" checked hidden><span class="seg-btn" role="radio" aria-checked="true" data-v="ALL">All</span></label>
+                  <label><input type="radio" name="invoiceStatus" value="OPEN" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="OPEN">Open</span></label>
+                  <label><input type="radio" name="invoiceStatus" value="PAID" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="PAID">Paid</span></label>
                 </div>
               </div>
               <div style="overflow-x:auto">
@@ -370,10 +370,10 @@
         <div class="row" style="margin-bottom:12px;gap:10px">
           <label class="sch" style="flex:1"><svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg><input id="ticketSearch" type="search" placeholder="Search tickets" aria-label="Search support tickets"></label>
           <div class="seg" role="radiogroup" aria-label="Filter by ticket status">
-            <label><input type="radio" name="ticketStatus" value="ALL" hidden><button type="button" role="tab" aria-selected="false" data-v="ALL">All</button></label>
-            <label><input type="radio" name="ticketStatus" value="OPEN" checked hidden><button type="button" role="tab" aria-selected="true" data-v="OPEN">Open</button></label>
-            <label><input type="radio" name="ticketStatus" value="RESOLVED" hidden><button type="button" role="tab" aria-selected="false" data-v="RESOLVED">Resolved</button></label>
-            <label><input type="radio" name="ticketStatus" value="CLOSED" hidden><button type="button" role="tab" aria-selected="false" data-v="CLOSED">Closed</button></label>
+            <label><input type="radio" name="ticketStatus" value="ALL" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="ALL">All</span></label>
+            <label><input type="radio" name="ticketStatus" value="OPEN" checked hidden><span class="seg-btn" role="radio" aria-checked="true" data-v="OPEN">Open</span></label>
+            <label><input type="radio" name="ticketStatus" value="RESOLVED" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="RESOLVED">Resolved</span></label>
+            <label><input type="radio" name="ticketStatus" value="CLOSED" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="CLOSED">Closed</span></label>
           </div>
           <small id="ticketResultCount" class="faint" style="font-weight:650"></small>
         </div>
@@ -406,10 +406,10 @@
         </div>
         <div class="row" style="margin-bottom:12px">
           <div class="seg" role="radiogroup" aria-label="Filter activity type">
-            <label><input type="radio" name="auditType" value="ALL" checked hidden><button type="button" role="tab" aria-selected="true" data-v="ALL">All</button></label>
-            <label><input type="radio" name="auditType" value="AUTH" hidden><button type="button" role="tab" aria-selected="false" data-v="AUTH">Sign-in</button></label>
-            <label><input type="radio" name="auditType" value="SUPPORT" hidden><button type="button" role="tab" aria-selected="false" data-v="SUPPORT">Support</button></label>
-            <label><input type="radio" name="auditType" value="BILLING" hidden><button type="button" role="tab" aria-selected="false" data-v="BILLING">Billing</button></label>
+            <label><input type="radio" name="auditType" value="ALL" checked hidden><span class="seg-btn" role="radio" aria-checked="true" data-v="ALL">All</span></label>
+            <label><input type="radio" name="auditType" value="AUTH" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="AUTH">Sign-in</span></label>
+            <label><input type="radio" name="auditType" value="SUPPORT" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="SUPPORT">Support</span></label>
+            <label><input type="radio" name="auditType" value="BILLING" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="BILLING">Billing</span></label>
           </div>
         </div>
         <div class="card" data-c="Timeline">
@@ -702,10 +702,10 @@
       <div class="fld">
         <span class="lbl">Priority</span>
         <div class="seg blk" role="radiogroup" aria-label="Priority" style="display:flex;width:100%">
-          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="LOW" hidden><button type="button" role="tab" style="width:100%" data-v="LOW">Low</button></label>
-          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="NORMAL" checked hidden><button type="button" role="tab" style="width:100%" aria-selected="true" data-v="NORMAL">Normal</button></label>
-          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="HIGH" hidden><button type="button" role="tab" style="width:100%" data-v="HIGH">High</button></label>
-          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="URGENT" hidden><button type="button" role="tab" style="width:100%" data-v="URGENT">Urgent</button></label>
+          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="LOW" hidden><span class="seg-btn" role="radio" aria-checked="false" style="width:100%" data-v="LOW">Low</span></label>
+          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="NORMAL" checked hidden><span class="seg-btn" role="radio" aria-checked="true" style="width:100%" data-v="NORMAL">Normal</span></label>
+          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="HIGH" hidden><span class="seg-btn" role="radio" aria-checked="false" style="width:100%" data-v="HIGH">High</span></label>
+          <label style="flex:1"><input type="radio" name="modalTicketPriority" value="URGENT" hidden><span class="seg-btn" role="radio" aria-checked="false" style="width:100%" data-v="URGENT">Urgent</span></label>
         </div>
       </div>
       <div class="fld">

@@ -216,6 +216,9 @@ export function listTicketAttachments(
     | undefined;
   if (!ticket) return [];
   if (accountId && ticket.account_id !== accountId) return [];
+  const internalNoteFilter = accountId
+    ? ` AND (ta.message_id IS NULL OR ta.message_id IN (SELECT id FROM ticket_messages WHERE is_staff_internal_note = 0))`
+    : '';
 
   return db.prepare(`
     SELECT ta.id, ta.ticket_id, ta.message_id, ta.uploader_user_id, ta.filename,
@@ -223,7 +226,7 @@ export function listTicketAttachments(
            u.name AS uploader_name
     FROM ticket_attachments ta
     JOIN users u ON u.id = ta.uploader_user_id
-    WHERE ta.ticket_id = ?
+    WHERE ta.ticket_id = ? ${internalNoteFilter}
     ORDER BY ta.created_at ASC
   `).all(ticketId) as TicketAttachmentRecord[];
 }
@@ -240,11 +243,15 @@ export function getTicketAttachment(
   if (!ticket) return null;
   if (accountId && ticket.account_id !== accountId) return null;
 
+  const internalNoteFilter = accountId
+    ? ` AND (ta.message_id IS NULL OR ta.message_id IN (SELECT id FROM ticket_messages WHERE is_staff_internal_note = 0))`
+    : '';
+
   const record = db.prepare(`
     SELECT ta.*, u.name AS uploader_name
     FROM ticket_attachments ta
     JOIN users u ON u.id = ta.uploader_user_id
-    WHERE ta.id = ? AND ta.ticket_id = ?
+    WHERE ta.id = ? AND ta.ticket_id = ? ${internalNoteFilter}
   `).get(attachmentId, ticketId) as TicketAttachmentRecord | undefined;
 
   if (!record) return null;

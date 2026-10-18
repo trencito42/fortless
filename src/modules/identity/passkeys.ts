@@ -222,6 +222,7 @@ export interface AuthenticatePasskeyParams {
   clientCounter?: number;
   ipAddress?: string;
   userAgent?: string;
+  deviceId?: string;
 }
 
 export function verifyAndAuthenticatePasskey(
@@ -351,7 +352,8 @@ export function verifyAndAuthenticatePasskey(
     params.ipAddress || '127.0.0.1',
     params.userAgent || 'WebAuthn-Client',
     true,
-    db
+    db,
+    params.deviceId
   );
 
   db.prepare(`

@@ -63,13 +63,18 @@ export function listNotifications(
 export function markNotificationRead(
   notificationId: string,
   accountId: string,
-  db: Database.Database = getDatabase()
+  userIdOrDb?: string | Database.Database,
+  maybeDb?: Database.Database
 ): boolean {
-  const res = db.prepare(`
-    UPDATE notifications
-    SET read_at = datetime('now', 'utc')
-    WHERE id = ? AND account_id = ? AND read_at IS NULL
-  `).run(notificationId, accountId);
+  const userId = typeof userIdOrDb === 'string' ? userIdOrDb : undefined;
+  const db = (typeof userIdOrDb === 'object' && userIdOrDb !== null ? userIdOrDb : maybeDb) || getDatabase();
+  let query = 'UPDATE notifications SET read_at = datetime(\'now\', \'utc\') WHERE id = ? AND account_id = ? AND read_at IS NULL';
+  const params: unknown[] = [notificationId, accountId];
+  if (userId) {
+    query += ' AND (user_id IS NULL OR user_id = ?)';
+    params.push(userId);
+  }
+  const res = db.prepare(query).run(...params);
   return res.changes > 0;
 }
 

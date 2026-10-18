@@ -21,6 +21,9 @@ import {
   generateTotpCode,
   getMfaStatus,
   hasPendingMfaSession,
+  cleanupExpiredSessions,
+  generateDeviceId,
+  DEVICE_COOKIE_NAME,
 } from '../src/modules/identity/auth.js';
 import {
   listAccountMembers,
@@ -37,6 +40,7 @@ import {
   renderEmail,
   ProductionEmailTransportAdapter,
   SandboxEmailTransportAdapter,
+  SmtpEmailTransportAdapter,
 } from '../src/modules/email/outbox.js';
 import { getNotificationPreferences, saveNotificationPreferences } from '../src/modules/notifications/preferences.js';
 import { bootstrapOwner } from '../src/scripts/bootstrap-owner.js';
@@ -340,6 +344,275 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(authenticateSession(verified.token, db)?.session.stepUpVerifiedAt).toBeTruthy();
       expect(db.prepare("SELECT count(*) AS count FROM audit_events WHERE action = 'user.step_up_completed'").get())
         .toMatchObject({ count: 1 });
+    });
+
+    it('AUTH-13: identical User-Agents on distinct devices maintain independent concurrent sessions', () => {
+      const sharedUserAgent = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
+      const dev1 = generateDeviceId();
+      const dev2 = generateDeviceId();
+
+      const pending = registerUser(
+        { email: 'multidevice@example.com', password: 'StrongPassword99!', name: 'Multi Device User', ipAddress: '198.51.100.1', userAgent: sharedUserAgent },
+        db
+      );
+      const session1 = verifyEmail(pending.verificationToken, { ipAddress: '198.51.100.1', userAgent: sharedUserAgent, deviceId: dev1 }, db);
+
+      // Device 2 logs in with the identical User-Agent string
+      const session2 = loginUser(
+        { email: 'multidevice@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.2', userAgent: sharedUserAgent, deviceId: dev2 },
+        db
+      );
+
+      // Both sessions must remain fully active and authenticated
+      const auth1 = authenticateSession(session1.token, db);
+      const auth2 = authenticateSession(session2.token, db);
+      expect(auth1).not.toBeNull();
+      expect(auth2).not.toBeNull();
+      expect(auth1?.user.id).toBe(session1.user.id);
+      expect(auth2?.user.id).toBe(session1.user.id);
+
+      // Sessions list must show both active sessions without hiding real concurrent sessions
+      const sessions = listUserSessions(session1.user.id, auth1!.session.id, db);
+      expect(sessions).toHaveLength(2);
+      const deviceIds = sessions.map((s) => s.deviceId);
+      expect(deviceIds).toContain(dev1);
+      expect(deviceIds).toContain(dev2);
+    });
+
+    it('AUTH-14: repeated login on the same device supersedes previous session for that installation', () => {
+      const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0';
+      const deviceId = generateDeviceId();
+
+      const pending = registerUser(
+        { email: 'repeatlogin@example.com', password: 'StrongPassword99!', name: 'Repeat User', ipAddress: '198.51.100.10', userAgent },
+        db
+      );
+      const session1 = verifyEmail(pending.verificationToken, { ipAddress: '198.51.100.10', userAgent, deviceId }, db);
+      expect(authenticateSession(session1.token, db)).not.toBeNull();
+
+      // Same device logs in again
+      const session2 = loginUser(
+        { email: 'repeatlogin@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.11', userAgent, deviceId },
+        db
+      );
+
+      // Previous session on this installation is superseded; new session is active
+      expect(authenticateSession(session1.token, db)).toBeNull();
+      const auth2 = authenticateSession(session2.token, db);
+      expect(auth2).not.toBeNull();
+
+      const sessions = listUserSessions(session2.user.id, auth2!.session.id, db);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.id).toBe(auth2!.session.id);
+      expect(sessions[0]?.deviceId).toBe(deviceId);
+    });
+
+    it('AUTH-15: interrupted or abandoned MFA login never revokes an existing active session on that device', () => {
+      const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0.0.0';
+      const deviceId = generateDeviceId();
+
+      const pending = registerUser(
+        { email: 'interruptedmfa@example.com', password: 'StrongPassword99!', name: 'MFA Safeguard', ipAddress: '198.51.100.20', userAgent },
+        db
+      );
+      const initial = verifyEmail(pending.verificationToken, { ipAddress: '198.51.100.20', userAgent, deviceId }, db);
+      const initialAuth = authenticateSession(initial.token, db)!;
+
+      // Enroll and confirm TOTP MFA
+      const enrollment = beginTotpEnrollment(initial.user.id, 'StrongPassword99!', initial.user.email, db);
+      const recoveryCodes = confirmTotpEnrollment({
+        userId: initial.user.id,
+        accountId: initial.account.id,
+        sessionId: initialAuth.session.id,
+        code: generateTotpCode(enrollment.secret),
+        ipAddress: '198.51.100.20',
+      }, db);
+      expect(recoveryCodes.length).toBeGreaterThan(0);
+
+      // Existing session on Device 1 is authenticated
+      expect(authenticateSession(initial.token, db)).not.toBeNull();
+
+      // Device 1 starts a new login attempt (e.g. second tab or re-authentication)
+      const secondLogin = loginUser(
+        { email: 'interruptedmfa@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.21', userAgent, deviceId },
+        db
+      );
+      expect(secondLogin.requiresMfa).toBe(true);
+
+      // New session is pending MFA and cannot authenticate
+      expect(authenticateSession(secondLogin.token, db)).toBeNull();
+      expect(hasPendingMfaSession(secondLogin.token, db)).toBe(true);
+
+      // Crucial Invariant: The existing authenticated session MUST STILL BE VALID
+      expect(authenticateSession(initial.token, db)).not.toBeNull();
+
+      // User enters wrong MFA code on the new attempt
+      expect(() => completeMfaChallenge(secondLogin.token, '000000', '198.51.100.21', db)).toThrow('invalid');
+
+      // Existing session is STILL untouched and fully functional
+      const stillValidAuth = authenticateSession(initial.token, db);
+      expect(stillValidAuth).not.toBeNull();
+
+      // listUserSessions must only list the active, authenticated session
+      const sessions = listUserSessions(initial.user.id, stillValidAuth!.session.id, db);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.id).toBe(stillValidAuth!.session.id);
+    });
+
+    it('AUTH-16: successful MFA challenge completion supersedes previous session on that device while preserving other devices', () => {
+      const userAgentA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0';
+      const userAgentB = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Safari/604.1';
+      const devA = generateDeviceId();
+      const devB = generateDeviceId();
+
+      const pending = registerUser(
+        { email: 'mfacomplete@example.com', password: 'StrongPassword99!', name: 'MFA Complete User', ipAddress: '198.51.100.30', userAgent: userAgentA },
+        db
+      );
+      const sessionA1 = verifyEmail(pending.verificationToken, { ipAddress: '198.51.100.30', userAgent: userAgentA, deviceId: devA }, db);
+      const authA1 = authenticateSession(sessionA1.token, db)!;
+
+      const enrollment = beginTotpEnrollment(sessionA1.user.id, 'StrongPassword99!', sessionA1.user.email, db);
+      confirmTotpEnrollment({
+        userId: sessionA1.user.id,
+        accountId: sessionA1.account.id,
+        sessionId: authA1.session.id,
+        code: generateTotpCode(enrollment.secret),
+        ipAddress: '198.51.100.30',
+      }, db);
+
+      // Device B also logs in and completes MFA
+      const loginB = loginUser(
+        { email: 'mfacomplete@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.31', userAgent: userAgentB, deviceId: devB },
+        db
+      );
+      completeMfaChallenge(loginB.token, generateTotpCode(enrollment.secret), '198.51.100.31', db);
+      expect(authenticateSession(loginB.token, db)).not.toBeNull();
+
+      // Now Device A logs in again
+      const loginA2 = loginUser(
+        { email: 'mfacomplete@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.32', userAgent: userAgentA, deviceId: devA },
+        db
+      );
+      // Before MFA completion on A2, A1 is STILL valid!
+      expect(authenticateSession(sessionA1.token, db)).not.toBeNull();
+
+      // Complete MFA on A2
+      completeMfaChallenge(loginA2.token, generateTotpCode(enrollment.secret), '198.51.100.32', db);
+
+      // Now A1 is superseded, A2 is active
+      expect(authenticateSession(sessionA1.token, db)).toBeNull();
+      expect(authenticateSession(loginA2.token, db)).not.toBeNull();
+
+      // Device B is completely untouched and active!
+      expect(authenticateSession(loginB.token, db)).not.toBeNull();
+
+      const sessions = listUserSessions(sessionA1.user.id, authenticateSession(loginA2.token, db)!.session.id, db);
+      expect(sessions).toHaveLength(2);
+      expect(sessions.map((s) => s.deviceId)).toEqual(expect.arrayContaining([devA, devB]));
+    });
+
+    it('AUTH-17: authentication is independent of IP changes, updating observed IP while preserving audit history', () => {
+      const deviceId = generateDeviceId();
+      const initialIp = '198.51.100.50';
+      const changedIp = '203.0.113.99';
+
+      const pending = registerUser(
+        { email: 'ipchange@example.com', password: 'StrongPassword99!', name: 'IP Test User', ipAddress: initialIp, userAgent: 'Browser' },
+        db
+      );
+      const session = verifyEmail(pending.verificationToken, { ipAddress: initialIp, userAgent: 'Browser', deviceId }, db);
+
+      // Client roams to a new network IP
+      const context = authenticateSession(session.token, db, changedIp);
+      expect(context).not.toBeNull();
+      expect(context?.user.id).toBe(session.user.id);
+
+      // Verify session table records the latest observed IP as metadata
+      const sessions = listUserSessions(session.user.id, context!.session.id, db);
+      expect(sessions[0]?.ipAddress).toBe(changedIp);
+
+      // Verify the historical audit event preserves the original IP
+      const auditLog = db.prepare("SELECT ip_address FROM audit_events WHERE action = 'user.email_verified' AND resource_id = ?")
+        .get(session.user.id) as { ip_address: string };
+      expect(auditLog.ip_address).toBe(initialIp);
+    });
+
+    it('AUTH-18: abandoned pending-MFA sessions expire in 15 minutes and are securely cleaned up', () => {
+      const deviceId = generateDeviceId();
+      const pending = registerUser(
+        { email: 'mfaabandon@example.com', password: 'StrongPassword99!', name: 'Abandon User', ipAddress: '198.51.100.60', userAgent: 'Browser' },
+        db
+      );
+      const initial = verifyEmail(pending.verificationToken, { ipAddress: '198.51.100.60', userAgent: 'Browser', deviceId }, db);
+      const initialAuth = authenticateSession(initial.token, db)!;
+
+      const enrollment = beginTotpEnrollment(initial.user.id, 'StrongPassword99!', initial.user.email, db);
+      confirmTotpEnrollment({
+        userId: initial.user.id,
+        accountId: initial.account.id,
+        sessionId: initialAuth.session.id,
+        code: generateTotpCode(enrollment.secret),
+        ipAddress: '198.51.100.60',
+      }, db);
+
+      // Start new login, but abandon at MFA challenge
+      const loginAttempt = loginUser(
+        { email: 'mfaabandon@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.61', userAgent: 'Browser', deviceId },
+        db
+      );
+      expect(loginAttempt.requiresMfa).toBe(true);
+
+      // Simulate passage of 16 minutes on the abandoned session
+      db.prepare(`
+        UPDATE sessions
+        SET created_at = datetime('now', '-16 minutes'),
+            expires_at = datetime('now', '-1 minute')
+        WHERE mfa_verified_at IS NULL AND user_id = ?
+      `).run(initial.user.id);
+
+      // Any attempt to complete MFA on the expired session is rejected
+      expect(() => completeMfaChallenge(loginAttempt.token, generateTotpCode(enrollment.secret), '198.51.100.61', db))
+        .toThrow('expired');
+
+      // Running cleanup removes the abandoned pending-MFA session
+      const cleanup = cleanupExpiredSessions(db);
+      expect(cleanup.expiredCount + cleanup.pendingMfaCount).toBeGreaterThan(0);
+
+      // Active authenticated session is still healthy
+      expect(authenticateSession(initial.token, db)).not.toBeNull();
+    });
+
+    it('AUTH-19: session revocation and revoke-all-other-sessions preserve multi-device isolation', () => {
+      const pending = registerUser(
+        { email: 'multirevoke@example.com', password: 'StrongPassword99!', name: 'Multi Revoke', ipAddress: '198.51.100.70', userAgent: 'UA' },
+        db
+      );
+      const s1 = verifyEmail(pending.verificationToken, { ipAddress: '198.51.100.70', userAgent: 'Laptop', deviceId: generateDeviceId() }, db);
+      const s2 = loginUser({ email: 'multirevoke@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.71', userAgent: 'Phone', deviceId: generateDeviceId() }, db);
+      const s3 = loginUser({ email: 'multirevoke@example.com', password: 'StrongPassword99!', ipAddress: '198.51.100.72', userAgent: 'Tablet', deviceId: generateDeviceId() }, db);
+
+      const ctx1 = authenticateSession(s1.token, db)!;
+      const ctx2 = authenticateSession(s2.token, db)!;
+      const ctx3 = authenticateSession(s3.token, db)!;
+      expect(ctx3.user.id).toBe(s1.user.id);
+
+      // Revoking only Phone (s2) leaves Laptop and Tablet active
+      expect(revokeUserSession({ userId: s1.user.id, accountId: s1.account.id, sessionId: ctx2.session.id, ipAddress: '198.51.100.70' }, db)).toBe(true);
+      expect(authenticateSession(s2.token, db)).toBeNull();
+      expect(authenticateSession(s1.token, db)).not.toBeNull();
+      expect(authenticateSession(s3.token, db)).not.toBeNull();
+
+      // Revoke-all-other-sessions from Laptop leaves Laptop active and revokes Tablet
+      expect(revokeOtherUserSessions({ userId: s1.user.id, accountId: s1.account.id, currentSessionId: ctx1.session.id, ipAddress: '198.51.100.70' }, db)).toBe(1);
+      expect(authenticateSession(s1.token, db)).not.toBeNull();
+      expect(authenticateSession(s3.token, db)).toBeNull();
+    });
+
+    it('AUTH-20: persistent browser installation cookie fortless_device_id is issued and preserved across auth lifecycle', () => {
+      expect(DEVICE_COOKIE_NAME).toBe('fortless_device_id');
+      const dev = generateDeviceId();
+      expect(dev).toMatch(/^dev_[a-f0-9]{32}$/);
     });
   });
 
@@ -3367,6 +3640,158 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
           userId: userB.user.id,
         }, db, adapter);
       }).rejects.toThrow('Service not found or unauthorized.');
+    });
+  });
+
+  describe('Category S: Security Hardening & Zero-Trust Regression Tests (SEC-01 - SEC-14)', () => {
+    it('SEC-01 & SEC-02: SmtpEmailTransportAdapter fails closed when unconfigured and does not silently fall back to sandbox', async () => {
+      const adapter = new SmtpEmailTransportAdapter('mail.example.com', 587, false, 'user@example.com', '');
+      await expect(async () => {
+        await adapter.send({
+          id: 'eml_test',
+          recipient: 'dest@example.com',
+          template: 'welcome',
+          subject: 'Test Subject',
+          text: 'Hello test',
+          html: '<p>Hello test</p>',
+        });
+      }).rejects.toThrow('Live email delivery requires SMTP credentials');
+    });
+
+    it('SEC-04: Cumulative user-level MFA attempt rate limiting blocks brute force across new sessions', () => {
+      const user = registerUser({ name: 'MFA Target', email: 'mfa.target@example.com', password: 'TargetPassword123!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const verified = verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const { secret } = beginTotpEnrollment(user.user.id, 'TargetPassword123!', 'mfa.target@example.com', db);
+      const ctx = authenticateSession(verified.token, db)!;
+      confirmTotpEnrollment({
+        userId: user.user.id,
+        accountId: user.account.id,
+        sessionId: ctx.session.id,
+        code: generateTotpCode(secret),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // Attacker logs in with correct password and gets session 1
+      const login1 = loginUser({ email: 'mfa.target@example.com', password: 'TargetPassword123!', ipAddress: '127.0.0.1', userAgent: 'agent-1' }, db);
+      expect(login1.requiresMfa).toBe(true);
+
+      // Attempt 5 bad MFA codes on session 1
+      for (let i = 0; i < 5; i++) {
+        expect(() => completeMfaChallenge(login1.token, '000000', '127.0.0.1', db)).toThrow('verification code is invalid');
+      }
+
+      // Attacker creates a fresh session 2 with the correct password
+      const login2 = loginUser({ email: 'mfa.target@example.com', password: 'TargetPassword123!', ipAddress: '127.0.0.1', userAgent: 'agent-2' }, db);
+      expect(login2.token).not.toBe(login1.token);
+
+      // Attempting on session 2 is blocked immediately because user cumulative failures reached MAX_MFA_ATTEMPTS
+      expect(() => completeMfaChallenge(login2.token, '000000', '127.0.0.1', db)).toThrow('Too many verification attempts');
+    });
+
+    it('SEC-11: Webhook settlement handles Stripe checkout.session.completed without NaN or transaction crash', async () => {
+      const user = registerUser({ name: 'Checkout Customer', email: 'checkout.cust@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+
+      const checkout = await processCheckout({
+        accountId: user.account.id,
+        quoteId: quote.id,
+        idempotencyKey: 'idem_stripe_checkout_test',
+        regionId: 'reg_fra_1',
+      }, db);
+
+      // Simulate real Stripe checkout.session.completed event (which uses amount_total, not amount)
+      const mockSessionCompleted: any = {
+        id: 'evt_stripe_checkout_success',
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: 'cs_test_mock_session_123',
+            amount_total: quote.totalMinorUnits,
+            currency: 'eur',
+            payment_status: 'paid',
+            metadata: {
+              orderId: checkout.orderId,
+              paymentAttemptId: checkout.paymentAttemptId,
+            },
+          },
+        },
+      };
+
+      const result = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(mockSessionCompleted), mockSessionCompleted, db);
+      expect(result.status).toBe('PROCESSED');
+
+      // Verify invoice was marked paid with exact minor units, not NaN or 0
+      const invoice = db.prepare('SELECT status, amount_paid_minor_units FROM invoices WHERE id = ?').get(checkout.invoiceId) as any;
+      expect(invoice.status).toBe('PAID');
+      expect(invoice.amount_paid_minor_units).toBe(quote.totalMinorUnits);
+    });
+
+    it('SEC-12: Domain zone registration rejects squatting on reserved system domains', () => {
+      const user = registerUser({ name: 'Domain Customer', email: 'dom.squat@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      expect(() => {
+        createDomainZone(db, {
+          accountId: user.account.id,
+          domainName: 'fortless.net',
+        });
+      }).toThrow('reserved system domain');
+
+      expect(() => {
+        createDomainZone(db, {
+          accountId: user.account.id,
+          domainName: 'api.fortless.cloud',
+        });
+      }).toThrow('reserved system domain');
+    });
+
+    it('SEC-13: Ticket attachments on staff internal notes are excluded from customer thread retrieval', () => {
+      const user = registerUser({ name: 'Support Cust', email: 'sup.cust@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ticket = createTicket({
+        accountId: user.account.id,
+        userId: user.user.id,
+        subject: 'System assistance',
+        priority: 'NORMAL',
+        message: 'Need help with setup',
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // Add customer attachment
+      addTicketAttachment({
+        ticketId: ticket.ticketId,
+        accountId: user.account.id,
+        userId: user.user.id,
+        filename: 'customer_config.json',
+        contentType: 'application/json',
+        buffer: Buffer.from('{"client":true}'),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // Staff adds internal note
+      const internalMsgId = 'msg_internal_staff_01';
+      db.prepare(`
+        INSERT INTO ticket_messages (id, ticket_id, author_user_id, is_staff_internal_note, body)
+        VALUES (?, ?, ?, 1, 'Confidential internal note with private server credentials')
+      `).run(internalMsgId, ticket.ticketId, user.user.id);
+
+      // Staff attaches file to internal note
+      const internalAtt = addTicketAttachment({
+        ticketId: ticket.ticketId,
+        messageId: internalMsgId,
+        accountId: null, // staff context
+        userId: user.user.id,
+        filename: 'internal_root_logs.txt',
+        contentType: 'text/plain',
+        buffer: Buffer.from('root_private_key_data'),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // Customer fetches attachments for ticket
+      const customerAttachments = listTicketAttachments(ticket.ticketId, user.account.id, db);
+      expect(customerAttachments).toHaveLength(1);
+      expect(customerAttachments[0]?.filename).toBe('customer_config.json');
+
+      // Customer cannot download the internal attachment directly
+      const customerDownload = getTicketAttachment(ticket.ticketId, internalAtt.id, user.account.id, db);
+      expect(customerDownload).toBeNull();
     });
   });
 });

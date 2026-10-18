@@ -223,6 +223,9 @@ export async function processCheckout(
       SET status = 'FAILED'
       WHERE account_id = ? AND scope = 'checkout' AND idempotency_key = ?
     `).run(data.accountId, data.idempotencyKey);
+    // Reopen quote if external checkout provider failed so customer can retry
+    db.prepare("UPDATE quotes SET status = 'OPEN' WHERE id = ? AND account_id = ? AND status = 'CONVERTED'")
+      .run(data.quoteId, data.accountId);
     throw err;
   }
 }
@@ -275,10 +278,19 @@ async function fulfillFreeOrder(
     for (const item of items) {
       const serviceId = generateId('svc');
 
+      const productRow = trx.prepare(`
+        SELECT p.provider_type
+        FROM plan_versions pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE pv.id = ?
+      `).get(item.plan_version_id) as { provider_type: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS' } | undefined;
+      const providerType = productRow?.provider_type || 'PTERODACTYL';
+      const providerInstance = providerType === 'CPANEL' ? 'cpanel_primary' : 'pterodactyl_primary';
+
       trx.prepare(`
         INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id)
-        VALUES (?, ?, ?, 'PTERODACTYL', 'pterodactyl_primary', 'ACTIVE', ?)
-      `).run(serviceId, args.accountId, item.id, assignedNodeId);
+        VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)
+      `).run(serviceId, args.accountId, item.id, providerType, providerInstance, assignedNodeId);
 
       const planVersion = trx.prepare('SELECT resource_specs FROM plan_versions WHERE id = ?')
         .get(item.plan_version_id) as { resource_specs: string };

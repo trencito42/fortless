@@ -173,6 +173,7 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
       await validateSafeOutboundUrl(url);
       const response = await fetch(url, {
         method,
+        redirect: 'error',
         headers: {
           Authorization: `Bearer ${key}`,
           'Content-Type': options.rawBody !== undefined ? 'text/plain' : 'application/json',
@@ -827,6 +828,7 @@ export class CpanelHttpAdapter implements ProviderAdapter {
     try {
       const res = await fetch(url.toString(), {
         method: 'GET',
+        redirect: 'error',
         headers: {
           'Authorization': `whm ${this.username}:${this.apiToken}`,
           'Accept': 'application/json',

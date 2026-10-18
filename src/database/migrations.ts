@@ -972,6 +972,16 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       `);
     },
   },
+  {
+    version: 39,
+    name: 'persistent browser installation device id for session deduplication',
+    up(db) {
+      if (!hasColumn(db, 'sessions', 'device_id')) {
+        db.exec('ALTER TABLE sessions ADD COLUMN device_id TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id)');
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

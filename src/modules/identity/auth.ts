@@ -42,12 +42,23 @@ export interface SessionResult { user: User; account: Account; token: string; re
 export interface MfaStatus { enabled: boolean; recoveryCodesRemaining: number }
 export interface SessionDevice {
   id: string;
+  deviceId?: string | null;
   ipAddress: string;
   userAgent: string;
   createdAt: string;
   lastActiveAt: string;
   expiresAt: string;
   isCurrent: boolean;
+}
+
+export const DEVICE_COOKIE_NAME = 'fortless_device_id';
+
+export function generateDeviceId(): string {
+  return `dev_${crypto.randomBytes(16).toString('hex')}`;
+}
+
+export function isValidDeviceId(id: unknown): id is string {
+  return typeof id === 'string' && /^[a-zA-Z0-9_-]{16,64}$/.test(id);
 }
 
 const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -154,21 +165,38 @@ export function createSessionForUser(
   ipAddress: string,
   userAgent: string,
   mfaVerified: boolean = false,
-  db: Database.Database = getDatabase()
+  db: Database.Database = getDatabase(),
+  deviceId?: string | null
 ): string {
   // Prune expired sessions for this identity
   db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires_at <= datetime('now', 'utc')").run(userId);
-  // Supersede existing sessions on the same device/browser to avoid accumulating duplicates
-  db.prepare("DELETE FROM sessions WHERE user_id = ? AND user_agent = ?").run(userId, userAgent.slice(0, 512));
+  // Expire and clean up abandoned pending-MFA sessions older than 15 minutes
+  db.prepare("DELETE FROM sessions WHERE user_id = ? AND mfa_verified_at IS NULL AND created_at < datetime('now', '-15 minutes')").run(userId);
+
+  const normalizedDeviceId = (deviceId && isValidDeviceId(deviceId)) ? deviceId : null;
+
+  // If a valid deviceId is present:
+  // - If this session is already verified, supersede any existing session on this device
+  // - If this session is pending MFA, clean up any previous uncompleted pending-MFA sessions on this device
+  //   WITHOUT touching any currently active, authenticated sessions
+  if (normalizedDeviceId) {
+    if (mfaVerified) {
+      db.prepare("DELETE FROM sessions WHERE user_id = ? AND device_id = ?").run(userId, normalizedDeviceId);
+    } else {
+      db.prepare("DELETE FROM sessions WHERE user_id = ? AND device_id = ? AND mfa_verified_at IS NULL").run(userId, normalizedDeviceId);
+    }
+  }
 
   const rawToken = generateOpaqueToken();
   const mfaVerifiedAt = mfaVerified ? new Date().toISOString() : null;
-  db.prepare(`INSERT INTO sessions (id, user_id, ip_address, user_agent, mfa_verified_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(tokenDigest(rawToken), userId, ipAddress, userAgent.slice(0, 512), mfaVerifiedAt, new Date(Date.now() + SESSION_TTL_MS).toISOString());
+  // Pending MFA sessions expire in 15 minutes; verified sessions live for full SESSION_TTL_MS (14 days)
+  const expiresAt = mfaVerified
+    ? new Date(Date.now() + SESSION_TTL_MS).toISOString()
+    : new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  db.prepare(`INSERT INTO sessions (id, user_id, device_id, ip_address, user_agent, mfa_verified_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(tokenDigest(rawToken), userId, normalizedDeviceId, ipAddress, userAgent.slice(0, 512), mfaVerifiedAt, expiresAt);
   return rawToken;
-}
-function createSession(userId: string, ipAddress: string, userAgent: string, db: Database.Database): string {
-  return createSessionForUser(userId, ipAddress, userAgent, false, db);
 }
 function createPurposeToken(
   table: 'email_verification_tokens' | 'password_reset_tokens', userId: string, ttlMs: number, db: Database.Database
@@ -217,7 +245,7 @@ export function registerUser(
 }
 
 export function verifyEmail(
-  token: string, context: { ipAddress: string; userAgent: string }, db: Database.Database = getDatabase()
+  token: string, context: { ipAddress: string; userAgent: string; deviceId?: string }, db: Database.Database = getDatabase()
 ): SessionResult {
   return runInTransaction((trx) => {
     const row = trx.prepare(`SELECT evt.user_id, u.* FROM email_verification_tokens evt JOIN users u ON u.id = evt.user_id
@@ -228,7 +256,7 @@ export function verifyEmail(
     trx.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc'), updated_at = datetime('now', 'utc') WHERE id = ?").run(row.user_id);
     trx.prepare("UPDATE email_verification_tokens SET consumed_at = datetime('now', 'utc') WHERE user_id = ? AND consumed_at IS NULL").run(row.user_id);
     const account = getPrimaryAccount(row.user_id, trx);
-    const sessionToken = createSession(row.user_id, context.ipAddress, context.userAgent, trx);
+    const sessionToken = createSessionForUser(row.user_id, context.ipAddress, context.userAgent, true, trx, context.deviceId);
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.email_verified', 'user', ?, ?, ?)`)
       .run(generateId('aud'), account.id, row.user_id, row.user_id, context.ipAddress, generateId('cor'));
@@ -279,7 +307,7 @@ function isLoginThrottled(email: string, ipAddress: string, db: Database.Databas
   return row.failures >= MAX_FAILED_LOGINS;
 }
 export function loginUser(
-  data: { email: string; password: string; ipAddress: string; userAgent: string }, db: Database.Database = getDatabase()
+  data: { email: string; password: string; ipAddress: string; userAgent: string; deviceId?: string }, db: Database.Database = getDatabase()
 ): SessionResult {
   const normalizedEmail = data.email.trim().toLowerCase();
   if (isLoginThrottled(normalizedEmail, data.ipAddress, db)) throw new Error('Too many sign-in attempts. Try again after 15 minutes.');
@@ -293,10 +321,19 @@ export function loginUser(
     throw new Error('Verify your email before signing in.');
   }
   const account = getPrimaryAccount(userRow.id, db);
-  const sessionToken = createSession(userRow.id, data.ipAddress, data.userAgent, db);
   const requiresMfa = Boolean(confirmedMfa(userRow.id, db));
-  db.prepare('DELETE FROM auth_login_attempts WHERE identifier_hash = ? AND ip_address = ? AND succeeded = 0')
-    .run(identifierDigest(normalizedEmail), data.ipAddress);
+  const sessionToken = createSessionForUser(
+    userRow.id,
+    data.ipAddress,
+    data.userAgent,
+    !requiresMfa,
+    db,
+    data.deviceId
+  );
+  if (!requiresMfa) {
+    db.prepare('DELETE FROM auth_login_attempts WHERE identifier_hash = ? AND ip_address = ? AND succeeded = 0')
+      .run(identifierDigest(normalizedEmail), data.ipAddress);
+  }
   recordLoginAttempt(normalizedEmail, data.ipAddress, true, db);
   db.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
     VALUES (?, ?, ?, 'USER', 'user.login', 'session', ?, ?, ?)`)
@@ -470,13 +507,20 @@ export function hasPendingMfaSession(token: string, db: Database.Database = getD
 export function completeMfaChallenge(token: string, code: string, ipAddress: string, db: Database.Database = getDatabase()): { recoveryCodeUsed: boolean } {
   const outcome = runInTransaction((trx): { recoveryCodeUsed: boolean; error?: string } => {
     const sessionId = tokenDigest(token);
-    const session = trx.prepare(`SELECT s.user_id FROM sessions s JOIN users u ON u.id = s.user_id
+    const session = trx.prepare(`SELECT s.user_id, s.device_id FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.id = ? AND s.expires_at > datetime('now', 'utc') AND u.status = 'ACTIVE'`)
-      .get(sessionId) as { user_id: string } | undefined;
+      .get(sessionId) as { user_id: string; device_id: string | null } | undefined;
     if (!session) throw new Error('This sign-in session has expired.');
     const attempts = trx.prepare(`SELECT count(*) AS total FROM mfa_attempts WHERE session_id = ? AND succeeded = 0
       AND attempted_at >= datetime('now', '-15 minutes')`).get(sessionId) as { total: number };
-    if (attempts.total >= MAX_MFA_ATTEMPTS) throw new Error('Too many verification attempts. Try again after 15 minutes.');
+    const userAttempts = trx.prepare(`
+      SELECT count(*) AS total FROM mfa_attempts ma
+      JOIN sessions s ON s.id = ma.session_id
+      WHERE s.user_id = ? AND ma.succeeded = 0 AND ma.attempted_at >= datetime('now', '-15 minutes')
+    `).get(session.user_id) as { total: number };
+    if (attempts.total >= MAX_MFA_ATTEMPTS || userAttempts.total >= MAX_MFA_ATTEMPTS) {
+      throw new Error('Too many verification attempts. Try again after 15 minutes.');
+    }
     const factor = confirmedMfa(session.user_id, trx);
     if (!factor) throw new Error('No authenticator is configured for this account.');
     const normalizedCode = code.trim().toUpperCase();
@@ -491,8 +535,24 @@ export function completeMfaChallenge(token: string, code: string, ipAddress: str
       .run(generateId('mfa'), sessionId, valid ? 1 : 0);
     if (!valid) return { recoveryCodeUsed: false, error: 'The verification code is invalid.' };
     if (recovery) trx.prepare("UPDATE mfa_recovery_codes SET consumed_at = datetime('now', 'utc') WHERE id = ?").run(recovery.id);
-    trx.prepare("UPDATE sessions SET mfa_verified_at = datetime('now', 'utc') WHERE id = ?").run(sessionId);
+
+    // Extend session TTL to full 14 days and mark verified
+    const fullExpiry = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+    trx.prepare("UPDATE sessions SET mfa_verified_at = datetime('now', 'utc'), expires_at = ? WHERE id = ?")
+      .run(fullExpiry, sessionId);
+
+    // Only now that MFA has succeeded, supersede any previous session for this browser installation
+    if (session.device_id) {
+      trx.prepare("DELETE FROM sessions WHERE user_id = ? AND device_id = ? AND id != ?")
+        .run(session.user_id, session.device_id, sessionId);
+    }
+
     trx.prepare("UPDATE mfa_factors SET last_used_at = datetime('now', 'utc') WHERE id = ?").run(factor.id);
+    const userRow = trx.prepare('SELECT email FROM users WHERE id = ?').get(session.user_id) as { email: string } | undefined;
+    if (userRow?.email) {
+      trx.prepare('DELETE FROM auth_login_attempts WHERE identifier_hash = ? AND succeeded = 0')
+        .run(identifierDigest(userRow.email));
+    }
     const account = getPrimaryAccount(session.user_id, trx);
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.mfa_challenge_completed', 'session', ?, ?, ?)`)
@@ -586,14 +646,15 @@ export function listUserSessions(
   userId: string, currentSessionId: string, db: Database.Database = getDatabase()
 ): SessionDevice[] {
   const mfaEnabled = Boolean(confirmedMfa(userId, db));
-  const rows = db.prepare(`SELECT id, ip_address, user_agent, created_at, last_active_at, expires_at
+  const rows = db.prepare(`SELECT id, device_id, ip_address, user_agent, created_at, last_active_at, expires_at
     FROM sessions WHERE user_id = ? AND expires_at > datetime('now', 'utc')
     ${mfaEnabled ? 'AND mfa_verified_at IS NOT NULL' : ''}
     ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, last_active_at DESC`).all(userId, currentSessionId) as Array<{
-      id: string; ip_address: string; user_agent: string; created_at: string; last_active_at: string; expires_at: string;
+      id: string; device_id: string | null; ip_address: string; user_agent: string; created_at: string; last_active_at: string; expires_at: string;
     }>;
   return rows.map((row) => ({
     id: row.id,
+    deviceId: row.device_id,
     ipAddress: row.ip_address,
     userAgent: row.user_agent,
     createdAt: row.created_at,
@@ -601,6 +662,14 @@ export function listUserSessions(
     expiresAt: row.expires_at,
     isCurrent: row.id === currentSessionId,
   }));
+}
+
+export function cleanupExpiredSessions(db: Database.Database = getDatabase()): { expiredCount: number; pendingMfaCount: number } {
+  return runInTransaction((trx) => {
+    const expired = trx.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now', 'utc')").run();
+    const pending = trx.prepare("DELETE FROM sessions WHERE mfa_verified_at IS NULL AND created_at < datetime('now', '-15 minutes')").run();
+    return { expiredCount: expired.changes, pendingMfaCount: pending.changes };
+  }, db);
 }
 
 export function revokeUserSession(

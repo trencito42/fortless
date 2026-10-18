@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS staff_memberships (
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY, -- SHA-256 digest of the opaque browser token
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT,
   ip_address TEXT NOT NULL,
   user_agent TEXT NOT NULL,
   expires_at TEXT NOT NULL,

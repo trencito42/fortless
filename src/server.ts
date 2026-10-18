@@ -44,6 +44,9 @@ import {
   type AuthContext,
   MfaConfigurationUnavailableError,
   completeStepUp,
+  DEVICE_COOKIE_NAME,
+  generateDeviceId,
+  isValidDeviceId,
 } from './modules/identity/auth.js';
 import {
   listAccountMembers,
@@ -219,9 +222,38 @@ export function buildServer(): FastifyInstance {
     try { return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected)); } catch { return false; }
   };
 
+  const DEVICE_COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
+  const resolveDeviceId = (req: FastifyRequest, reply?: FastifyReply): string => {
+    const headerDeviceId = req.headers['x-device-id'];
+    const cookieDeviceId = req.cookies[DEVICE_COOKIE_NAME];
+    const candidate = (typeof headerDeviceId === 'string' && headerDeviceId.trim())
+      ? headerDeviceId.trim()
+      : cookieDeviceId;
+
+    let deviceId: string;
+    if (isValidDeviceId(candidate)) {
+      deviceId = candidate;
+    } else {
+      deviceId = generateDeviceId();
+    }
+
+    if (reply && req.cookies[DEVICE_COOKIE_NAME] !== deviceId) {
+      reply.setCookie(DEVICE_COOKIE_NAME, deviceId, {
+        path: '/',
+        httpOnly: true,
+        secure: config.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: DEVICE_COOKIE_MAX_AGE,
+      });
+    }
+
+    return deviceId;
+  };
+
   // 3. Auth Hook Middleware
   app.decorateRequest('auth', undefined);
-  app.addHook('preHandler', async (req) => {
+  app.addHook('preHandler', async (req, reply) => {
+    resolveDeviceId(req, reply);
     let token = req.cookies['fortless_session'];
     const authHeader = req.headers['authorization'];
     if (!token && authHeader?.startsWith('Bearer ')) {
@@ -563,7 +595,7 @@ export function buildServer(): FastifyInstance {
     payments: {
       enabled: operationalCapability('payments'),
       mode: config.PAYMENTS_MODE,
-      verification: config.PAYMENTS_MODE === 'stripe_test' ? 'SANDBOX_VERIFIED' : (config.PAYMENTS_MODE === 'stripe_live' ? 'PRODUCTION_VERIFIED' : 'NOT_STARTED'),
+      verification: config.PAYMENTS_MODE === 'stripe_test' ? 'SANDBOX_VERIFIED' : (config.PAYMENTS_MODE === 'stripe_live' ? (config.PROVIDER_VERIFICATION_TIER === 'PRODUCTION_VERIFIED' ? 'PRODUCTION_VERIFIED' : 'CONFIGURED') : 'NOT_STARTED'),
     },
     provisioning: {
       enabled: operationalCapability('provisioning'),
@@ -576,7 +608,7 @@ export function buildServer(): FastifyInstance {
     transactionalEmail: {
       enabled: operationalCapability('email'),
       mode: config.EMAIL_MODE,
-      verification: config.EMAIL_MODE === 'sandbox' ? 'SANDBOX_VERIFIED' : (config.EMAIL_MODE === 'live' ? 'PRODUCTION_VERIFIED' : 'NOT_STARTED'),
+      verification: config.EMAIL_MODE === 'sandbox' ? 'SANDBOX_VERIFIED' : (config.EMAIL_MODE === 'live' ? (config.PROVIDER_VERIFICATION_TIER === 'PRODUCTION_VERIFIED' ? 'PRODUCTION_VERIFIED' : 'CONFIGURED') : 'NOT_STARTED'),
     },
   }));
 
@@ -602,11 +634,15 @@ export function buildServer(): FastifyInstance {
         userAgent: req.headers['user-agent'] || 'unknown',
       });
 
+      const emailDelivery = (config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox')
+        ? 'QUEUED'
+        : 'CONFIGURATION_REQUIRED';
+
       return reply.status(201).send({
         user: result.user,
         account: result.account,
         requiresEmailVerification: true,
-        emailDelivery: 'CONFIGURATION_REQUIRED',
+        emailDelivery,
       });
     } catch (err: unknown) {
       return reply.status(400).send({ error: (err as Error).message });
@@ -626,11 +662,13 @@ export function buildServer(): FastifyInstance {
     }
 
     try {
+      const deviceId = resolveDeviceId(req, reply);
       const result = loginUser({
         email: parse.data.email,
         password: parse.data.password,
         ipAddress: req.ip || '127.0.0.1',
         userAgent: req.headers['user-agent'] || 'unknown',
+        deviceId,
       });
 
       reply.setCookie('fortless_session', result.token, {
@@ -656,7 +694,12 @@ export function buildServer(): FastifyInstance {
     const parse = tokenSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Invalid verification request' });
     try {
-      const result = verifyEmail(parse.data.token, { ipAddress: req.ip, userAgent: req.headers['user-agent'] || 'unknown' });
+      const deviceId = resolveDeviceId(req, reply);
+      const result = verifyEmail(parse.data.token, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] || 'unknown',
+        deviceId,
+      });
       reply.setCookie('fortless_session', result.token, { path: '/', httpOnly: true, secure: config.NODE_ENV === 'production', sameSite: 'lax', maxAge: 14 * 24 * 60 * 60 });
       return { verified: true };
     } catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
@@ -666,13 +709,15 @@ export function buildServer(): FastifyInstance {
   app.post('/api/v1/auth/resend-verification', async (req, reply) => {
     const parse = emailSchema.safeParse(req.body);
     if (parse.success) resendVerification(parse.data.email);
-    return reply.status(202).send({ message: 'If the account is eligible, a verification message will be queued.', emailDelivery: 'CONFIGURATION_REQUIRED' });
+    const emailDelivery = (config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox') ? 'QUEUED' : 'CONFIGURATION_REQUIRED';
+    return reply.status(202).send({ message: 'If the account is eligible, a verification message will be queued.', emailDelivery });
   });
 
   app.post('/api/v1/auth/forgot-password', async (req, reply) => {
     const parse = emailSchema.safeParse(req.body);
     if (parse.success) requestPasswordReset(parse.data.email);
-    return reply.status(202).send({ message: 'If an eligible account exists, a password reset message will be queued.', emailDelivery: 'CONFIGURATION_REQUIRED' });
+    const emailDelivery = (config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox') ? 'QUEUED' : 'CONFIGURATION_REQUIRED';
+    return reply.status(202).send({ message: 'If an eligible account exists, a password reset message will be queued.', emailDelivery });
   });
 
   app.post('/api/v1/auth/reset-password', async (req, reply) => {
@@ -687,7 +732,15 @@ export function buildServer(): FastifyInstance {
     const token = req.cookies['fortless_session'];
     if (!parse.success || !token) return reply.status(400).send({ error: 'Enter a valid authenticator or recovery code.' });
     try {
-      return reply.send({ verified: true, ...completeMfaChallenge(token, parse.data.code, req.ip) });
+      const challengeResult = completeMfaChallenge(token, parse.data.code, req.ip);
+      reply.setCookie('fortless_session', token, {
+        path: '/',
+        httpOnly: true,
+        secure: config.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 14 * 24 * 60 * 60,
+      });
+      return reply.send({ verified: true, ...challengeResult });
     } catch (err: unknown) {
       if (err instanceof MfaConfigurationUnavailableError) {
         return reply.status(503).send({ error: err.message, code: err.code });
@@ -909,10 +962,12 @@ export function buildServer(): FastifyInstance {
     if (!parse.success) return reply.status(400).send({ error: 'Invalid passkey authentication payload.' });
 
     try {
+      const deviceId = resolveDeviceId(req, reply);
       const result = verifyAndAuthenticatePasskey({
         ...parse.data,
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'] || '',
+        deviceId,
       }, getDatabase());
 
       reply.setCookie('fortless_session', result.token, {
@@ -1000,11 +1055,12 @@ export function buildServer(): FastifyInstance {
   });
 
   // Email Delivery Status
-  app.get('/api/v1/email/status', { preHandler: [requireAuth] }, async () => {
+  app.get('/api/v1/email/status', { preHandler: [requireAuth] }, async (req) => {
     const db = getDatabase();
-    const counts = db.prepare(`
-      SELECT status, count(*) AS count FROM email_outbox GROUP BY status
-    `).all() as { status: string; count: number }[];
+    const isStaff = Boolean(req.auth?.user.is_staff);
+    const counts = isStaff
+      ? db.prepare(`SELECT status, count(*) AS count FROM email_outbox GROUP BY status`).all() as { status: string; count: number }[]
+      : db.prepare(`SELECT status, count(*) AS count FROM email_outbox WHERE lower(recipient) = ? GROUP BY status`).all(req.auth!.user.email.toLowerCase()) as { status: string; count: number }[];
     const countMap: Record<string, number> = { PENDING: 0, SENT: 0, FAILED: 0 };
     for (const c of counts) countMap[c.status] = c.count;
     return {
@@ -1779,7 +1835,7 @@ export function buildServer(): FastifyInstance {
   // Notifications: Mark Single Read
   app.post('/api/v1/notifications/:id/read', { preHandler: [requireAuth] }, async (req) => {
     const { id } = req.params as { id: string };
-    const updated = markNotificationRead(id, req.auth!.account.id);
+    const updated = markNotificationRead(id, req.auth!.account.id, req.auth!.user.id);
     return { success: true, updated };
   });
 

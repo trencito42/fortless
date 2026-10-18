@@ -3044,7 +3044,7 @@ ${selectedOr("code")}
     { id: "up", label: "Uptime", icon: "play", tone: "neu" }
   ];
   function mountLiveTiles(host) {
-    host.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${TILES.map((t) => `<div class="card mt" style="min-width:0"><div style="min-width:0"><span class="l">${t.label}</span><b class="v" data-v="${t.id}">\u2014</b><small data-s="${t.id}"></small>${t.chart ? `<div data-c="${t.id}" style="height:36px"></div>` : ""}</div><span class="tile ${t.tone}">${hero(t.icon)}</span></div>`).join("")}</div>`;
+    host.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">${TILES.map((t) => `<div class="mt" style="min-width:0;padding:12px;background:var(--s2);border-radius:var(--r1)"><div style="min-width:0"><span class="l">${t.label}</span><b class="v" data-v="${t.id}">\u2014</b><small data-s="${t.id}"></small>${t.chart ? `<div data-c="${t.id}" style="height:36px"></div>` : ""}</div><span class="tile ${t.tone}">${hero(t.icon)}</span></div>`).join("")}</div>`;
     const text = (sel, v) => {
       const el2 = host.querySelector(sel);
       if (el2 && el2.textContent !== v) el2.textContent = v;

@@ -142,8 +142,9 @@ function templateReplacements(payload: Record<string, unknown>): Array<[string, 
     ['https://fortless.net/verify-email?token=sample-token-0000', String(payload['verifyUrl'] || 'https://fortless.net/verify-email')],
     ['https://fortless.net/reset-password?token=sample-token-0000', String(payload['resetUrl'] || 'https://fortless.net/reset-password')],
     ['https://fortless.net/register?invite=sample-token', inviteUrl],
-    ['FL-2026-0044', invoice], ['€27.90', amount], ['€14.90', amount],
-    ['Minecraft Survival 4 GB', serviceName], ['Node.js App Starter', serviceName],
+    ['FL-2026-0044', invoice], ['€27.90', amount], ['€14.90', amount], ['€7.90', amount], ['€3.90', amount], ['€6.90', amount],
+    ['Minecraft Survival 4 GB', serviceName], ['Survival 4 GB', serviceName], ['Starter 2 GB', serviceName],
+    ['Modded 8 GB', serviceName], ['Bot Standard', serviceName], ['Node.js Starter', serviceName], ['Node.js App Starter', serviceName],
     ['fra-gs-03.fortless.net:25565', address], ['mc.fortless.net:25565', address], ['Frankfurt', region],
     ['Server stuck on Installing after order', subject], ['tkt_0912', ticketId],
     ['Thanks. The install job timed out on our side, so we re-queued it. Please check again in a few minutes.', preview],
@@ -267,19 +268,14 @@ export class SmtpEmailTransportAdapter implements EmailTransportAdapter {
           user: this.user,
           pass: this.pass,
         },
-        tls: {
-          rejectUnauthorized: false,
-        },
       });
     }
     return this.transporter;
   }
 
   async send(message: EmailTransportMessage): Promise<{ messageId: string }> {
-    if (!this.pass) {
-      console.warn(`[SMTP] No password configured for ${this.user} on ${this.host}. Saving to sandbox storage.`);
-      const sandbox = new SandboxEmailTransportAdapter();
-      return sandbox.send(message);
+    if (!this.pass || !this.host) {
+      throw new Error(`[SMTP] Live email delivery requires SMTP credentials (host and password). Delivery aborted.`);
     }
     const transporter = this.getTransporter();
     const info = await transporter.sendMail({

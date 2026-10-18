@@ -135,11 +135,11 @@ button.li:hover,a.li:hover,.li.h:hover{background:var(--s3)}button.li:active,a.l
 .fld.bad .inp{background:var(--bad-bg)}.fld .hint{font-size:12.5px;color:var(--ink3);font-weight:600}.fld.bad .hint{color:var(--bad)}
 .seg{display:inline-flex;background:var(--s3);border-radius:999px;padding:3px;max-width:100%;overflow-x:auto;scrollbar-width:none}.seg::-webkit-scrollbar{display:none}
 .card .seg,.mdl .seg{background:var(--s2)}
-.seg button{height:34px;padding:0 15px;border-radius:999px;font:700 13px/1 var(--font);color:var(--ink2);white-space:nowrap;transition:background .2s,color .2s}
-.seg button[aria-selected="true"]{background:var(--s1);color:var(--ink)}
-.card .seg button[aria-selected="true"],.mdl .seg button[aria-selected="true"]{background:var(--s1)}
-.card .seg button[aria-selected="true"]{background:var(--ink);color:var(--on-ink)}
-.seg.blk{display:flex}.seg.blk button{flex:1}
+.seg button,.seg .seg-btn{height:34px;padding:0 15px;border-radius:999px;font:700 13px/1 var(--font);color:var(--ink2);white-space:nowrap;transition:background .2s,color .2s;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.seg button[aria-selected="true"],.seg input:checked+.seg-btn{background:var(--s1);color:var(--ink)}
+.card .seg button[aria-selected="true"],.mdl .seg button[aria-selected="true"],.card .seg input:checked+.seg-btn,.mdl .seg input:checked+.seg-btn{background:var(--s1)}
+.card .seg button[aria-selected="true"],.card .seg input:checked+.seg-btn{background:var(--ink);color:var(--on-ink)}
+.seg.blk{display:flex}.seg.blk button,.seg.blk .seg-btn{flex:1}
 .tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;margin-bottom:14px}.tabs::-webkit-scrollbar{display:none}
 .tabs button{position:relative;height:42px;padding:0 16px;border-radius:14px;font:700 14px/1 var(--font);color:var(--ink2);white-space:nowrap;transition:background .2s,color .2s}
 .tabs button:hover{background:var(--s3)}.tabs button[aria-selected="true"]{background:var(--s1);color:var(--ink)}

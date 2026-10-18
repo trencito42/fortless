@@ -250,7 +250,7 @@ export function ingestPSPWebhook(
     trx.prepare("UPDATE payment_attempts SET status = 'SUCCEEDED' WHERE id = ?").run(attemptRow.id);
 
     // 5b. Mark Invoice PAID & Allocate Sequential Number
-    markInvoicePaid(attemptRow.invoice_id, paymentObj.amount, trx);
+    markInvoicePaid(attemptRow.invoice_id, effectiveAmount, trx);
 
     // 5c. Update Order Status
     trx.prepare("UPDATE orders SET status = 'PAID', updated_at = datetime('now', 'utc') WHERE id = ?").run(attemptRow.order_id);
@@ -276,10 +276,19 @@ export function ingestPSPWebhook(
     for (const item of items) {
       const serviceId = generateId('svc');
 
+      const productRow = trx.prepare(`
+        SELECT p.provider_type
+        FROM plan_versions pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE pv.id = ?
+      `).get(item.plan_version_id) as { provider_type: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS' } | undefined;
+      const providerType = productRow?.provider_type || 'PTERODACTYL';
+      const providerInstance = providerType === 'CPANEL' ? 'cpanel_primary' : 'pterodactyl_primary';
+
       trx.prepare(`
         INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id)
-        VALUES (?, ?, ?, 'PTERODACTYL', 'pterodactyl_primary', 'ACTIVE', ?)
-      `).run(serviceId, attemptRow.account_id, item.id, assignedNodeId);
+        VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)
+      `).run(serviceId, attemptRow.account_id, item.id, providerType, providerInstance, assignedNodeId);
 
       const planVersion = trx.prepare(`
         SELECT resource_specs FROM plan_versions WHERE id = ?
@@ -334,7 +343,9 @@ export function ingestPSPWebhook(
     const account = trx.prepare('SELECT billing_email FROM accounts WHERE id = ?').get(attemptRow.account_id) as { billing_email: string } | undefined;
     const invoice = trx.prepare('SELECT invoice_number FROM invoices WHERE id = ?').get(attemptRow.invoice_id) as { invoice_number: string } | undefined;
     const invNumber = invoice?.invoice_number || 'INV-PAID';
-    const formattedAmount = `${(paymentObj.amount / 100).toFixed(2)} ${paymentObj.currency.toUpperCase()}`;
+    const effectiveAmountMinor = effectiveAmount ?? attemptRow.amount_minor_units;
+    const effectiveCurrency = (paymentObj.currency || attemptRow.currency || 'EUR').toUpperCase();
+    const formattedAmount = `${(effectiveAmountMinor / 100).toFixed(2)} ${effectiveCurrency}`;
 
     if (account?.billing_email) {
       queueEmail(trx, {
