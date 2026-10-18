@@ -15,7 +15,13 @@ import { renderServices, powerService, filterServices } from './pages/dashboard/
 import { renderServiceDetail } from './pages/services/index.js';
 import { renderDeploy, deployState, updateSummary, beginCheckout } from './pages/deploy/index.js';
 import { renderDomains } from './pages/domains/index.js';
-import { renderBilling, cancelSubscription, filterBilling } from './pages/billing/index.js';
+import {
+  renderBilling,
+  filterBilling,
+  openCancelSubModal,
+  closeCancelSubModal,
+  executeScheduledCancel,
+} from './pages/billing/index.js';
 import {
   renderTickets,
   renderNewTicket,
@@ -24,22 +30,29 @@ import {
   createTicket,
   filterTickets,
   updateFileLabel,
+  openTicketModal,
+  closeTicketModal,
+  submitModalTicket,
+  resolveTicketAction,
 } from './pages/support/index.js';
 import { renderActivity, filterActivity } from './pages/activity/index.js';
 import {
   renderSettings,
-  loadMfa,
-  showMfaPasswordStep,
-  beginMfaEnrollment,
-  showMfaCodeStep,
-  confirmMfaEnrollment,
-  showMfaDisableStep,
-  disableMfa,
+  openMfaSetupModal,
+  closeMfaSetupModal,
+  handleMfaPasswordSubmit,
+  verifyMfaSetup,
+  openMfaDisableModal,
+  closeMfaDisableModal,
+  handleDisableMfaSubmit,
+  handleRegenerateRecoveryCodes,
+  copyLastRecoveryCodes,
   revokeDevice,
   revokeOtherSessions,
   loadSessions,
   loadTeamMembers,
-  restoreMfaScanStep,
+  registerPasskey,
+  handleRemovePasskey,
 } from './pages/settings/index.js';
 import { installCustomSelects, installRichTextEditors } from '../petal/index.js';
 
@@ -84,10 +97,21 @@ function updateNavigationChrome(routeName: string) {
   if (viewTitle) viewTitle.textContent = titleEntry[0];
   if (viewSubtitle) viewSubtitle.textContent = titleEntry[1];
 
-  const catalogAction = document.querySelector<HTMLElement>('.app-top-actions .btn');
-  if (catalogAction) {
-    catalogAction.hidden = routeName === 'deploy' || routeName === 'service-detail';
-  }
+  // Sync sidebar active link
+  document.querySelectorAll<HTMLElement>('.sd .nv').forEach((link) => {
+    const route = link.dataset.appRoute;
+    const isMatch = route === routeName || (routeName === 'service-detail' && route === 'services') || (routeName.startsWith('ticket') && route === 'tickets');
+    link.classList.toggle('on', isMatch);
+    if (isMatch) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  });
+
+  // Sync mobile tabbar active link
+  document.querySelectorAll<HTMLElement>('.tabbar a, .tabbar button').forEach((item) => {
+    const route = item.dataset.appRoute;
+    const isMatch = route === routeName || (routeName === 'service-detail' && route === 'services') || (routeName.startsWith('ticket') && route === 'tickets');
+    item.classList.toggle('on', isMatch);
+  });
 
   // Show only current section
   const sectionKeys = ['dashboard', 'services', 'service-detail', 'deploy', 'domains', 'billing', 'tickets', 'ticket-new', 'ticket-detail', 'audit', 'settings'];
@@ -95,6 +119,11 @@ function updateNavigationChrome(routeName: string) {
     const section = document.getElementById(`section-${key}`);
     if (section) section.style.display = key === routeName ? 'block' : 'none';
   });
+
+  // Always reset scroll to top so headers never hide behind sticky topbar
+  const mn = document.getElementById('mn');
+  if (mn) mn.scrollTop = 0;
+  window.scrollTo(0, 0);
 }
 
 const router = new Router(CLIENT_ROUTES);
@@ -113,7 +142,7 @@ router.register('services', async () => {
 router.register('service-detail', async (ctx: RouteMatch) => {
   updateNavigationChrome('service-detail');
   const id = ctx.params.id;
-  if (id) await renderServiceDetail(id);
+  if (id) await renderServiceDetail(id, ctx.params.tab);
 });
 
 router.register('deploy', async () => {
@@ -151,9 +180,9 @@ router.register('audit', async () => {
   await renderActivity();
 });
 
-router.register('settings', async () => {
+router.register('settings', async (ctx: RouteMatch) => {
   updateNavigationChrome('settings');
-  await renderSettings();
+  await renderSettings(ctx.params.tab);
 });
 
 function bindDelegatedEvents() {
@@ -194,10 +223,90 @@ function bindDelegatedEvents() {
       appShell.toggleTheme();
       return;
     }
+    if (target.closest('#mobileLogoutBtn')) {
+      try {
+        api('/api/v1/auth/logout', { method: 'POST' }).finally(() => {
+          window.location.href = '/login';
+        });
+      } catch {
+        window.location.href = '/login';
+      }
+      return;
+    }
 
-    // Search trigger
-    if (target.closest('#globalSearchTrigger, [data-cmd]')) {
+    // Command palette close
+    if (target.matches('#cmd .ov, #cmd [data-close], [data-close]')) {
+      appShell.cmd.close();
+      const notifM = document.getElementById('notifModal');
+      if (notifM) notifM.hidden = true;
+      const navS = document.getElementById('mobileNavSheet');
+      if (navS) navS.hidden = true;
+      return;
+    }
+
+    // Search trigger (Ctrl+K or Top Bar Search Button)
+    if (target.closest('[data-modal="cmd"], #quickSearchBtn, .sch, .srch, #globalSearchTrigger, #mobileSearchTrigger, [data-cmd]')) {
       appShell.cmd.open();
+      return;
+    }
+
+    // Segmented controls handling
+    const segBtn = target.closest<HTMLButtonElement>('.seg button');
+    if (segBtn) {
+      const segGroup = segBtn.closest<HTMLElement>('.seg');
+      if (segGroup) {
+        segGroup.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b === segBtn)));
+        const val = segBtn.dataset.v;
+        const radio = segBtn.parentElement?.querySelector<HTMLInputElement>('input[type="radio"]') || segGroup.querySelector<HTMLInputElement>(`input[value="${val}"]`);
+        if (radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        if (segGroup.getAttribute('aria-label')?.includes('service state')) filterServices();
+        if (segGroup.getAttribute('aria-label')?.includes('invoice status')) filterBilling();
+        if (segGroup.getAttribute('aria-label')?.includes('ticket status')) filterTickets();
+        if (segGroup.getAttribute('aria-label')?.includes('activity type')) filterActivity();
+      }
+      return;
+    }
+
+    // Service detail tabs
+    const detailTab = target.closest<HTMLButtonElement>('#serviceDetailTabs button');
+    if (detailTab) {
+      document.querySelectorAll<HTMLButtonElement>('#serviceDetailTabs button').forEach((b) => {
+        const isSel = b === detailTab;
+        b.setAttribute('aria-selected', String(isSel));
+        b.tabIndex = isSel ? 0 : -1;
+      });
+      const controls = detailTab.getAttribute('aria-controls');
+      ['dtlPaneOverview', 'dtlPaneAllocation', 'dtlPaneActivity'].forEach((pId) => {
+        const panel = document.getElementById(pId);
+        if (panel) {
+          const isMatch = pId === controls;
+          panel.hidden = !isMatch;
+          panel.classList.toggle('on', isMatch);
+        }
+      });
+      return;
+    }
+
+    // Settings tabs
+    const settingsTab = target.closest<HTMLButtonElement>('#settingsTabs button');
+    if (settingsTab) {
+      document.querySelectorAll<HTMLButtonElement>('#settingsTabs button').forEach((b) => {
+        const isSel = b === settingsTab;
+        b.setAttribute('aria-selected', String(isSel));
+        b.tabIndex = isSel ? 0 : -1;
+      });
+      const controls = settingsTab.getAttribute('aria-controls');
+      ['settings-p', 'settings-s', 'settings-t', 'settings-n', 'settings-d'].forEach((pId) => {
+        const panel = document.getElementById(pId);
+        if (panel) {
+          const isMatch = pId === controls;
+          panel.hidden = !isMatch;
+          panel.classList.toggle('on', isMatch);
+        }
+      });
       return;
     }
 
@@ -213,15 +322,38 @@ function bindDelegatedEvents() {
       return;
     }
 
-    // Notification Popover
-    const notifBell = target.closest('#notifBellBtn');
+    // Notification Modal
+    const notifBell = target.closest('[data-modal="notif"], #notifBellBtn');
     if (notifBell) {
-      const popover = document.getElementById('notifPopover');
-      if (popover) {
-        const isClosed = popover.style.display === 'none' || !popover.style.display;
-        popover.style.display = isClosed ? 'block' : 'none';
-        if (isClosed) appShell.loadNotifications();
+      const modal = document.getElementById('notifModal');
+      if (modal) {
+        modal.hidden = false;
+        appShell.loadNotifications();
       }
+      return;
+    }
+
+    if (target.matches('#notifModal .ov, [data-close-notif]')) {
+      const modal = document.getElementById('notifModal');
+      if (modal) modal.hidden = true;
+      return;
+    }
+
+    // Mobile More sheet trigger
+    const moreBtn = target.closest('[data-modal="more"], #mobileMoreBtn');
+    if (moreBtn) {
+      const sheet = document.getElementById('mobileNavSheet');
+      if (sheet) {
+        sheet.hidden = !sheet.hidden;
+        moreBtn.setAttribute('aria-expanded', String(!sheet.hidden));
+      }
+      return;
+    }
+
+    if (target.matches('#mobileNavSheet .ov, [data-close-mobile-nav]')) {
+      const sheet = document.getElementById('mobileNavSheet');
+      if (sheet) sheet.hidden = true;
+      document.getElementById('mobileMoreBtn')?.setAttribute('aria-expanded', 'false');
       return;
     }
 
@@ -234,7 +366,15 @@ function bindDelegatedEvents() {
     // Subscriptions
     const cancelSub = target.closest<HTMLButtonElement>('[data-cancel-sub]');
     if (cancelSub) {
-      cancelSubscription(cancelSub.dataset.cancelSub!, cancelSub);
+      openCancelSubModal(cancelSub.dataset.cancelSub!, cancelSub.dataset.subName, cancelSub.dataset.renewalDate);
+      return;
+    }
+    if (target.closest('#confirmCancelSubBtn')) {
+      executeScheduledCancel();
+      return;
+    }
+    if (target.closest('[data-close-cancel-sub], #cancelSubModal .ov')) {
+      closeCancelSubModal();
       return;
     }
 
@@ -318,12 +458,61 @@ function bindDelegatedEvents() {
       return;
     }
 
-    // MFA steps
-    if (target.closest('[data-mfa-enable]')) showMfaPasswordStep();
-    if (target.closest('[data-mfa-disable]')) showMfaDisableStep();
-    if (target.closest('[data-mfa-next]')) showMfaCodeStep();
-    if (target.closest('[data-mfa-back]')) restoreMfaScanStep();
-    if (target.closest('[data-mfa-cancel], [data-mfa-done]')) loadMfa();
+    // Support ticket modal
+    if (target.closest('#openTicketModalBtn, #emptyOpenTicketBtn')) {
+      openTicketModal();
+      return;
+    }
+    if (target.closest('[data-close-ticket], #ticketModal .ov')) {
+      closeTicketModal();
+      return;
+    }
+    const resolveBtn = target.closest<HTMLButtonElement>('#markTicketResolvedBtn');
+    if (resolveBtn && resolveBtn.dataset.ticketId) {
+      resolveTicketAction(resolveBtn.dataset.ticketId);
+      return;
+    }
+
+    // MFA triggers & Modals
+    if (target.closest('#setupNewMfaBtn')) {
+      openMfaSetupModal();
+      return;
+    }
+    if (target.closest('#regenerateMfaCodesBtn')) {
+      handleRegenerateRecoveryCodes();
+      return;
+    }
+    if (target.closest('[data-close-mfa], #mfaSetupModal .ov')) {
+      closeMfaSetupModal();
+      return;
+    }
+    if (target.closest('#verifyMfaBtn')) {
+      verifyMfaSetup();
+      return;
+    }
+    if (target.closest('[data-close-rec], #mfaRecoveryCodesModal .ov')) {
+      const recModal = document.getElementById('mfaRecoveryCodesModal');
+      if (recModal) recModal.hidden = true;
+      return;
+    }
+    if (target.closest('#copyRecoveryCodesBtn')) {
+      copyLastRecoveryCodes();
+      return;
+    }
+    if (target.closest('[data-close-disable-mfa], #mfaDisableModal .ov')) {
+      closeMfaDisableModal();
+      return;
+    }
+    const mfaSwitch = target.closest<HTMLElement>('#mfaToggleSwitch');
+    if (mfaSwitch) {
+      const isEnabled = mfaSwitch.getAttribute('aria-checked') === 'true';
+      if (isEnabled) {
+        openMfaDisableModal();
+      } else {
+        openMfaSetupModal();
+      }
+      return;
+    }
 
     // Clipboard copies
     const copySecret = target.closest<HTMLElement>('[data-copy-secret]');
@@ -367,6 +556,21 @@ function bindDelegatedEvents() {
             toast(err.message, 'bad');
           });
       }
+      return;
+    }
+
+    // Add passkey button
+    const addPasskeyBtn = target.closest<HTMLButtonElement>('#addPasskeyBtn');
+    if (addPasskeyBtn) {
+      registerPasskey();
+      return;
+    }
+
+    // Remove passkey button
+    const removePasskey = target.closest<HTMLButtonElement>('[data-remove-passkey]');
+    if (removePasskey) {
+      handleRemovePasskey(removePasskey.dataset.removePasskey!);
+      return;
     }
   });
 
@@ -377,21 +581,21 @@ function bindDelegatedEvents() {
       createTicket(event, (path) => router.navigate(path));
       return;
     }
+    if (target.id === 'newTicketModalForm') {
+      submitModalTicket(event, (path) => router.navigate(path));
+      return;
+    }
     if (target.id === 'ticketReplyForm') {
       sendReply(event);
       return;
     }
-    if (target.matches('[data-mfa-enroll-form]')) {
-      event.preventDefault();
-      beginMfaEnrollment(target as HTMLFormElement);
+    if (target.id === 'mfaPasswordConfirmForm') {
+      handleMfaPasswordSubmit(event);
+      return;
     }
-    if (target.matches('[data-mfa-confirm-form]')) {
-      event.preventDefault();
-      confirmMfaEnrollment(target as HTMLFormElement);
-    }
-    if (target.matches('[data-mfa-disable-form]')) {
-      event.preventDefault();
-      disableMfa(target as HTMLFormElement);
+    if (target.id === 'disableMfaForm') {
+      handleDisableMfaSubmit(event);
+      return;
     }
     if (target.id === 'inviteMemberForm') {
       event.preventDefault();
@@ -464,16 +668,35 @@ function bindDelegatedEvents() {
       updateFileLabel(target);
       return;
     }
-    if (target.matches('[data-mfa-digit]')) {
+    const o = target.closest<HTMLElement>('[data-otp]');
+    if (o && target.tagName === 'INPUT') {
       target.value = target.value.replace(/\D/g, '').slice(-1);
       if (target.value) {
         const next = target.nextElementSibling as HTMLInputElement | null;
         if (next) next.focus();
       }
+      o.classList.remove('bad');
     }
   });
 
-  // Global Escape & Modal Close Keybinding
+  // Global Paste Handler for OTP
+  document.addEventListener('paste', (event: ClipboardEvent) => {
+    const target = event.target as HTMLElement;
+    const o = target.closest<HTMLElement>('[data-otp]');
+    if (!o) return;
+    const d = (event.clipboardData || (window as any).clipboardData)?.getData('text').replace(/\D/g, '').slice(0, 6) || '';
+    if (!d) return;
+    event.preventDefault();
+    const inputs = Array.from(o.querySelectorAll('input'));
+    inputs.forEach((inp, idx) => {
+      inp.value = d[idx] || '';
+    });
+    const last = inputs[Math.min(d.length, 5)];
+    last?.focus();
+    o.classList.remove('bad');
+  });
+
+  // Global Keydown Handler
   document.addEventListener('keydown', (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
       const sheet = document.getElementById('mobileNavSheet');
@@ -481,6 +704,21 @@ function bindDelegatedEvents() {
         sheet.hidden = true;
         document.getElementById('mobileMoreBtn')?.setAttribute('aria-expanded', 'false');
         document.getElementById('mobileMoreBtn')?.focus();
+      }
+      closeTicketModal();
+      closeCancelSubModal();
+      closeMfaSetupModal();
+      closeMfaDisableModal();
+      const recModal = document.getElementById('mfaRecoveryCodesModal');
+      if (recModal) recModal.hidden = true;
+    }
+
+    if (event.key === 'Backspace') {
+      const target = event.target as HTMLElement;
+      const o = target.closest<HTMLElement>('[data-otp]');
+      const inp = target as HTMLInputElement;
+      if (o && inp && !inp.value && inp.previousElementSibling) {
+        (inp.previousElementSibling as HTMLInputElement).focus();
       }
     }
   });

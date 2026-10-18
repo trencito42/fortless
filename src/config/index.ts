@@ -3,6 +3,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+try {
+  process.loadEnvFile?.();
+} catch {
+  // .env file is optional in containerized environments with pre-injected env
+}
+
 const nodeEnvironment = process.env['NODE_ENV'] || 'development';
 
 function persistentDevelopmentSecret(): string {
@@ -36,11 +42,26 @@ const configSchema = z.object({
   SESSION_SECRET: z.string().min(32),
   PAYMENTS_MODE: z.enum(['disabled', 'stripe_test', 'stripe_live']).default('disabled'),
   PROVIDER_MODE: z.enum(['disabled', 'pterodactyl_1']).default('disabled'),
+  PROVIDER_VERIFICATION_TIER: z.enum(['NOT_STARTED', 'MOCK_ONLY', 'SANDBOX_VERIFIED', 'PRODUCTION_VERIFIED']).default('NOT_STARTED'),
   EMAIL_MODE: z.enum(['disabled', 'sandbox', 'live']).default('disabled'),
+  SMTP_HOST: z.string().default('mail.xodo.ro'),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_SECURE: z.boolean().default(false),
+  SMTP_USER: z.string().default('hello@fortless.net'),
+  SMTP_PASSWORD: z.string().default(''),
+  EMAIL_FROM: z.string().default('Fortless <hello@fortless.net>'),
   STRIPE_SECRET_KEY: z.string().default(''),
   STRIPE_WEBHOOK_SECRET: z.string().default(''),
   PTERODACTYL_PANEL_URL: z.string().default(''),
   PTERODACTYL_API_KEY: z.string().default(''),
+  PTERODACTYL_CLIENT_API_KEY: z.string().default(''),
+  PTERODACTYL_SSO_LOGIN_URL: z.string().default(''),
+  PTERODACTYL_KEYMINT_SECRET: z.string().default(''),
+  MODRINTH_API_URL: z.string().url().default('https://api.modrinth.com/v2'),
+  MODRINTH_USER_AGENT: z.string().default(''),
+  OIDC_PANEL_CLIENT_ID: z.string().default('fortless-panel'),
+  OIDC_PANEL_CLIENT_SECRET: z.string().default(''),
+  OIDC_PANEL_REDIRECT_URIS: z.string().default(''),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -56,9 +77,24 @@ export const config: Config = configSchema.parse({
   SESSION_SECRET: process.env['SESSION_SECRET'] || (nodeEnvironment === 'production' ? '' : persistentDevelopmentSecret()),
   PAYMENTS_MODE: process.env['PAYMENTS_MODE'] || 'disabled',
   PROVIDER_MODE: process.env['PROVIDER_MODE'] || 'disabled',
-  EMAIL_MODE: process.env['EMAIL_MODE'] || 'disabled',
+  PROVIDER_VERIFICATION_TIER: process.env['PROVIDER_VERIFICATION_TIER'] || 'NOT_STARTED',
+  EMAIL_MODE: (process.env['EMAIL_MODE'] as any) || (process.env['SMTP_PASSWORD'] || process.env['EMAIL_PASSWORD'] ? 'live' : 'disabled'),
+  SMTP_HOST: process.env['SMTP_HOST'] || 'mail.xodo.ro',
+  SMTP_PORT: process.env['SMTP_PORT'] ? Number(process.env['SMTP_PORT']) : 587,
+  SMTP_SECURE: process.env['SMTP_SECURE'] === 'true' || process.env['SMTP_PORT'] === '465',
+  SMTP_USER: process.env['SMTP_USER'] || 'hello@fortless.net',
+  SMTP_PASSWORD: process.env['SMTP_PASSWORD'] || process.env['EMAIL_PASSWORD'] || '',
+  EMAIL_FROM: process.env['EMAIL_FROM'] || 'Fortless <hello@fortless.net>',
   STRIPE_SECRET_KEY: process.env['STRIPE_SECRET_KEY'] || '',
   STRIPE_WEBHOOK_SECRET: process.env['STRIPE_WEBHOOK_SECRET'] || '',
   PTERODACTYL_PANEL_URL: process.env['PTERODACTYL_PANEL_URL'] || '',
   PTERODACTYL_API_KEY: process.env['PTERODACTYL_API_KEY'] || '',
+  PTERODACTYL_CLIENT_API_KEY: process.env['PTERODACTYL_CLIENT_API_KEY'] || '',
+  PTERODACTYL_SSO_LOGIN_URL: process.env['PTERODACTYL_SSO_LOGIN_URL'] || '',
+  PTERODACTYL_KEYMINT_SECRET: process.env['PTERODACTYL_KEYMINT_SECRET'] || '',
+  MODRINTH_API_URL: process.env['MODRINTH_API_URL'] || 'https://api.modrinth.com/v2',
+  MODRINTH_USER_AGENT: process.env['MODRINTH_USER_AGENT'] || '',
+  OIDC_PANEL_CLIENT_ID: process.env['OIDC_PANEL_CLIENT_ID'] || 'fortless-panel',
+  OIDC_PANEL_CLIENT_SECRET: process.env['OIDC_PANEL_CLIENT_SECRET'] || '',
+  OIDC_PANEL_REDIRECT_URIS: process.env['OIDC_PANEL_REDIRECT_URIS'] || '',
 });

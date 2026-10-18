@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
+import { checkAssertionAuthData, parseAttestationObject } from './webauthn.js';
 import { generateId, getPrimaryAccount, createSessionForUser, type User, type Account } from './auth.js';
 
 export interface PasskeyRecord {
@@ -46,8 +47,8 @@ export function getAllowedOrigins(): string[] {
     `http://${host}${configuredPort}`,
     `http://127.0.0.1${configuredPort}`,
     `http://localhost${configuredPort}`,
-    'https://fortless.net',
-    'https://app.fortless.net',
+    config.APP_ORIGIN,
+    ...config.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
     `http://127.0.0.1:3021`,
     `http://localhost:3021`,
   ];
@@ -141,6 +142,17 @@ export function verifyAndRegisterPasskey(
     throw new Error(`WebAuthn origin mismatch: origin "${clientData.origin}" is not authorized.`);
   }
 
+  // Browsers send the attestation object. Extract and store the real public key (PEM), and make sure the
+  // credential id in the signed data is the one being registered. A PEM is accepted as-is (tests, imports).
+  let publicKey = params.publicKey;
+  if (!publicKey.startsWith('-----BEGIN')) {
+    let parsed;
+    try { parsed = parseAttestationObject(publicKey); } catch (err) { throw new Error(`The passkey could not be read: ${(err as Error).message}`); }
+    if (parsed.credentialId.toString('base64url') !== params.credentialId) throw new Error('The passkey credential id does not match.');
+    if (!parsed.rpIdHash.equals(crypto.createHash('sha256').update(relyingPartyId(new URL(clientData.origin).hostname)).digest())) throw new Error('The passkey was not created for this site.');
+    publicKey = parsed.publicKeyPem;
+  }
+
   const id = generateId('pk');
   const transportsJson = params.transports ? JSON.stringify(params.transports) : null;
 
@@ -153,7 +165,7 @@ export function verifyAndRegisterPasskey(
       id,
       params.userId,
       params.credentialId,
-      params.publicKey,
+      publicKey,
       params.deviceLabel.trim() || 'Security Key',
       params.aaguid || null,
       transportsJson
@@ -263,6 +275,15 @@ export function verifyAndAuthenticatePasskey(
   }
 
   // 4. Verify cryptographic signature
+  // Passkeys registered before the key was extracted hold the raw attestation object; convert and persist on first use.
+  if (!credential.public_key.startsWith('-----BEGIN')) {
+    try {
+      credential.public_key = parseAttestationObject(credential.public_key).publicKeyPem;
+      db.prepare('UPDATE passkey_credentials SET public_key = ? WHERE id = ?').run(credential.public_key, credential.id);
+    } catch {
+      throw new Error('This passkey must be registered again.');
+    }
+  }
   const clientDataHash = crypto.createHash('sha256').update(
     params.clientDataJSON.startsWith('{')
       ? Buffer.from(params.clientDataJSON, 'utf8')
@@ -273,6 +294,7 @@ export function verifyAndAuthenticatePasskey(
     ? Buffer.from(params.authenticatorData, 'hex')
     : base64urlDecode(params.authenticatorData);
 
+  checkAssertionAuthData(authDataBuffer, relyingPartyId(new URL(clientData.origin).hostname));
   const signedData = Buffer.concat([authDataBuffer, clientDataHash]);
 
   const signatureBuffer = params.signature.length % 2 === 0 && !/[^0-9a-fA-F]/.test(params.signature)
@@ -386,4 +408,11 @@ export function revokePasskey(userId: string, passkeyId: string, db: Database.Da
   if (info.changes === 0) {
     throw new Error('Passkey credential not found or not owned by caller.');
   }
+}
+
+/** The WebAuthn relying party id is the hostname of the configured public origin (localhost stays usable in development). */
+export function relyingPartyId(requestHost?: string): string {
+  const host = (requestHost || '').split(':')[0];
+  if (host === '127.0.0.1' || host === 'localhost') return host;
+  return new URL(config.APP_ORIGIN).hostname;
 }

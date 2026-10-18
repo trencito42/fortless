@@ -5,8 +5,7 @@
 
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
-import { formatDate } from '../../../core/utils/dates.js';
-import { row } from '../../shell/admin-shell.js';
+import { badge } from '../../shell/admin-shell.js';
 
 export async function renderStaff(q = ''): Promise<void> {
   const host = document.querySelector<HTMLElement>('#staffList');
@@ -15,26 +14,13 @@ export async function renderStaff(q = ''): Promise<void> {
   try {
     const d = await api<{ staff: any[] }>(`/api/v1/admin/staff?q=${encodeURIComponent(q)}`);
     if (!d.staff.length) {
-      host.innerHTML = `<div class="empty"><b>No matching staff identities.</b></div>`;
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching staff identities.</b></div></td></tr>`;
       return;
     }
 
-    host.innerHTML = d.staff
-      .map((x) =>
-        row({
-          symbol: 'users',
-          title: x.name,
-          sub: `${x.email} · MFA ${x.mfa_enabled ? 'enabled' : 'required'}`,
-          status: `${x.role} · ${x.status}`,
-          meta: `Updated ${formatDate(x.updated_at)}`,
-          dataAttr: `data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(
-            x.role
-          )}" data-staff-status="${esc(x.status)}"`,
-        })
-      )
-      .join('');
+    host.innerHTML = d.staff.map((x) => `<tr class="h"><td data-l="Member"><div class="row nw"><span class="av v">${esc(x.name.split(/\s+/).map((part: string) => part[0]).join('').slice(0, 2).toUpperCase())}</span><div><b>${esc(x.name)}</b><small>${esc(x.email)}</small></div></div></td><td data-l="Role">${badge(x.role)}</td><td data-l="MFA">${badge(x.mfa_enabled ? 'READY' : 'NOT SET UP')}</td><td data-l="Access">${badge(x.status)}</td><td data-l="Action"><button class="btn xs" data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(x.role)}" data-staff-status="${esc(x.status)}">Edit</button></td></tr>`).join('');
   } catch (e: any) {
-    host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+    host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
   }
 }
 

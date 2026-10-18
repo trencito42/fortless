@@ -7,7 +7,7 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { renderMarkdown } from '../../../core/utils/markdown.js';
-import { row } from '../../shell/admin-shell.js';
+import { badge } from '../../shell/admin-shell.js';
 
 let activeTicketId: string | null = null;
 
@@ -26,24 +26,13 @@ export async function renderTickets(q = ''): Promise<void> {
   try {
     const d = await api<{ tickets: any[] }>(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}`);
     if (!d.tickets.length) {
-      host.innerHTML = `<div class="empty"><b>No matching support tickets.</b></div>`;
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
       return;
     }
 
-    host.innerHTML = d.tickets
-      .map((x) =>
-        row({
-          symbol: 'support',
-          title: x.subject,
-          sub: `${x.account_name} · ${x.customer_name} · ${x.message_count} messages`,
-          status: `${x.priority} · ${x.status}`,
-          meta: `Updated ${formatDate(x.updated_at)}`,
-          dataAttr: `data-ticket-id="${esc(x.id)}"`,
-        })
-      )
-      .join('');
+    host.innerHTML = d.tickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === 'WAITING_STAFF' ? 'WAITING_STAFF' : 'OPEN')}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages · ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join('');
   } catch (e: any) {
-    host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+    host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
   }
 }
 
@@ -83,9 +72,9 @@ export async function openTicketDetail(ticketId: string): Promise<void> {
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px">
             <b>${esc(m.author_name)} ${
           m.is_staff_internal_note
-            ? '<span class="badge warn s">INTERNAL NOTE</span>'
+            ? '<span class="pill warn" style="height:22px;padding:0 8px;font-size:11px">INTERNAL NOTE</span>'
             : m.is_staff_author
-            ? '<span class="badge accent s">STAFF</span>'
+            ? '<span class="pill acc" style="height:22px;padding:0 8px;font-size:11px">STAFF</span>'
             : ''
         }</b>
             <span class="muted">${formatDate(m.created_at)}</span>

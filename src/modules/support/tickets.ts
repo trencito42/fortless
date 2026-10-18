@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { generateId } from '../identity/auth.js';
+import { createNotification } from '../notifications/notifications.js';
 
 export const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   'image/jpeg',
@@ -72,6 +73,14 @@ export function createTicket(input: CreateTicketInput, db: Database.Database) {
     db.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'ticket.created', 'ticket', ?, ?, ?)`)
       .run(generateId('aud'), input.accountId, input.userId, ticketId, input.ipAddress, generateId('cor'));
+    createNotification({
+      accountId: input.accountId,
+      userId: input.userId,
+      type: 'TICKET_CREATED',
+      title: 'Ticket Submitted',
+      message: `Your ticket "${subject}" was submitted.`,
+      linkUrl: `/app/support/${ticketId}`,
+    }, db);
     return { ticketId, messageId, subject, priority: input.priority, status: 'OPEN' as const };
   })();
 }
@@ -243,4 +252,20 @@ export function getTicketAttachment(
 
   const buffer = fs.readFileSync(record.storage_path);
   return { record, buffer };
+}
+
+export function resolveTicket(
+  input: { ticketId: string; accountId: string; userId: string; ipAddress: string },
+  db: Database.Database
+): { outcome: 'RESOLVED' | 'NOT_FOUND' } {
+  return db.transaction(() => {
+    const ticket = db.prepare('SELECT id, status FROM tickets WHERE id = ? AND account_id = ?').get(input.ticketId, input.accountId) as { id: string; status: string } | undefined;
+    if (!ticket) return { outcome: 'NOT_FOUND' as const };
+    const now = new Date().toISOString();
+    db.prepare('UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?').run('RESOLVED', now, input.ticketId);
+    db.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+      VALUES (?, ?, ?, 'USER', 'ticket.resolved', 'ticket', ?, ?, ?)`
+    ).run(generateId('aud'), input.accountId, input.userId, input.ticketId, input.ipAddress, generateId('cor'));
+    return { outcome: 'RESOLVED' as const };
+  })();
 }

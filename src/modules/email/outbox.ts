@@ -2,10 +2,30 @@ import type Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import nodemailer, { type Transporter } from 'nodemailer';
 import { getDatabase } from '../../database/index.js';
 import { config } from '../../config/index.js';
+import mailTemplates from './fortless-mail-templates.json' with { type: 'json' };
+import { isOptionalEmailEnabled, type OptionalEmailCategory } from '../notifications/preferences.js';
 
-export type EmailTemplate = 'email_verification' | 'password_reset' | 'account_invitation' | 'security_alert';
+export type EmailTemplate =
+  | 'email_verification'
+  | 'welcome'
+  | 'password_reset'
+  | 'password_changed'
+  | 'account_invitation'
+  | 'service_invitation'
+  | 'security_alert'
+  | 'mfa_changed'
+  | 'invoice_issued'
+  | 'payment_confirmed'
+  | 'payment_receipt'
+  | 'payment_failed'
+  | 'renewal_reminder'
+  | 'service_provisioned'
+  | 'service_ready'
+  | 'ticket_reply'
+  | 'cancellation_scheduled';
 
 export interface EmailRecord {
   id: string;
@@ -39,77 +59,130 @@ function ensureSandboxDir(): void {
   }
 }
 
+type CanonicalMail = { name: string; subject: string; text: string; html: string };
+const canonicalTemplates = mailTemplates as Record<string, CanonicalMail>;
+
+const canonicalTemplateId: Record<EmailTemplate, string> = {
+  email_verification: 'email_verification',
+  welcome: 'welcome',
+  password_reset: 'password_reset',
+  password_changed: 'password_changed',
+  account_invitation: 'account_invitation',
+  service_invitation: 'account_invitation',
+  security_alert: 'security_alert',
+  mfa_changed: 'mfa_changed',
+  invoice_issued: 'invoice_issued',
+  payment_confirmed: 'payment_receipt',
+  payment_receipt: 'payment_receipt',
+  payment_failed: 'payment_failed',
+  renewal_reminder: 'renewal_reminder',
+  service_provisioned: 'service_ready',
+  service_ready: 'service_ready',
+  ticket_reply: 'ticket_reply',
+  cancellation_scheduled: 'cancellation_scheduled',
+};
+
+const optionalCategory: Partial<Record<EmailTemplate, OptionalEmailCategory>> = {
+  invoice_issued: 'billing', payment_confirmed: 'billing', payment_receipt: 'billing',
+  renewal_reminder: 'billing', cancellation_scheduled: 'billing',
+  service_provisioned: 'service', service_ready: 'service', ticket_reply: 'support',
+};
+
+function htmlEscape(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char);
+}
+
+function replaceEvery(value: string, replacements: Array<[string, string]>): string {
+  return replacements.reduce((result, [sample, actual]) => result.split(sample).join(actual), value);
+}
+
+/**
+ * The canonical previews use an Outlook VML branch plus an `if !mso` branch.
+ * SOGo's sanitizer can retain the conditional comment while dropping its CTA,
+ * leaving an empty table above the fallback URL. A normal table-based anchor is
+ * supported by all clients we target, including current Outlook, so deliver one
+ * unambiguous CTA instead of mutually exclusive comment branches.
+ */
+function normalizeEmailCtas(html: string): string {
+  return html
+    .replace(/<!--\[if mso\]><v:roundrect[\s\S]*?<\/v:roundrect><!\[endif\]-->\s*/g, '')
+    .replace(/<!--\[if !mso\]><!-->/g, '')
+    .replace(/<!--<!\[endif\]-->/g, '');
+}
+
+function readableDate(value: unknown, fallback: string): string {
+  const raw = String(value || '');
+  const parsed = new Date(raw);
+  if (!raw || Number.isNaN(parsed.getTime())) return raw || fallback;
+  return new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(parsed);
+}
+
+function templateReplacements(payload: Record<string, unknown>): Array<[string, string]> {
+  const name = String(payload['name'] || 'there');
+  const serviceName = String(payload['serviceName'] || payload['planName'] || 'your service');
+  const invoice = String(payload['invoiceNumber'] || 'your invoice');
+  const amount = String(payload['amount'] || 'the invoice total');
+  const subject = String(payload['subject'] || 'Support ticket');
+  const preview = String(payload['preview'] || 'There is a new reply in your support conversation.');
+  const author = String(payload['author'] || 'Fortless Support');
+  const workspace = String(payload['workspaceName'] || payload['serviceName'] || 'your Fortless workspace');
+  const inviter = String(payload['inviterName'] || 'A workspace owner');
+  const endDate = readableDate(payload['endDate'], 'the end of the current period');
+  const address = String(payload['address'] || 'Open Fortless to view the connection address');
+  const inviteUrl = String(payload['inviteUrl'] || 'https://fortless.net/register');
+  const ticketId = String(payload['ticketId'] || 'Support ticket');
+  const region = String(payload['region'] || 'See service details');
+  const role = String(payload['role'] || payload['access'] || 'Member');
+  const date = readableDate(payload['date'] || payload['endDate'], 'See Fortless for details');
+  const tax = String(payload['tax'] || 'See invoice');
+  const paymentMethod = String(payload['paymentMethod'] || 'Saved payment method');
+  return [
+    ['Alex Morgan', inviter], ['Morgan Hosting', workspace], ['Technical Administrator', role],
+    ['Hi Alex,', 'Hi ' + name + ','], ['Thanks, Alex.', 'Thanks, ' + name + '.'],
+    ['https://fortless.net/verify-email?token=sample-token-0000', String(payload['verifyUrl'] || 'https://fortless.net/verify-email')],
+    ['https://fortless.net/reset-password?token=sample-token-0000', String(payload['resetUrl'] || 'https://fortless.net/reset-password')],
+    ['https://fortless.net/register?invite=sample-token', inviteUrl],
+    ['FL-2026-0044', invoice], ['€27.90', amount], ['€14.90', amount],
+    ['Minecraft Survival 4 GB', serviceName], ['Node.js App Starter', serviceName],
+    ['fra-gs-03.fortless.net:25565', address], ['mc.fortless.net:25565', address], ['Frankfurt', region],
+    ['Server stuck on Installing after order', subject], ['tkt_0912', ticketId],
+    ['Thanks. The install job timed out on our side, so we re-queued it. Please check again in a few minutes.', preview],
+    ['Mira, support', author], ['Nov 14, 2026', endDate], ['Oct 23, 2026', endDate],
+    ['Nov 2, 2026', date], ['Oct 16', date], ['Oct 2, 2026', date], ['Oct 3, 2026', date],
+    ['€4.78', tax], ['Card ending 4242', paymentMethod],
+  ];
+}
+
 export function renderEmail(
   template: EmailTemplate,
   payload: Record<string, unknown>
 ): { subject: string; text: string; html: string } {
-  switch (template) {
-    case 'email_verification': {
-      const verifyUrl = String(payload['verifyUrl'] || '');
-      const name = String(payload['name'] || 'there');
-      return {
-        subject: 'Verify your Fortless account',
-        text: `Hello ${name},\n\nPlease verify your email address for Fortless by visiting:\n${verifyUrl}\n\nThis verification link expires in 24 hours.\n\n— The Fortless Team`,
-        html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#f5f6fa;border-radius:16px;">
-          <h2 style="color:#0b1a2b;">Verify your Fortless account</h2>
-          <p>Hello ${name},</p>
-          <p>Thank you for creating an account with Fortless. Please confirm your email address to activate your workspace:</p>
-          <p><a href="${verifyUrl}" style="display:inline-block;padding:12px 24px;background:#2a5fe8;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Verify Email Address</a></p>
-          <p style="color:#5a687b;font-size:13px;">Or copy and paste this URL into your browser:<br>${verifyUrl}</p>
-          <p style="color:#5a687b;font-size:12px;margin-top:24px;">This link will expire in 24 hours. If you did not create this account, you can safely ignore this email.</p>
-        </div>`,
-      };
-    }
-    case 'password_reset': {
-      const resetUrl = String(payload['resetUrl'] || '');
-      return {
-        subject: 'Reset your Fortless password',
-        text: `A password reset was requested for your Fortless account.\n\nReset your password at:\n${resetUrl}\n\nThis link expires in 15 minutes. If you did not request this, please review your account immediately.\n\n— The Fortless Team`,
-        html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#f5f6fa;border-radius:16px;">
-          <h2 style="color:#0b1a2b;">Password Reset Request</h2>
-          <p>A password reset was requested for your Fortless account.</p>
-          <p><a href="${resetUrl}" style="display:inline-block;padding:12px 24px;background:#2a5fe8;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Reset Password</a></p>
-          <p style="color:#5a687b;font-size:13px;">Or copy and paste this URL into your browser:<br>${resetUrl}</p>
-          <p style="color:#5a687b;font-size:12px;margin-top:24px;">This link expires in 15 minutes. If you did not request this change, ignore this email or review your account sessions.</p>
-        </div>`,
-      };
-    }
-    case 'account_invitation': {
-      const inviteUrl = String(payload['inviteUrl'] || '');
-      const workspaceName = String(payload['workspaceName'] || 'Fortless Workspace');
-      const role = String(payload['role'] || 'MEMBER');
-      return {
-        subject: `You've been invited to join ${workspaceName} on Fortless`,
-        text: `You have been invited to join ${workspaceName} as ${role} on Fortless.\n\nAccept your invitation at:\n${inviteUrl}\n\nThis link expires in 7 days.\n\n— The Fortless Team`,
-        html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#f5f6fa;border-radius:16px;">
-          <h2 style="color:#0b1a2b;">Team Invitation</h2>
-          <p>You have been invited to join <b>${workspaceName}</b> as a <b>${role}</b> on Fortless.</p>
-          <p><a href="${inviteUrl}" style="display:inline-block;padding:12px 24px;background:#2a5fe8;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">Accept Invitation</a></p>
-          <p style="color:#5a687b;font-size:13px;">Or copy and paste this URL into your browser:<br>${inviteUrl}</p>
-          <p style="color:#5a687b;font-size:12px;margin-top:24px;">This invitation will expire in 7 days.</p>
-        </div>`,
-      };
-    }
-    case 'security_alert': {
-      const alertTitle = String(payload['title'] || 'Security Alert');
-      const details = String(payload['details'] || '');
-      return {
-        subject: `Security Alert: ${alertTitle} — Fortless`,
-        text: `Security Alert: ${alertTitle}\n\n${details}\n\nIf you did not perform this action, please sign in and revoke your device sessions immediately.\n\n— Fortless Security`,
-        html: `<div style="font-family:sans-serif;max-width:600px;margin:auto;padding:24px;background:#f5f6fa;border-radius:16px;">
-          <h2 style="color:#b8232a;">Security Alert: ${alertTitle}</h2>
-          <p>${details}</p>
-          <p style="color:#5a687b;font-size:12px;margin-top:24px;">If you did not perform this action, please sign in to Fortless and revoke all other active sessions immediately.</p>
-        </div>`,
-      };
-    }
+  const canonical = canonicalTemplates[canonicalTemplateId[template]];
+  if (!canonical) throw new Error('Missing canonical Fortless Mail template: ' + template);
+  const plain = templateReplacements(payload);
+  if (template === 'mfa_changed' && payload['enabled'] === false) {
+    plain.push(
+      ['Two-step verification turned on', 'Two-step verification turned off'],
+      ['TWO-STEP IS ON.', 'TWO-STEP IS OFF.'],
+      ['Sign-ins now need a code from your authenticator app.', 'Sign-ins no longer require a code from your authenticator app.'],
+      ['Keep your recovery codes somewhere safe. Each works once.', 'Your authenticator factor and unused recovery codes were removed.'],
+    );
   }
+  const html = plain.map(([from, to]) => [from, htmlEscape(to)] as [string, string]);
+  return {
+    subject: replaceEvery(canonical.subject, plain),
+    text: replaceEvery(canonical.text, plain),
+    html: normalizeEmailCtas(replaceEvery(canonical.html, html)),
+  };
 }
 
 export function queueEmail(
   trx: Database.Database,
   data: { recipient: string; template: EmailTemplate; subject?: string; payload: Record<string, unknown> }
 ): string {
+  const recipient = data.recipient.trim().toLowerCase();
+  const category = optionalCategory[data.template];
+  if (category && !isOptionalEmailEnabled(recipient, category, trx)) return '';
   const rendered = renderEmail(data.template, data.payload);
   const id = `eml_${crypto.randomBytes(12).toString('hex')}`;
   trx.prepare(`
@@ -117,11 +190,20 @@ export function queueEmail(
     VALUES (?, ?, ?, ?, ?, 'PENDING')
   `).run(
     id,
-    data.recipient.trim().toLowerCase(),
+    recipient,
     data.template,
     data.subject || rendered.subject,
     JSON.stringify(data.payload)
   );
+
+  if (config.EMAIL_MODE !== 'disabled') {
+    setTimeout(() => {
+      processEmailOutbox().catch((err) => {
+        console.error('[EmailOutbox] Async dispatch error:', err);
+      });
+    }, 50);
+  }
+
   return id;
 }
 
@@ -162,6 +244,55 @@ export class SandboxEmailTransportAdapter implements EmailTransportAdapter {
   }
 }
 
+export class SmtpEmailTransportAdapter implements EmailTransportAdapter {
+  readonly mode = 'live' as const;
+  private transporter: Transporter | null = null;
+
+  constructor(
+    private readonly host: string = config.SMTP_HOST,
+    private readonly port: number = config.SMTP_PORT,
+    private readonly secure: boolean = config.SMTP_SECURE,
+    private readonly user: string = config.SMTP_USER,
+    private readonly pass: string = config.SMTP_PASSWORD,
+    private readonly from: string = config.EMAIL_FROM
+  ) {}
+
+  private getTransporter(): Transporter {
+    if (!this.transporter) {
+      this.transporter = nodemailer.createTransport({
+        host: this.host,
+        port: this.port,
+        secure: this.secure,
+        auth: {
+          user: this.user,
+          pass: this.pass,
+        },
+        tls: {
+          rejectUnauthorized: false,
+        },
+      });
+    }
+    return this.transporter;
+  }
+
+  async send(message: EmailTransportMessage): Promise<{ messageId: string }> {
+    if (!this.pass) {
+      console.warn(`[SMTP] No password configured for ${this.user} on ${this.host}. Saving to sandbox storage.`);
+      const sandbox = new SandboxEmailTransportAdapter();
+      return sandbox.send(message);
+    }
+    const transporter = this.getTransporter();
+    const info = await transporter.sendMail({
+      from: this.from,
+      to: message.recipient,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+    return { messageId: info.messageId || `smtp_${message.id}` };
+  }
+}
+
 export class ProductionEmailTransportAdapter implements EmailTransportAdapter {
   readonly mode = 'live' as const;
 
@@ -183,17 +314,19 @@ export class ProductionEmailTransportAdapter implements EmailTransportAdapter {
   }
 }
 
-let defaultEmailTransport: EmailTransportAdapter =
-  config.EMAIL_MODE === 'live'
-    ? new ProductionEmailTransportAdapter()
-    : new SandboxEmailTransportAdapter();
+let customEmailTransport: EmailTransportAdapter | null = null;
 
 export function setEmailTransport(transport: EmailTransportAdapter): void {
-  defaultEmailTransport = transport;
+  customEmailTransport = transport;
 }
 
 export function getEmailTransport(): EmailTransportAdapter {
-  return defaultEmailTransport;
+  if (customEmailTransport) return customEmailTransport;
+  if (config.EMAIL_MODE === 'sandbox') return new SandboxEmailTransportAdapter();
+  if (config.EMAIL_MODE === 'live' || Boolean(config.SMTP_PASSWORD)) {
+    return new SmtpEmailTransportAdapter();
+  }
+  return new SandboxEmailTransportAdapter();
 }
 
 export interface ProcessEmailOptions {
@@ -208,7 +341,7 @@ export async function processEmailOutbox(
   transport: EmailTransportAdapter = getEmailTransport(),
   options: ProcessEmailOptions = {}
 ): Promise<{ processed: number; sent: number; failed: number; deadLettered: number }> {
-  if (transport.mode === 'disabled' || (transport === defaultEmailTransport && config.EMAIL_MODE === 'disabled')) {
+  if (transport.mode === 'disabled' || (!customEmailTransport && config.EMAIL_MODE === 'disabled')) {
     return { processed: 0, sent: 0, failed: 0, deadLettered: 0 };
   }
 
@@ -295,6 +428,7 @@ export async function processEmailOutbox(
         UPDATE email_outbox
         SET status = 'SENT',
             sent_at = datetime('now', 'utc'),
+            last_error = NULL,
             lease_token = NULL,
             lease_expires_at = NULL
         WHERE id = ? AND lease_token = ?

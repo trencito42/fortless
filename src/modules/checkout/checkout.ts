@@ -1,8 +1,12 @@
 import crypto from 'node:crypto';
+import Stripe from 'stripe';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
+import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
 import { verifyQuote } from '../pricing/quote.js';
+import { createNotification } from '../notifications/notifications.js';
+import { queueEmail } from '../email/outbox.js';
 
 export interface CheckoutResult {
   orderId: string;
@@ -12,7 +16,7 @@ export interface CheckoutResult {
   isIdempotentReplay?: boolean;
 }
 
-export function processCheckout(
+export async function processCheckout(
   data: {
     accountId: string;
     quoteId: string;
@@ -21,7 +25,7 @@ export function processCheckout(
     customOptions?: Record<string, unknown>;
   },
   db: Database.Database = getDatabase()
-): CheckoutResult {
+): Promise<CheckoutResult> {
   const requestHash = crypto.createHash('sha256').update(JSON.stringify({
     accountId: data.accountId,
     quoteId: data.quoteId,
@@ -61,7 +65,7 @@ export function processCheckout(
   `).run(data.accountId, data.idempotencyKey, requestHash);
 
   try {
-    const result = runInTransaction((trx) => {
+    const txResult = runInTransaction((trx) => {
       // 2. Validate Quote
       const quote = verifyQuote(data.quoteId, data.accountId, trx);
 
@@ -93,7 +97,7 @@ export function processCheckout(
 
       // 6. Create Pro-Forma Invoice
       const invoiceId = generateId('inv');
-      const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(); // 3-day payment window
+      const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
       trx.prepare(`
         INSERT INTO invoices (id, account_id, order_id, status, currency, subtotal_minor_units, tax_minor_units, total_minor_units, due_date)
         VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)
@@ -140,13 +144,72 @@ export function processCheckout(
         orderId,
         invoiceId,
         paymentAttemptId,
-        // A hosted PSP session is attached by the future sandbox-verified
-        // payment gateway. Never fabricate a customer-facing payment URL.
-        checkoutUrl: null,
+        totalMinorUnits: quote.totalMinorUnits,
+        currency: quote.currency,
+        planName: quote.lines[0] ? 'Fortless Hosting Plan' : 'Hosting Plan',
       };
     }, db);
 
-    // Update idempotency to COMPLETED
+    let checkoutUrl: string;
+
+    if (txResult.totalMinorUnits === 0) {
+      // Free plan: fulfill immediately without Stripe
+      checkoutUrl = await fulfillFreeOrder({
+        orderId: txResult.orderId,
+        invoiceId: txResult.invoiceId,
+        paymentAttemptId: txResult.paymentAttemptId,
+        accountId: data.accountId,
+        regionId: data.regionId,
+      }, db);
+    } else {
+      // Paid plan: create Stripe Checkout Session
+      const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: txResult.currency.toLowerCase(),
+            product_data: { name: txResult.planName },
+            recurring: { interval: 'month' },
+            unit_amount: txResult.totalMinorUnits,
+          },
+          quantity: 1,
+        }],
+        success_url: `${config.APP_ORIGIN}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${config.APP_ORIGIN}/app/deploy`,
+        metadata: {
+          paymentAttemptId: txResult.paymentAttemptId,
+          orderId: txResult.orderId,
+          accountId: data.accountId,
+        },
+        subscription_data: {
+          metadata: {
+            paymentAttemptId: txResult.paymentAttemptId,
+            orderId: txResult.orderId,
+            accountId: data.accountId,
+          },
+        },
+      });
+
+      if (!session.url) {
+        throw new Error('Stripe did not return a checkout URL.');
+      }
+
+      // Bind real Stripe session ID to payment attempt
+      db.prepare('UPDATE payment_attempts SET psp_session_id = ? WHERE id = ?')
+        .run(session.id, txResult.paymentAttemptId);
+
+      checkoutUrl = session.url;
+    }
+
+    const result: CheckoutResult = {
+      orderId: txResult.orderId,
+      invoiceId: txResult.invoiceId,
+      paymentAttemptId: txResult.paymentAttemptId,
+      checkoutUrl,
+    };
+
     db.prepare(`
       UPDATE idempotency_records
       SET status = 'COMPLETED', response_payload = ?
@@ -162,4 +225,119 @@ export function processCheckout(
     `).run(data.accountId, data.idempotencyKey);
     throw err;
   }
+}
+
+async function fulfillFreeOrder(
+  args: {
+    orderId: string;
+    invoiceId: string;
+    paymentAttemptId: string;
+    accountId: string;
+    regionId: string;
+  },
+  db: Database.Database = getDatabase()
+): Promise<string> {
+  runInTransaction((trx) => {
+    trx.prepare("UPDATE payment_attempts SET status = 'SUCCEEDED' WHERE id = ?").run(args.paymentAttemptId);
+
+    // Inline markInvoicePaid to avoid nested runInTransaction calls
+    const yearSeries = `INV-${new Date().getUTCFullYear()}`;
+    trx.prepare(`
+      INSERT INTO invoice_sequences (series, current_number)
+      VALUES (?, 1)
+      ON CONFLICT(series) DO UPDATE SET current_number = current_number + 1
+    `).run(yearSeries);
+    const seqRow = trx.prepare('SELECT current_number FROM invoice_sequences WHERE series = ?').get(yearSeries) as { current_number: number };
+    const invoiceNumber = `${yearSeries}-${String(seqRow.current_number).padStart(5, '0')}`;
+    trx.prepare(`
+      UPDATE invoices
+      SET status = 'PAID', invoice_number = ?, amount_paid_minor_units = 0, paid_at = datetime('now', 'utc')
+      WHERE id = ?
+    `).run(invoiceNumber, args.invoiceId);
+
+    trx.prepare("UPDATE orders SET status = 'PAID', updated_at = datetime('now', 'utc') WHERE id = ?").run(args.orderId);
+
+    const items = trx.prepare('SELECT * FROM order_items WHERE order_id = ?').all(args.orderId) as ({
+      id: string;
+      plan_version_id: string;
+      custom_options: string;
+    })[];
+
+    const node = trx.prepare(`
+      SELECT id FROM nodes
+      WHERE region_id = ? AND maintenance_mode = 0
+      ORDER BY allocated_memory_mb ASC
+      LIMIT 1
+    `).get(args.regionId) as { id: string } | undefined;
+
+    const assignedNodeId = node?.id ?? 'node_fra_01';
+
+    for (const item of items) {
+      const serviceId = generateId('svc');
+
+      trx.prepare(`
+        INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id)
+        VALUES (?, ?, ?, 'PTERODACTYL', 'pterodactyl_primary', 'ACTIVE', ?)
+      `).run(serviceId, args.accountId, item.id, assignedNodeId);
+
+      const planVersion = trx.prepare('SELECT resource_specs FROM plan_versions WHERE id = ?')
+        .get(item.plan_version_id) as { resource_specs: string };
+      const desired = JSON.parse(planVersion.resource_specs) as { cpuPct: number; memoryMb: number; diskMb: number };
+
+      trx.prepare(`
+        INSERT INTO service_desired_configs
+          (service_id, plan_version_id, cpu_limit_pct, memory_limit_mb, disk_limit_mb, environment_variables)
+        VALUES (?, ?, ?, ?, ?, '{}')
+      `).run(serviceId, item.plan_version_id, desired.cpuPct, desired.memoryMb, desired.diskMb);
+
+      trx.prepare('UPDATE order_items SET service_id = ? WHERE id = ?').run(serviceId, item.id);
+
+      trx.prepare(`
+        INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+        VALUES (?, ?, 'SYSTEM', 'service.created', 'service', ?, ?, '{}')
+      `).run(generateId('aud'), args.accountId, serviceId, generateId('cor'));
+
+      trx.prepare(`
+        INSERT INTO service_observed_states (service_id, runtime_state)
+        VALUES (?, 'INSTALLING')
+      `).run(serviceId);
+
+      trx.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'service.provision.v1', 'service', ?, ?, 'PENDING')
+      `).run(
+        generateId('obx'),
+        serviceId,
+        JSON.stringify({
+          serviceId,
+          accountId: args.accountId,
+          orderItemId: item.id,
+          planVersionId: item.plan_version_id,
+          nodeId: assignedNodeId,
+          customOptions: JSON.parse(item.custom_options),
+        })
+      );
+    }
+
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id)
+      VALUES (?, ?, 'SYSTEM', 'order.paid', 'order', ?, ?)
+    `).run(generateId('aud'), args.accountId, args.orderId, generateId('cor'));
+
+    createNotification({
+      accountId: args.accountId,
+      type: 'PAYMENT_SUCCESS',
+      title: 'Order Confirmed',
+      message: 'Your free plan is being provisioned.',
+      linkUrl: '/app',
+    }, trx);
+
+    queueEmail(trx, {
+      recipient: (trx.prepare('SELECT billing_email FROM accounts WHERE id = ?').get(args.accountId) as any)?.billing_email || '',
+      template: 'payment_confirmed',
+      payload: { invoiceNumber: 'FREE', amount: '€0.00', serviceName: 'Fortless Hosting Plan' },
+    });
+  }, db);
+
+  return `${config.APP_ORIGIN}/app`;
 }

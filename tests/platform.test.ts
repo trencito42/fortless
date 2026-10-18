@@ -34,9 +34,11 @@ import {
   getSandboxReceipts,
   clearSandboxReceipts,
   queueEmail,
+  renderEmail,
   ProductionEmailTransportAdapter,
   SandboxEmailTransportAdapter,
 } from '../src/modules/email/outbox.js';
+import { getNotificationPreferences, saveNotificationPreferences } from '../src/modules/notifications/preferences.js';
 import { bootstrapOwner } from '../src/scripts/bootstrap-owner.js';
 import {
   generateWebAuthnChallenge,
@@ -54,6 +56,7 @@ import {
   getPublishedPlans,
   listCategories,
   listProducts,
+  listAdminCatalog,
   getProductDetail,
   listRegionsWithCapacity,
   reserveCapacity,
@@ -72,6 +75,7 @@ import {
 } from '../src/modules/catalog/catalog.js';
 import {
   CpanelHttpAdapter,
+  PterodactylHttpAdapter,
   MockCpanelAdapter,
   ProxmoxHttpAdapter,
   MockProxmoxAdapter,
@@ -469,6 +473,27 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(activePlans.find((p) => p.planVersionId === plan.planVersionId)).toBeUndefined();
     });
 
+    it('CAT-10: production bootstrap catalog fails closed while remaining visible to staff', () => {
+      const safeDb = new Database(':memory:');
+      safeDb.pragma('foreign_keys = ON');
+      safeDb.exec(SCHEMA_SQL);
+      seedInitialCatalog(safeDb, { publishDemonstrationCatalog: false });
+
+      expect(getPublishedPlans(safeDb)).toEqual([]);
+      expect(listRegionsWithCapacity(safeDb)).toEqual([]);
+      const staffCatalog = listAdminCatalog(safeDb);
+      expect(staffCatalog.length).toBeGreaterThan(0);
+      expect(staffCatalog.every((product) => product.isPublished === false)).toBe(true);
+      safeDb.close();
+    });
+
+    it('CAT-11: staff catalog read model includes provider mapping and integer-minor-unit prices', () => {
+      const catalog = listAdminCatalog(db);
+      const minecraft = catalog.find((product) => product.slug === 'minecraft');
+      expect(minecraft?.plans[0]?.resources.eggId).toBeTypeOf('number');
+      expect(Number.isInteger(minecraft?.plans[0]?.prices[0]?.priceMinorUnits)).toBe(true);
+    });
+
     it('CAT-06: Capacity engine reserves node memory/disk atomically and releases properly', () => {
       const res = reserveCapacity(
         { planVersionId: 'plv_mc_4gb', regionId: 'reg_fra_1', cartItemId: 'cart_item_abc_1' },
@@ -568,7 +593,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
   });
 
   describe('Category C: Checkout Idempotency & Payment Invariants', () => {
-    it('PAY-05: Repeated checkout submissions with same Idempotency-Key return identical session without duplicate orders', () => {
+    it('PAY-05: Repeated checkout submissions with same Idempotency-Key return identical session without duplicate orders', async () => {
       const user = registerUser(
         { email: 'checkout_user@example.com', password: 'P@ssword123!', name: 'Buyer', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
@@ -586,7 +611,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const key = 'idem_checkout_test_001';
 
       // First submission
-      const res1 = processCheckout(
+      const res1 = await processCheckout(
         { accountId: user.account.id, quoteId: quote.id, idempotencyKey: key, regionId: 'reg_fra_1' },
         db
       );
@@ -595,7 +620,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(res1.invoiceId).toBeDefined();
 
       // Second submission with identical key
-      const res2 = processCheckout(
+      const res2 = await processCheckout(
         { accountId: user.account.id, quoteId: quote.id, idempotencyKey: key, regionId: 'reg_fra_1' },
         db
       );
@@ -625,7 +650,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(verifyStripeSignature(tamperedBody, validSig, secret)).toBe(false);
     });
 
-    it('PAY-02 & PAY-04: Authoritative Webhook transitions order to PAID, issues fiscal invoice, and deduplicates cleanly', () => {
+    it('PAY-02 & PAY-04: Authoritative Webhook transitions order to PAID, issues fiscal invoice, and deduplicates cleanly', async () => {
       const user = registerUser(
         { email: 'webhook_test@example.com', password: 'P@ssword123!', name: 'Webhook Customer', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
@@ -640,7 +665,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         db
       );
 
-      const checkout = processCheckout(
+      const checkout = await processCheckout(
         { accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_webhook_test', regionId: 'reg_fra_1' },
         db
       );
@@ -694,7 +719,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(duplicateRes.status).toBe('DEDUPLICATED');
     });
 
-    it('PAY-06: Checkout idempotency detects divergence in customOptions with same idempotency key', () => {
+    it('PAY-06: Checkout idempotency detects divergence in customOptions with same idempotency key', async () => {
       const user = registerUser(
         { email: 'idem_diverge@example.com', password: 'P@ssword123!', name: 'Idem Diverge', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
@@ -710,7 +735,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       );
 
       // First submission with serverName: 'alpha-srv'
-      processCheckout(
+      await processCheckout(
         {
           accountId: user.account.id,
           quoteId: quote.id,
@@ -722,7 +747,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       );
 
       // Second submission with divergent serverName under same idempotencyKey must throw
-      expect(() => {
+      await expect(
         processCheckout(
           {
             accountId: user.account.id,
@@ -732,17 +757,17 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
             customOptions: { serverName: 'beta-srv' },
           },
           db
-        );
-      }).toThrow('Idempotency key was previously used with a different request payload.');
+        )
+      ).rejects.toThrow('Idempotency key was previously used with a different request payload.');
     });
 
-    it('PAY-07: checkout.session.completed with payment_status != paid does NOT mark order PAID', () => {
+    it('PAY-07: checkout.session.completed with payment_status != paid does NOT mark order PAID', async () => {
       const user = registerUser(
         { email: 'unpaid_checkout@example.com', password: 'Password123!', name: 'Unpaid Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
       );
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_unpaid_test', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_unpaid_test', regionId: 'reg_fra_1' }, db);
 
       const payload: StripeWebhookPayload = {
         id: 'evt_stripe_unpaid_session_001',
@@ -768,13 +793,13 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(order.status).toBe('AWAITING_PAYMENT');
     });
 
-    it('PAY-08: charge.refunded webhook updates invoice to CREDITED, issues credit note, and terminates service', () => {
+    it('PAY-08: charge.refunded webhook updates invoice to CREDITED, issues credit note, and terminates service', async () => {
       const user = registerUser(
         { email: 'refund_hook@example.com', password: 'Password123!', name: 'Refund Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
       );
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_refund_hook', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_refund_hook', regionId: 'reg_fra_1' }, db);
 
       // Settle payment first
       const payPayload: StripeWebhookPayload = {
@@ -825,13 +850,13 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(svc.contract_status).toBe('TERMINATED');
     });
 
-    it('PAY-09: charge.dispute.created webhook suspends services and flags account for fraud review', () => {
+    it('PAY-09: charge.dispute.created webhook suspends services and flags account for fraud review', async () => {
       const user = registerUser(
         { email: 'dispute_hook@example.com', password: 'Password123!', name: 'Dispute Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
       );
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_dispute_hook', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_dispute_hook', regionId: 'reg_fra_1' }, db);
 
       // Settle payment first
       const payPayload: StripeWebhookPayload = {
@@ -877,7 +902,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(svc.contract_status).toBe('SUSPENDED');
     });
 
-    it('PAY-10: Staff can execute partial and full refunds with credit notes and audit reason', () => {
+    it('PAY-10: Staff can execute partial and full refunds with credit notes and audit reason', async () => {
       const user = registerUser(
         { email: 'staff_refund@example.com', password: 'Password123!', name: 'Staff Refund Cust', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
@@ -889,7 +914,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'BILLING', 'ACTIVE')").run(admin.user.id);
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_staff_refund', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_staff_refund', regionId: 'reg_fra_1' }, db);
 
       // Settle payment
       const payPayload: StripeWebhookPayload = {
@@ -990,7 +1015,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       );
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_1', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_1', regionId: 'reg_fra_1' }, db);
 
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_1',
@@ -1053,7 +1078,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       );
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_timeout_test', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_timeout_test', regionId: 'reg_fra_1' }, db);
 
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_timeout_001',
@@ -1096,7 +1121,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       );
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_lease_test', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_lease_test', regionId: 'reg_fra_1' }, db);
 
       const payload: StripeWebhookPayload = {
         id: 'evt_lease_recovery_001',
@@ -1141,7 +1166,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const userB = registerUser({ email: 'userB_svc@example.com', password: 'P@ssword123!', name: 'User B', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
       const quote = createQuote(userA.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: userA.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_06', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: userA.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_06', regionId: 'reg_fra_1' }, db);
 
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_06',
@@ -1170,7 +1195,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const user = registerUser({ email: 'user_pwr@example.com', password: 'P@ssword123!', name: 'Power User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_07', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_07', regionId: 'reg_fra_1' }, db);
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_07',
         type: 'payment_intent.succeeded',
@@ -1214,7 +1239,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const user = registerUser({ email: 'user_susp@example.com', password: 'P@ssword123!', name: 'Susp User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_08', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_08', regionId: 'reg_fra_1' }, db);
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_08',
         type: 'payment_intent.succeeded',
@@ -1243,7 +1268,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const user = registerUser({ email: 'user_term@example.com', password: 'P@ssword123!', name: 'Term User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_09', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_09', regionId: 'reg_fra_1' }, db);
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_09',
         type: 'payment_intent.succeeded',
@@ -1289,7 +1314,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       db.prepare("UPDATE nodes SET allocated_memory_mb = max_memory_mb WHERE id = 'node_fra_01'").run();
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_10', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_prov_10', regionId: 'reg_fra_1' }, db);
       const payload: StripeWebhookPayload = {
         id: 'evt_prov_10',
         type: 'payment_intent.succeeded',
@@ -1329,6 +1354,11 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       // Non-HTTP
       await expect(validateSafeOutboundUrl('ftp://example.com/')).rejects.toThrow('Forbidden protocol');
       await expect(validateSafeOutboundUrl('file:///etc/passwd')).rejects.toThrow('Forbidden protocol');
+    });
+
+    it('SSRF-02: Pterodactyl inventory client blocks private provider endpoints before dispatch', async () => {
+      const adapter = new PterodactylHttpAdapter({ panelUrl: 'http://127.0.0.1:8080', apiKey: 'test-only-key' });
+      await expect(adapter.getInventory()).rejects.toThrow(/SSRF blocked|Pterodactyl connection failed/);
     });
   });
 
@@ -1660,7 +1690,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       }).toThrow('Cannot remove the primary workspace account owner.');
     });
 
-    it('AUTH-12: Password change from settings validates current password, updates hash, revokes other sessions, and queues security alert', () => {
+    it('AUTH-12: Password change from settings validates current password, updates hash, revokes other sessions, and queues mandatory notice', () => {
       const user = registerUser(
         { email: 'changepass@example.com', password: 'OldPassword123!', name: 'Change Pass', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
@@ -1709,8 +1739,8 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const newSession = loginUser({ email: 'changepass@example.com', password: 'BrandNewPassword123!', ipAddress: '3.3.3.3', userAgent: 'laptop' }, db);
       expect(newSession.token).toBeDefined();
 
-      // Security notification email queued
-      const alerts = db.prepare("SELECT * FROM email_outbox WHERE recipient = 'changepass@example.com' AND template = 'security_alert'").all();
+      // Mandatory password-change notification email queued
+      const alerts = db.prepare("SELECT * FROM email_outbox WHERE recipient = 'changepass@example.com' AND template = 'password_changed'").all();
       expect(alerts).toHaveLength(1);
     });
 
@@ -1752,8 +1782,9 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         const receipt = receipts.find((r) => r.recipient === 'receipttest@example.com');
         expect(receipt).toBeDefined();
         expect(receipt?.subject).toBe('Verify your Fortless account');
-        expect(receipt?.text).toContain('Please verify your email address for Fortless');
-        expect(receipt?.html).toContain('Verify Email Address');
+        expect(receipt?.text).toContain('confirm this address to activate your workspace');
+        expect(receipt?.text).toContain('/verify-email?token=');
+        expect(receipt?.html).toContain('Verify email address');
       } finally {
         config.EMAIL_MODE = previousMode;
         clearSandboxReceipts();
@@ -1823,11 +1854,50 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(itemsAfter[0]?.readAt).not.toBeNull();
     });
 
-    it('INV-03: Plaintext invoice receipt renders exact items, fiscal details, and VAT', () => {
+    it('NOTIF-02: Optional email preferences default on, suppress selected categories, and never suppress security mail', () => {
+      const user = registerUser({ email: 'prefs@example.com', password: 'P@ssword123!', name: 'Prefs User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      expect(getNotificationPreferences(user.user.id, db)).toEqual({ billingEmail: true, serviceEmail: true, supportEmail: true });
+
+      saveNotificationPreferences(user.user.id, { billingEmail: false, serviceEmail: false, supportEmail: false }, db);
+      const initialCount = (db.prepare("SELECT count(*) AS total FROM email_outbox WHERE recipient = ?").get(user.user.email) as { total: number }).total;
+      expect(queueEmail(db, { recipient: user.user.email, template: 'payment_receipt', payload: { amount: '€10.00' } })).toBe('');
+      expect(queueEmail(db, { recipient: user.user.email, template: 'service_ready', payload: { serviceName: 'Test service' } })).toBe('');
+      expect(queueEmail(db, { recipient: user.user.email, template: 'ticket_reply', payload: { subject: 'Test ticket' } })).toBe('');
+      expect(queueEmail(db, { recipient: user.user.email, template: 'password_changed', payload: {} })).not.toBe('');
+
+      const finalRows = db.prepare("SELECT template FROM email_outbox WHERE recipient = ? ORDER BY created_at").all(user.user.email) as Array<{ template: string }>;
+      expect(finalRows).toHaveLength(initialCount + 1);
+      expect(finalRows.at(-1)?.template).toBe('password_changed');
+    });
+
+    it('EMAIL-04: Canonical Fortless Mail renderer replaces operational sample values and escapes HTML', () => {
+      const rendered = renderEmail('service_invitation', {
+        inviterName: 'Ana <Admin>',
+        workspaceName: 'Production & Games',
+        access: 'Operator',
+        inviteUrl: 'https://fortless.net/invite/service/secure-token',
+      });
+      expect(rendered.subject).toContain('Production & Games');
+      expect(rendered.text).toContain('https://fortless.net/invite/service/secure-token');
+      expect(rendered.text).not.toContain('sample-token');
+      expect(rendered.html).toContain('Ana &lt;Admin&gt;');
+      expect(rendered.html).toContain('Production &amp; Games');
+    });
+
+    it('EMAIL-05: Password reset CTA survives webmail sanitizers as a normal visible link', () => {
+      const resetUrl = 'https://fortless.net/reset-password?token=real-test-token';
+      const rendered = renderEmail('password_reset', { resetUrl });
+      expect(rendered.html).toContain(`<a href="${resetUrl}"`);
+      expect(rendered.html).toContain('>Reset password</a>');
+      expect(rendered.html).not.toContain('<!--[if !mso]><!-->');
+      expect(rendered.html).not.toContain('<v:roundrect');
+    });
+
+    it('INV-03: Plaintext invoice receipt renders exact items, fiscal details, and VAT', async () => {
       const user = registerUser({ email: 'receipt_user@example.com', password: 'P@ssword123!', name: 'Receipt User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_inv_03', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_inv_03', regionId: 'reg_fra_1' }, db);
 
       const payload: StripeWebhookPayload = {
         id: 'evt_inv_03',
@@ -1899,7 +1969,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
 
       const user = registerUser({ email: 'fail_outbox@example.com', password: 'P@ssword123!', name: 'Fail User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_outbox_fail', regionId: 'reg_fra_1' }, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_outbox_fail', regionId: 'reg_fra_1' }, db);
       const payload: StripeWebhookPayload = {
         id: 'evt_outbox_fail',
         type: 'payment_intent.succeeded',
@@ -2465,7 +2535,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       };
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_node_starter', quantity: 1 }], 'DE', false, undefined, db);
-      const checkout = processCheckout(
+      const checkout = await processCheckout(
         {
           accountId: user.account.id,
           quoteId: quote.id,
@@ -3047,7 +3117,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
 
       const quote = createQuote(user.account.id, [{ planVersionId: 'plv_vps_micro', quantity: 1 }], 'DE', false, undefined, db);
 
-      const checkout = processCheckout(
+      const checkout = await processCheckout(
         {
           accountId: user.account.id,
           quoteId: quote.id,

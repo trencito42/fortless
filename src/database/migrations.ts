@@ -162,7 +162,7 @@ const migrations: Migration[] = [
         CREATE TABLE IF NOT EXISTS email_outbox (
           id TEXT PRIMARY KEY,
           recipient TEXT NOT NULL,
-          template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'security_alert')),
+          template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'security_alert', 'payment_confirmed', 'service_provisioned', 'ticket_reply')),
           subject TEXT NOT NULL,
           payload_json TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SENT', 'FAILED')),
@@ -723,6 +723,253 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       for (const art of seedArticles) {
         insertArt.run(art.id, art.slug, art.title, art.category, art.summary, art.content_markdown, art.tags);
       }
+    },
+  },
+  {
+    version: 30,
+    name: 'expand email_outbox template check constraint',
+    up(db) {
+      db.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE IF NOT EXISTS email_outbox_new (
+          id TEXT PRIMARY KEY,
+          recipient TEXT NOT NULL,
+          template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'security_alert', 'payment_confirmed', 'service_provisioned', 'ticket_reply')),
+          subject TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER')),
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          dead_lettered_at TEXT,
+          scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          sent_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        INSERT OR IGNORE INTO email_outbox_new SELECT * FROM email_outbox;
+        DROP TABLE email_outbox;
+        ALTER TABLE email_outbox_new RENAME TO email_outbox;
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_lease ON email_outbox(status, scheduled_at, lease_expires_at);
+        PRAGMA foreign_keys = ON;
+      `);
+    },
+  },
+  {
+    version: 31,
+    name: 'fail closed for legacy demonstration catalog and capacity',
+    up(db) {
+      // These exact identifiers were historical bootstrap/demo records. They do
+      // not represent provider-verified commercial inventory and must never be
+      // exposed as orderable merely because a provider API key is configured.
+      db.prepare(`
+        UPDATE products
+        SET is_published = 0
+        WHERE id IN ('prod_minecraft', 'prod_palworld', 'prod_bot_node', 'prod_nodejs_app', 'prod_kvm_vps')
+      `).run();
+      db.prepare(`
+        UPDATE nodes
+        SET maintenance_mode = 1
+        WHERE id IN ('node_fra_01', 'node_lon_01')
+          AND provider_instance_id = 'pterodactyl_primary'
+      `).run();
+      db.prepare(`
+        UPDATE regions
+        SET is_active = 0
+        WHERE id IN ('reg_fra_1', 'reg_lon_1')
+      `).run();
+    },
+  },
+  {
+    version: 32,
+    name: 'per-account provider panel users',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS panel_users (
+          account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+          provider_type TEXT NOT NULL DEFAULT 'PTERODACTYL',
+          panel_user_id INTEGER NOT NULL,
+          panel_username TEXT NOT NULL,
+          panel_email TEXT NOT NULL,
+          correlation_tag TEXT NOT NULL UNIQUE,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_panel_users_panel_id ON panel_users(provider_type, panel_user_id);
+      `);
+    },
+  },
+  {
+    version: 33,
+    name: 'oidc authorization codes and access tokens',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS oidc_authorization_codes (
+          code_hash TEXT PRIMARY KEY,
+          client_id TEXT NOT NULL,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          redirect_uri TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          nonce TEXT,
+          code_challenge TEXT,
+          auth_time INTEGER NOT NULL,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE TABLE IF NOT EXISTS oidc_access_tokens (
+          token_hash TEXT PRIMARY KEY,
+          code_hash TEXT NOT NULL,
+          client_id TEXT NOT NULL,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          scope TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_oidc_tokens_code ON oidc_access_tokens(code_hash);
+      `);
+    },
+  },
+  {
+    version: 34,
+    name: 'per-account panel client api keys',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS panel_client_keys (
+          account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+          encrypted_key TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+      `);
+    },
+  },
+  {
+    version: 35,
+    name: 'service sharing: members and invitations',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS service_members (
+          id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          preset TEXT NOT NULL CHECK(preset IN ('viewer', 'operator', 'admin')),
+          panel_subuser_uuid TEXT,
+          invited_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          UNIQUE(service_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_service_members_user ON service_members(user_id);
+        CREATE TABLE IF NOT EXISTS service_invitations (
+          id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+          email TEXT NOT NULL,
+          preset TEXT NOT NULL CHECK(preset IN ('viewer', 'operator', 'admin')),
+          token_hash TEXT NOT NULL UNIQUE,
+          invited_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          expires_at TEXT NOT NULL,
+          accepted_at TEXT,
+          revoked_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_service_invitations_service ON service_invitations(service_id, email);
+      `);
+    },
+  },
+  {
+    version: 36,
+    name: 'allow service_invitation email template',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS email_outbox_new (
+          id TEXT PRIMARY KEY,
+          recipient TEXT NOT NULL,
+          template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'service_invitation', 'security_alert', 'payment_confirmed', 'service_provisioned', 'ticket_reply')),
+          subject TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER')),
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          dead_lettered_at TEXT,
+          scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          sent_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        INSERT OR IGNORE INTO email_outbox_new SELECT * FROM email_outbox;
+        DROP TABLE email_outbox;
+        ALTER TABLE email_outbox_new RENAME TO email_outbox;
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_lease ON email_outbox(status, scheduled_at, lease_expires_at);
+      `);
+    },
+  },
+  {
+    version: 37,
+    name: 'game profiles',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS game_profiles (
+          id TEXT PRIMARY KEY,
+          slug TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          egg_names TEXT NOT NULL DEFAULT '[]',
+          config_file TEXT,
+          config_schema TEXT NOT NULL DEFAULT '[]',
+          game_version_variable TEXT,
+          java_rules TEXT NOT NULL DEFAULT '[]',
+          install_sources TEXT NOT NULL DEFAULT '[]',
+          icon_file TEXT,
+          is_enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+      `);
+    },
+  },
+  {
+    version: 38,
+    name: 'canonical mail templates and user notification preferences',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          billing_email INTEGER NOT NULL DEFAULT 1 CHECK(billing_email IN (0, 1)),
+          service_email INTEGER NOT NULL DEFAULT 1 CHECK(service_email IN (0, 1)),
+          support_email INTEGER NOT NULL DEFAULT 1 CHECK(support_email IN (0, 1)),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        CREATE TABLE IF NOT EXISTS email_outbox_new (
+          id TEXT PRIMARY KEY,
+          recipient TEXT NOT NULL,
+          template TEXT NOT NULL CHECK(template IN (
+            'email_verification', 'welcome', 'password_reset', 'password_changed',
+            'account_invitation', 'service_invitation', 'security_alert', 'mfa_changed',
+            'invoice_issued', 'payment_confirmed', 'payment_receipt', 'payment_failed',
+            'renewal_reminder', 'service_provisioned', 'service_ready', 'ticket_reply',
+            'cancellation_scheduled'
+          )),
+          subject TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER')),
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          lease_token TEXT,
+          lease_expires_at TEXT,
+          dead_lettered_at TEXT,
+          scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          sent_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        INSERT OR IGNORE INTO email_outbox_new SELECT * FROM email_outbox;
+        DROP TABLE email_outbox;
+        ALTER TABLE email_outbox_new RENAME TO email_outbox;
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
+        CREATE INDEX IF NOT EXISTS idx_email_outbox_lease ON email_outbox(status, scheduled_at, lease_expires_at);
+      `);
     },
   },
 ];

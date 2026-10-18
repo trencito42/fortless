@@ -2,9 +2,9 @@
 
 You are the **lead principal engineer, security reviewer, QA engineer, architecture owner and full-stack implementation agent** for the existing Fortless hosting SaaS in this workspace. This is a real commercial platform, not a demo. The existing homepage and Petal design system are authored already; the user explicitly reports the admin panel and major customer flows are mocks or only partially real. Your mission is to deliver a robust, consistently designed, **actually functional** platform, in audited increments.
 
-The full implementation brief is bundled under `FORTLESS_CODEX_MEGA_PROMPTS/` in this repository. **Read `README_START_HERE.md`, `00_GLOBAL_CONTRACT.md`, and all phase prompts before editing, then execute ONLY the first incomplete phase / smallest coherent vertical slice.** Also read root `AGENTS.md`, `docs/HANDOFF.md`, `docs/IMPLEMENTATION_STATUS.md`, `docs/fortless/*`, `blueprint/fortless-blueprint/MASTER_PROMPT.md`, and Petal references.
+The full implementation brief is bundled under `FORTLESS_CODEX_MEGA_PROMPTS/` in this repository. **Read `README_START_HERE.md`, `00_GLOBAL_CONTRACT.md`, `docs/PLAN_RECONCILIATION_2026-10-19.md`, and all phase prompts before editing, then execute ONLY the first genuinely incomplete phase / smallest coherent vertical slice.** Do not replay an old unchecked checklist when the capability now exists in code. Also read root `AGENTS.md`, `docs/HANDOFF.md`, `docs/IMPLEMENTATION_STATUS.md`, `docs/fortless/*`, `blueprint/fortless-blueprint/MASTER_PROMPT.md`, and Petal references.
 
-You must preserve the Fortless style: actual FL monogram, light gray backgrounds, dark navy, electric blue and lime, bold Inter Tight, flat rounded Petal components, mobile UX, consistent public/auth/customer/admin theme. Do not generate a generic replacement UI. No placeholder metrics or fake successful buttons.
+You must preserve the Fortless style: actual FL monogram, light gray backgrounds, dark navy, electric blue and lime, bold Inter Tight, flat rounded Petal components, mobile UX, consistent public/auth/customer/admin theme. The binding visual reference is the read-only `fortless-redesign/Fortless Views.html`. Reuse the shared production primitives; derive missing reusable components from that file without modifying it. Do not generate a generic replacement UI. No placeholder metrics or fake successful buttons.
 
 ## Start now, exact sequence
 
@@ -28,7 +28,9 @@ You must preserve the Fortless style: actual FL monogram, light gray backgrounds
 
 ## Phase schedule
 
-`01` Audit/Mock matrix -> `02` Backend, DB, workers, CI -> `03` Real auth/email/MFA -> `04` Functional admin -> `05` Catalog/pricing/inventory -> `06` Stripe sandbox/billing/tax -> `07` Pterodactyl staging -> `08` Full customer experience/renewal/support -> `09` Optional additional provider categories -> `10` Security, disaster recovery, production readiness.
+`01` Audit/Mock matrix -> `02` Backend, DB, workers, CI -> `03` Real auth/email/MFA -> `04` Functional admin -> `05` Catalog/pricing/inventory -> `06` Stripe sandbox/billing/tax -> `07` Pterodactyl staging -> `08` Full customer experience/renewal/support -> `09` Optional additional provider categories -> `10` Security, disaster recovery, production readiness -> `12` admin-configurable server-management extensions.
+
+The codebase has already completed many local/mock slices from phases 01–10. Reconcile first; the normal current continuation is Stage 12 Slice 1, while sandbox/browser verification remains a separate gate.
 
 Some parts (admin finance/provider tools, customer service actions) must be completed after dependent integrations. Explicitly track cross-phase dependencies and revisit until every advertised available feature passes its gates.
 

@@ -9,65 +9,237 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
-  <link rel="stylesheet" href="/assets/admin-ui.css">
+  <link rel="stylesheet" href="/assets/petal-app.css?v=20261018_4">
+  <link rel="stylesheet" href="/assets/admin-ui.css?v=20261018_5">
+  <script>
+    (function(){
+      try{
+        var t = localStorage.getItem('fortless_theme') || localStorage.getItem('theme') || localStorage.getItem('ftv-theme');
+        if(t) document.documentElement.dataset.theme = t;
+      }catch(e){}
+    })();
+  </script>
 </head>
 <body>
-  <div class="app">
-    <aside class="side" aria-label="Operations navigation">
-      <a class="brand" href="/admin"><span class="brand-mark" aria-hidden="true"></span><span>fortless</span><span class="badge info s">OPS</span></a>
-      <p class="navlabel">Workspace</p>
+  <div class="m">
+  <div class="ap">
+    <aside class="sd" aria-label="Operations navigation">
+      <a class="brand" href="/admin"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="26" height="6.5" rx="3.25" fill="var(--accent)"/><rect x="3" y="13" width="26" height="6.5" rx="3.25" fill="var(--accent)" opacity=".62"/><rect x="3" y="21" width="17" height="6.5" rx="3.25" fill="var(--accent)" opacity=".32"/></svg>fortless<span class="ops">OPS</span></a>
+      <div class="nl">Workspace</div>
       <nav class="nav">
-        <a href="/admin" data-route="overview" id="nav-overview"><span class="ic" data-icon="home"></span>Overview</a>
-        <a href="/admin/accounts" data-route="accounts" id="nav-accounts"><span class="ic" data-icon="users"></span>Accounts</a>
-        <a href="/admin/services" data-route="services" id="nav-services"><span class="ic" data-icon="server"></span>Services</a>
-        <a href="/admin/tickets" data-route="tickets" id="nav-tickets"><span class="ic" data-icon="support"></span>Tickets</a>
-        <a href="/admin/audit" data-route="audit" id="nav-audit"><span class="ic" data-icon="shield"></span>Audit</a>
-        <a href="/admin/staff" data-route="staff" id="nav-staff"><span class="ic" data-icon="users"></span>Staff access</a>
+        <a class="nv" href="/admin" data-route="overview" id="nav-overview"><span class="ic" data-icon="home"></span>Overview</a>
+        <a class="nv" href="/admin/accounts" data-route="accounts" id="nav-accounts"><span class="ic" data-icon="users"></span>Accounts</a>
+        <a class="nv" href="/admin/services" data-route="services" id="nav-services"><span class="ic" data-icon="server"></span>Services</a>
+        <a class="nv" href="/admin/orders" data-route="orders" id="nav-orders"><span class="ic" data-icon="document"></span>Orders</a>
+        <a class="nv" href="/admin/billing" data-route="billing" id="nav-billing"><span class="ic" data-icon="credit"></span>Billing</a>
+        <a class="nv" href="/admin/infrastructure" data-route="infrastructure" id="nav-infrastructure"><span class="ic" data-icon="servers"></span>Infrastructure</a>
+        <a class="nv" href="/admin/catalog" data-route="catalog" id="nav-catalog"><span class="ic" data-icon="servers"></span>Catalog & providers</a>
+        <a class="nv" href="/admin/tickets" data-route="tickets" id="nav-tickets"><span class="ic" data-icon="support"></span>Tickets</a>
+        <a class="nv" href="/admin/audit" data-route="audit" id="nav-audit"><span class="ic" data-icon="shield"></span>Audit</a>
+        <a class="nv" href="/admin/staff" data-route="staff" id="nav-staff"><span class="ic" data-icon="users"></span>Staff access</a>
+        <a class="nv" href="/admin/status" data-route="status" id="nav-status"><span class="ic" data-icon="refresh"></span>System status</a>
+        <a class="nv" href="/admin/settings" data-route="settings" id="nav-settings"><span class="ic" data-icon="settings"></span>Platform settings</a>
       </nav>
-      <div class="sidefoot">
-        <div class="me"><span class="av" id="userAvatar">OP</span><span><b id="userName">Operations</b><small id="staffRole">Staff · MFA</small></span></div>
-        <a class="back-link" href="/app"><span class="ic" data-icon="arrow"></span>Customer application</a>
-      </div>
+      <div class="me"><span class="av v" id="userAvatar">OP</span><span class="tx"><b id="userName">Operations</b><small id="staffRole">Staff · MFA</small></span><button class="ib" id="themeToggleBtn" data-act="theme" style="width:36px;height:36px" aria-label="Toggle theme" type="button"><span class="ic" data-icon="sun"></span></button><a class="ib" href="/app" aria-label="Customer application"><span class="ic" data-icon="arrow"></span></a></div>
     </aside>
 
-    <main class="main">
-      <header class="top">
-        <a class="mobile-brand" href="/admin" aria-label="Fortless operations home"><span class="brand-mark"></span></a>
+    <main class="mn" id="mn">
+      <header class="tb">
+        <a class="mobile-brand brand" href="/admin" aria-label="Fortless operations home"><svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="5" width="26" height="6.5" rx="3.25" fill="var(--accent)"/><rect x="3" y="13" width="26" height="6.5" rx="3.25" fill="var(--accent)" opacity=".62"/><rect x="3" y="21" width="17" height="6.5" rx="3.25" fill="var(--accent)" opacity=".32"/></svg></a>
         <div class="top-copy"><h1 id="pageTitle">Operations overview</h1><p id="pageSubtitle">Real platform records, without simulated operational controls.</p></div>
-        <button class="search" type="button" data-cmd aria-label="Open command palette" style="margin:0 12px;max-width:320px;cursor:pointer;background:var(--s1);border:1px solid var(--s3);border-radius:99px;padding:0 14px;height:40px;display:flex;align-items:center;gap:8px;color:var(--ink2)">
+        <button class="sch" type="button" data-cmd aria-label="Open command palette">
           <span class="ic" data-icon="search"></span>
-          <span style="font-size:13px;font-weight:500">Search or jump to…</span>
-          <kbd class="kbd" style="font-size:11px;margin-left:auto">⌘K</kbd>
+          <span>Search or jump to…</span><kbd class="kbd">⌘K</kbd>
         </button>
-        <span class="badge warn"><span class="dot"></span>Read only</span>
+        <span class="sp"></span><span class="pill violet hide-n">Operations · MFA</span><a class="btn s hide-n" href="/app">Customer app</a><span class="av v" id="topAvatar">OP</span>
       </header>
 
-      <section class="page" id="page-overview">
-        <div class="metrics" id="overviewMetrics" aria-live="polite"></div>
-        <div class="split">
+      <section class="page" id="page-overview"><div class="hd"><div class="tx"><h2>Operations overview</h2><p>Real platform records, without simulated operational controls.</p></div></div>
+        <div class="g g4 k2" id="overviewMetrics" aria-live="polite" style="margin-bottom:12px"></div>
+        <div class="g g2">
           <article class="card"><div class="card-head"><div><h2>Release gates</h2><p>Provider-backed operations remain unavailable until verified.</p></div></div><div id="capabilityList" class="stack"></div></article>
           <article class="card"><div class="card-head"><div><h2>Operational attention</h2><p>Queues and records requiring review.</p></div></div><div id="attentionList" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Outbox health</h2><p>Current persisted transactional queue state.</p></div></div><div id="outboxHealth" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Support queue</h2><p>Ordered by priority and activity.</p></div></div><div id="supportSummary" class="stack"></div></article>
         </div>
       </section>
 
       <section class="page" id="page-accounts">
-        <div class="card list-card"><div class="card-head"><div><h2>Customer accounts</h2><p>Ownership, membership and workload counts.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search name or email" data-search="accounts" aria-label="Search accounts"></div></div><div id="accountsList" class="records"></div></div>
+        <div class="hd"><div class="tx"><h2>Customer accounts</h2><p>Ownership, membership and workload counts.</p></div></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search name or email" data-search="accounts" aria-label="Search accounts"></label><div id="accountsList" class="records"></div>
       </section>
 
       <section class="page" id="page-services">
-        <div class="card list-card"><div class="card-head"><div><h2>Service inventory</h2><p>Contract and provider-observed state. No power controls here.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search service or account" data-search="services" aria-label="Search services"></div></div><div id="servicesList" class="records"></div></div>
+        <div class="hd"><div><h2>Service inventory</h2><p>Contract and provider-observed state.</p></div></div>
+        <div class="alert info"><span class="ic" data-icon="shield"></span><div><b>Read only</b><span>Runtime changes happen through audited provider operations.</span></div></div>
+        <div class="row" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search service or account" data-search="services" aria-label="Search services"></label><div class="seg" data-filter-target="servicesList"><button aria-selected="true" data-filter-value="ALL">All</button><button aria-selected="false" data-filter-value="RUNNING">Running</button><button aria-selected="false" data-filter-value="OTHER">Other</button></div></div>
+        <div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Service</th><th>Account</th><th>Node</th><th>Contract</th><th>Runtime</th></tr></thead><tbody id="servicesList"></tbody></table></div></div>
+      </section>
+
+      <section class="page" id="page-orders"><div class="hd"><div><h2>Orders</h2><p>Immutable totals and current fulfillment state.</p></div></div><div id="orderMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search order or customer" data-search="orders"></div><div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Order</th><th>Account</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody id="ordersList"></tbody></table></div></div></section>
+
+      <section class="page" id="page-billing"><div class="hd"><div><h2>Billing operations</h2><p>Authoritative invoices and issued credit notes, stored in minor units.</p></div></div><div id="billingMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search invoice or customer" data-search="billing"></div><article class="card table-card"><div class="card-head"><div><h2>Invoices</h2><p>Refunds are step-up protected and create credit notes.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Invoice</th><th>Account</th><th>Due</th><th>Paid / total</th><th>Status</th><th></th></tr></thead><tbody id="invoicesList"></tbody></table></div></article><article class="card table-card"><div class="card-head"><div><h2>Credit notes</h2><p>Persisted refund records.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Credit note</th><th>Invoice</th><th>Account</th><th>Amount</th><th>Reason</th><th>Created</th></tr></thead><tbody id="creditNotesList"></tbody></table></div></article></section>
+
+      <section class="page" id="page-infrastructure"><div class="hd"><div><h2>Infrastructure</h2><p>Local allocation ledger and provider readiness.</p></div></div><div id="infrastructureMetrics" class="g g4 k2 admin-metrics"></div><div id="capacityRegions" class="g g3" style="margin-bottom:12px"></div><article class="card table-card"><div class="card-head"><div><h2>Capacity nodes</h2><p>Only persisted nodes are shown; no inferred capacity.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Node</th><th>Region</th><th>Services</th><th>Memory</th><th>Disk</th><th>Mode</th></tr></thead><tbody id="capacityNodes"></tbody></table></div></article></section>
+
+      <section class="page" id="page-catalog">
+        <div class="hd">
+          <div class="tx">
+            <h2>Catalog & providers</h2>
+            <p>Commercial products, immutable plan versions, and live Pterodactyl hypervisor allocations.</p>
+          </div>
+          <button class="btn pri" type="button" data-new-product><span class="ic" data-icon="plus"></span>Create product</button>
+        </div>
+
+        <div class="row" style="margin-bottom:14px">
+          <label class="sch">
+            <span class="ic" data-icon="search"></span>
+            <input type="search" placeholder="Search products, plans, or eggs…" id="catalogSearchInput" data-search="catalog" aria-label="Search catalog">
+          </label>
+          <div class="seg" role="tablist" id="catalogViewSeg">
+            <button class="on" data-tab="all" aria-selected="true">All</button>
+            <button data-tab="products" aria-selected="false">Products & Plans</button>
+            <button data-tab="inventory" aria-selected="false">Pterodactyl Inventory</button>
+          </div>
+        </div>
+
+        <div class="col" style="gap:16px">
+          <div id="catalogProductsSection" class="col" style="gap:14px">
+            <div id="catalogProducts" class="col" style="gap:14px" aria-live="polite"></div>
+          </div>
+
+          <div id="catalogInventorySection">
+            <article class="card" id="provider-card">
+              <div class="card-head">
+                <span class="tile info"><span class="ic" data-icon="server"></span></span>
+                <div>
+                  <h2>Pterodactyl hypervisor inventory</h2>
+                  <p>Real hypervisor nodes, nests, and Docker container eggs discovered via the Application API.</p>
+                </div>
+                <div id="providerSummary" class="row nw" style="gap:6px"></div>
+              </div>
+              <div id="providerInventory" aria-live="polite"></div>
+            </article>
+          </div>
+        </div>
       </section>
 
       <section class="page" id="page-tickets">
-        <div class="card list-card"><div class="card-head"><div><h2>Support queue</h2><p>Real customer threads ordered by priority and activity.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></div></div><div id="ticketsList" class="records"></div></div>
+        <div class="hd"><div class="tx"><h2>Support queue</h2><p>Real customer threads ordered by priority and activity.</p></div></div><div class="row" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></label><div class="seg" data-filter-target="ticketsList"><button aria-selected="true" data-filter-value="ALL">All</button><button aria-selected="false" data-filter-value="OPEN">Open</button><button aria-selected="false" data-filter-value="WAITING_STAFF">Waiting staff</button></div></div><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Priority</th><th>Subject</th><th>Account</th><th>Status</th><th>Updated</th></tr></thead><tbody id="ticketsList"></tbody></table></div></div>
       </section>
 
       <section class="page" id="page-audit">
-        <div class="card list-card"><div class="card-head"><div><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action or resource" data-search="audit" aria-label="Search audit events"></div></div><div id="auditList" class="records"></div></div>
+        <div class="hd"><div class="tx"><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><a class="btn" href="/api/v1/admin/audit/export"><span class="ic" data-icon="document"></span>Export</a></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action or resource" data-search="audit" aria-label="Search audit events"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>IP</th></tr></thead><tbody id="auditList"></tbody></table></div></div>
       </section>
 
       <section class="page" id="page-staff">
-        <div class="card list-card"><div class="card-head"><div><h2>Staff access</h2><p>Persisted roles, access status and MFA readiness.</p></div><div class="search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search staff" data-search="staff" aria-label="Search staff"></div></div><div id="staffList" class="records"></div></div>
+        <div class="hd"><div class="tx"><h2>Staff access</h2><p>Persisted roles, access status and MFA readiness.</p></div><button class="btn pri" type="button" data-add-staff>Add staff</button></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search staff" data-search="staff" aria-label="Search staff"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Member</th><th>Role</th><th>MFA</th><th>Access</th><th></th></tr></thead><tbody id="staffList"></tbody></table></div></div>
+        <div class="card"><div class="card-head"><div><h2>Role permissions</h2><p>Effective grants from the server-side access policy.</p></div></div><div class="table-scroll"><table class="tbl"><thead><tr><th>Role</th><th>Accounts</th><th>Services</th><th>Tickets</th><th>Audit</th><th>Staff</th><th>Catalog</th></tr></thead><tbody><tr><td><b>OWNER</b></td><td>manage</td><td>manage</td><td>manage</td><td>read</td><td>manage</td><td>manage</td></tr><tr><td><b>ADMINISTRATOR</b></td><td>manage</td><td>manage</td><td>manage</td><td>read</td><td>read</td><td>manage</td></tr><tr><td><b>BILLING</b></td><td>read</td><td>—</td><td>—</td><td>—</td><td>—</td><td>read</td></tr><tr><td><b>SUPPORT</b></td><td>read</td><td>read</td><td>manage</td><td>—</td><td>—</td><td>read</td></tr><tr><td><b>INFRASTRUCTURE</b></td><td>read</td><td>manage</td><td>—</td><td>read</td><td>—</td><td>manage</td></tr><tr><td><b>AUDITOR</b></td><td>read</td><td>read</td><td>read</td><td>read</td><td>read</td><td>read</td></tr></tbody></table></div></div>
+      </section>
+
+      <section class="page" id="page-status"><div class="hd"><div><h2>System status</h2><p>Customer-visible components and incident timeline.</p></div><button class="btn pri" type="button" data-new-incident>Declare incident</button></div><div id="statusMetrics" class="g g4 k2 admin-metrics"></div><div class="status-banner" id="statusHeadline"></div><div class="g g2"><article class="card"><div class="card-head"><div><h2>Components</h2><p>Published operational state.</p></div></div><div id="statusComponents" class="stack"></div></article><article class="card"><div class="card-head"><div><h2>Incidents</h2><p>Active and resolved customer communications.</p></div></div><div id="statusIncidents" class="stack"></div></article></div></section>
+
+      <section class="page" id="page-settings">
+        <div class="hd">
+          <div class="tx">
+            <h2>Platform settings</h2>
+            <p>System integrations, provider verification, and security governance.</p>
+          </div>
+          <button class="btn" type="button" id="refreshSettingsBtn"><span class="ic" data-icon="refresh"></span>Reload state</button>
+        </div>
+
+        <div class="g g2">
+          <article class="card">
+            <div class="card-head">
+              <span class="tile acc"><span class="ic" data-icon="servers"></span></span>
+              <div>
+                <h2>Pterodactyl hypervisor provider</h2>
+                <p>Application API connectivity and allocation defaults.</p>
+              </div>
+              <span class="pill" id="settingsProviderPill">Loading</span>
+            </div>
+            <div class="col" style="gap:12px">
+              <div class="kv">
+                <dt>Provider mode</dt><dd class="mono" id="settingsProviderMode">—</dd>
+                <dt>Panel URL</dt><dd class="mono" id="settingsProviderUrl">—</dd>
+                <dt>Verification tier</dt><dd id="settingsProviderTier">—</dd>
+                <dt>API credentials</dt><dd id="settingsProviderCreds">—</dd>
+              </div>
+              <div id="providerTestResult"></div>
+              <div class="row" style="margin-top:6px">
+                <button class="btn s pri" type="button" id="testProviderBtn">Test API connection</button>
+                <a class="btn s" href="/admin/catalog">View egg mappings</a>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <span class="tile good"><span class="ic" data-icon="credit"></span></span>
+              <div>
+                <h2>Payments & fiscal ledger</h2>
+                <p>Strict server-side minor units and webhook fulfillment.</p>
+              </div>
+              <span class="pill" id="settingsPaymentsPill">Loading</span>
+            </div>
+            <div class="col" style="gap:12px">
+              <div class="kv">
+                <dt>Stripe Gateway mode</dt><dd class="mono" id="settingsPaymentsMode">—</dd>
+                <dt>Currency</dt><dd class="mono">EUR (Euro minor units / cents)</dd>
+                <dt>Webhook signature</dt><dd id="settingsWebhookStatus">—</dd>
+                <dt>Client authority</dt><dd><span class="pill good d">Zero (cryptographic webhooks only)</span></dd>
+              </div>
+              <div class="alert info">
+                <span class="ic" data-icon="shield"></span>
+                <div><b>Production Invariant</b><span>Monetary figures are stored exclusively in integer Euro cents. Client redirects never trigger fulfillment.</span></div>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <span class="tile violet"><span class="ic" data-icon="support"></span></span>
+              <div>
+                <h2>Transactional mail & outbox</h2>
+                <p>Reliable queue-based notification transport.</p>
+              </div>
+              <span class="pill" id="settingsEmailPill">Loading</span>
+            </div>
+            <div class="col" style="gap:12px">
+              <div class="kv">
+                <dt>Transport mode</dt><dd class="mono" id="settingsEmailMode">—</dd>
+                <dt>SMTP host & port</dt><dd class="mono" id="settingsEmailHost">—</dd>
+                <dt>From address</dt><dd class="mono" id="settingsEmailFrom">—</dd>
+                <dt>Worker isolation</dt><dd><span class="pill good d">Transactional outbox ledger</span></dd>
+              </div>
+              <div class="row" style="margin-top:6px">
+                <a class="btn s" href="/admin/overview">Check outbox queue</a>
+              </div>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-head">
+              <span class="tile warn"><span class="ic" data-icon="shield"></span></span>
+              <div>
+                <h2>Access policy & security</h2>
+                <p>Phishing-resistant MFA and least-privilege boundary.</p>
+              </div>
+              <span class="pill good d">Enforced</span>
+            </div>
+            <div class="col" style="gap:12px">
+              <div class="kv">
+                <dt>Staff MFA requirement</dt><dd><span class="pill good d">Strict TOTP / WebAuthn</span></dd>
+                <dt>Session TTL</dt><dd class="mono">72 hours</dd>
+                <dt>Privileged Step-Up TTL</dt><dd class="mono">15 minutes</dd>
+                <dt>Anti-SSRF protection</dt><dd><span class="pill good d">RFC1918 & metadata blocked</span></dd>
+              </div>
+              <div class="row" style="margin-top:6px">
+                <a class="btn s" href="/admin/staff">Manage staff access</a>
+                <a class="btn s" href="/admin/audit">View audit log</a>
+              </div>
+            </div>
+          </article>
+        </div>
       </section>
     </main>
   </div>
@@ -76,14 +248,17 @@
     <a href="/admin" data-route="overview"><span class="ic" data-icon="home"></span><span>Home</span></a>
     <a href="/admin/accounts" data-route="accounts"><span class="ic" data-icon="users"></span><span>Accounts</span></a>
     <a href="/admin/services" data-route="services"><span class="ic" data-icon="server"></span><span>Services</span></a>
+    <a href="/admin/catalog" data-route="catalog"><span class="ic" data-icon="database"></span><span>Catalog</span></a>
     <a href="/admin/tickets" data-route="tickets"><span class="ic" data-icon="support"></span><span>Tickets</span></a>
     <a href="/admin/audit" data-route="audit"><span class="ic" data-icon="shield"></span><span>Audit</span></a>
     <a href="/admin/staff" data-route="staff"><span class="ic" data-icon="users"></span><span>Team</span></a>
   </nav>
+  </div>
 
   <!-- COMMAND PALETTE -->
-  <div class="scrim" id="cmd" hidden>
-    <div class="cmd" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="mdl cmd" id="cmd" hidden>
+    <button class="ov" type="button" data-close-command aria-label="Close command palette"></button>
+    <div class="bx" role="dialog" aria-modal="true" aria-label="Command palette">
       <div class="inp">
         <span class="ic" data-icon="search"></span>
         <input id="cmd-in" placeholder="Search pages, staff actions, and customer records..." autocomplete="off" aria-label="Search">
@@ -94,35 +269,9 @@
     </div>
   </div>
 
-  <!-- STEP-UP AUTHENTICATION MODAL -->
-  <div id="modalStepUp" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="stepUpTitle">
-    <div class="modal">
-      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
-        <h3 id="stepUpTitle" style="margin:0;font:700 18px var(--font)">Privileged Action Verification</h3>
-        <button class="btn ghost sq s" type="button" data-close-stepup-modal aria-label="Close">✕</button>
-      </div>
-      <p style="font-size:13px;color:var(--ink2);margin:12px 0">This administrative action requires recent step-up authentication. Please verify your identity with password and MFA code.</p>
-      <form id="adminStepUpForm" class="col" style="gap:12px">
-        <div class="field">
-          <label for="stepUpPassword">Current Password</label>
-          <div class="inp"><input type="password" id="stepUpPassword" required autocomplete="current-password" placeholder="Account password"></div>
-        </div>
-        <div class="field">
-          <label for="stepUpTotpCode">6-Digit Authenticator Code</label>
-          <div class="inp"><input type="text" id="stepUpTotpCode" required pattern="[0-9]{6}" maxlength="6" inputmode="numeric" placeholder="123456" class="mono"></div>
-        </div>
-        <div id="stepUpError" style="color:var(--bad);font-size:12.5px;display:none"></div>
-        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
-          <button type="button" class="btn sec" data-close-stepup-modal>Cancel</button>
-          <button type="submit" class="btn" id="stepUpSubmitBtn">Verify & Proceed</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- OPERATIONAL MODALS -->
-  <div id="modalTicketDetail" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="adminTicketSubject">
-    <div class="modal lg">
+  <div id="modalTicketDetail" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminTicketSubject">
+    <span class="ov" aria-hidden="true"></span><div class="bx wide">
       <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
         <div>
           <h3 id="adminTicketSubject" style="margin:0;font:700 18px var(--font)">Ticket Details</h3>
@@ -166,8 +315,8 @@
     </div>
   </div>
 
-  <div id="modalAccountDetail" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="adminAccountTitle">
-    <div class="modal lg">
+  <div id="modalAccountDetail" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminAccountTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx wide" style="max-width:880px">
       <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
         <div>
           <h3 id="adminAccountTitle" style="margin:0;font:700 18px var(--font)">Account Profile</h3>
@@ -175,7 +324,7 @@
         </div>
         <button class="btn ghost sq s" type="button" data-close-account-modal aria-label="Close">✕</button>
       </div>
-      <div id="adminAccountContent" style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:8px 0"></div>
+      <div id="adminAccountContent" style="max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:8px 0"></div>
       <form id="adminAccountStatusForm" class="col" style="gap:12px;border-top:1px solid var(--s3);padding-top:12px">
         <div style="display:flex;gap:12px;align-items:center">
           <label style="font-size:13px;font-weight:600">Lock Status:</label>
@@ -197,8 +346,101 @@
     </div>
   </div>
 
-  <div id="modalStaffEditor" class="scrim" hidden role="dialog" aria-modal="true" aria-labelledby="adminStaffTitle">
-    <div class="modal">
+  <div id="modalAdminServiceDetail" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminServiceTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx wide" style="max-width:860px">
+      <div class="modal-head" style="margin-bottom:12px">
+        <div>
+          <span class="eyebrow" id="adminServiceEyebrow">Infrastructure Instance</span>
+          <h3 id="adminServiceTitle">Service Management</h3>
+        </div>
+        <button class="ib" type="button" data-close-service-modal aria-label="Close">✕</button>
+      </div>
+      <div id="adminServiceBody" style="max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:4px 0"></div>
+    </div>
+  </div>
+
+  <div id="modalCreateProductFromEgg" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="createProductFromEggTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx wide" style="max-width:820px">
+      <div class="modal-head">
+        <div>
+          <span class="eyebrow">Pterodactyl Egg Importer</span>
+          <h3 id="createProductFromEggTitle">Create Product & Plan from Egg</h3>
+        </div>
+        <button class="ib" type="button" data-close-egg-modal aria-label="Close">✕</button>
+      </div>
+      <form id="createProductFromEggForm" class="form-grid cols-3">
+        <input type="hidden" name="eggId" id="eggModalId">
+        <input type="hidden" name="dockerImage" id="eggModalDockerImage">
+
+        <div class="alert info form-wide" id="eggModalBanner" style="display:flex;gap:10px;align-items:center">
+          <span class="tile sm acc"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-server-01"></use></svg></span>
+          <div>
+            <b id="eggModalName">Paper Minecraft</b>
+            <div id="eggModalMeta" class="muted" style="font-size:12px">Nest: Minecraft · Egg #1</div>
+          </div>
+        </div>
+
+        <div class="field form-wide">
+          <label>Target Catalog Product</label>
+          <div class="inp">
+            <select id="eggTargetProductMode" name="productMode">
+              <option value="NEW">Create new commercial product</option>
+              <option value="EXISTING">Attach as new plan to existing product</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="eggNewProductFields" class="form-wide form-grid cols-3" style="margin:0;padding:0">
+          <label class="field"><span>Product Name</span><div class="inp"><input id="eggProductName" name="productName" required minlength="2" maxlength="100" placeholder="e.g. Minecraft Paper Hosting"></div></label>
+          <label class="field"><span>Slug</span><div class="inp"><input id="eggProductSlug" name="productSlug" required minlength="2" maxlength="64" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="minecraft-paper"></div></label>
+          <label class="field"><span>Category</span><div class="inp"><select id="eggProductCategory" name="categoryId"></select></div></label>
+        </div>
+
+        <div id="eggExistingProductFields" class="form-wide field" hidden>
+          <label>Select Existing Product</label>
+          <div class="inp"><select id="eggExistingProductSelect" name="existingProductId"></select></div>
+        </div>
+
+        <label class="field form-wide">
+          <span>Plan Version Name</span>
+          <div class="inp"><input id="eggPlanName" name="planName" required minlength="2" maxlength="100" placeholder="e.g. Paper 4GB Performance"></div>
+        </label>
+
+        <label class="field"><span>Memory (MB)</span><div class="inp"><input id="eggMemoryMb" name="memoryMb" type="number" required min="512" step="256" value="4096"></div></label>
+        <label class="field"><span>CPU Limit (%)</span><div class="inp"><input id="eggCpuPct" name="cpuPct" type="number" required min="25" max="1000" step="25" value="200"></div></label>
+        <label class="field"><span>NVMe Disk (MB)</span><div class="inp"><input id="eggDiskMb" name="diskMb" type="number" required min="1024" step="1024" value="25600"></div></label>
+
+        <label class="field"><span>Databases</span><div class="inp"><input id="eggDatabases" name="databases" type="number" required min="0" max="20" value="1"></div></label>
+        <label class="field"><span>Backups</span><div class="inp"><input id="eggBackups" name="backups" type="number" required min="0" max="20" value="2"></div></label>
+        <label class="field">
+          <span>Publish status</span>
+          <div class="inp" style="align-items:center;padding:8px 12px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600">
+              <input type="checkbox" id="eggPublishImmediate" name="publishImmediate" checked>
+              <span>Publish Product Immediately</span>
+            </label>
+          </div>
+        </label>
+
+        <div class="form-wide" style="border-top:1px solid var(--s3);padding-top:12px;margin-top:6px">
+          <div class="dh" style="margin-bottom:8px">BILLING INTERVALS & PRICING (EUR)</div>
+          <div class="form-grid cols-3">
+            <label class="field"><span>Monthly Price (€)</span><div class="inp"><input id="eggPriceMonthly" name="priceMonthly" type="number" step="0.01" min="0" required placeholder="8.00" value="8.00"></div></label>
+            <label class="field"><span>Quarterly Price (€)</span><div class="inp"><input id="eggPriceQuarterly" name="priceQuarterly" type="number" step="0.01" min="0" placeholder="22.50" value="22.50"></div><small>3-month recurring</small></label>
+            <label class="field"><span>Annual Price (€)</span><div class="inp"><input id="eggPriceAnnual" name="priceAnnual" type="number" step="0.01" min="0" placeholder="80.00" value="80.00"></div><small>12-month recurring</small></label>
+          </div>
+        </div>
+
+        <div class="modal-actions form-wide">
+          <button type="button" class="btn" data-close-egg-modal>Cancel</button>
+          <button type="submit" class="btn pri" id="submitEggProductBtn">Create & Configure Product</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalStaffEditor" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminStaffTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx">
       <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
         <div>
           <h3 id="adminStaffTitle" style="margin:0;font:700 18px var(--font)">Edit Staff Member</h3>
@@ -242,6 +484,74 @@
     </div>
   </div>
 
-  <script src="/assets/admin-ui.js" defer></script>
+  <div id="modalCatalogProduct" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="catalogProductTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx">
+      <div class="modal-head"><div><span class="eyebrow">Private by default</span><h3 id="catalogProductTitle">Create catalog product</h3></div><button class="ib" type="button" data-close-catalog-product aria-label="Close">✕</button></div>
+      <form id="catalogProductForm" class="form-grid">
+        <label class="field"><span>Product name</span><div class="inp"><input name="name" required minlength="2" maxlength="100" placeholder="Minecraft Paper Hosting"></div></label>
+        <label class="field"><span>Slug</span><div class="inp"><input name="slug" required minlength="2" maxlength="64" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="minecraft-paper"></div></label>
+        <label class="field"><span>Category</span><div class="inp"><select id="catalogProductCategory" name="categoryId" required></select></div></label>
+        <label class="field"><span>Provider</span><div class="inp"><select name="providerType" required><option value="PTERODACTYL">Pterodactyl</option><option value="CPANEL">cPanel / WHM</option><option value="VPS">VPS / hypervisor</option><option value="REGISTRAR">Domain registrar</option></select></div></label>
+        <div class="alert warn form-wide"><div><b>Created private</b><span>Add and validate at least one plan before publishing the product.</span></div></div>
+        <div class="modal-actions form-wide"><button type="button" class="btn" data-close-catalog-product>Cancel</button><button type="submit" class="btn pri">Create private product</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalCatalogPlan" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="catalogPlanTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx wide">
+      <div class="modal-head"><div><span class="eyebrow">Immutable version</span><h3 id="catalogPlanTitle">Create provider-backed plan</h3></div><button class="ib" type="button" data-close-catalog-plan aria-label="Close">✕</button></div>
+      <form id="catalogPlanForm" class="form-grid cols-3">
+        <label class="field form-wide"><span>Product</span><div class="inp"><select id="catalogPlanProduct" name="productId" required></select></div></label>
+        <label class="field form-wide"><span>Plan name</span><div class="inp"><input name="name" required minlength="2" maxlength="100" placeholder="Paper 4 GB"></div></label>
+        <label class="field form-wide"><span>Pterodactyl egg</span><div class="inp"><select id="catalogPlanEgg" name="eggId" required></select></div><small>Only eggs returned by the configured Application API are selectable.</small></label>
+        <label class="field"><span>Memory (MB)</span><div class="inp"><input name="memoryMb" type="number" required min="512" step="256" value="4096"></div></label>
+        <label class="field"><span>CPU limit (%)</span><div class="inp"><input name="cpuPct" type="number" required min="10" max="1000" step="10" value="200"></div></label>
+        <label class="field"><span>Disk (MB)</span><div class="inp"><input name="diskMb" type="number" required min="1024" step="1024" value="20480"></div></label>
+        <label class="field"><span>Databases</span><div class="inp"><input name="databases" type="number" required min="0" max="20" value="1"></div></label>
+        <label class="field"><span>Backups</span><div class="inp"><input name="backups" type="number" required min="0" max="20" value="2"></div></label>
+        <label class="field"><span>Monthly price (EUR)</span><div class="inp"><input name="monthlyPrice" type="number" required min="0" step="0.01" inputmode="decimal" placeholder="12.00"></div></label>
+        <div class="alert warn form-wide"><div><b>Price is converted to integer cents</b><span>Creating a plan does not publish its product. Provisioning remains unverified until a real lifecycle test is recorded.</span></div></div>
+        <div class="modal-actions form-wide"><button type="button" class="btn" data-close-catalog-plan>Cancel</button><button type="submit" class="btn pri">Create plan version</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="modalOperation" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="operationTitle"><span class="ov" aria-hidden="true"></span><div class="bx"><div class="modal-head"><div><span class="eyebrow">Privileged operation</span><h3 id="operationTitle">Confirm operation</h3></div><button class="ib" data-close-operation aria-label="Close">✕</button></div><form id="operationForm" class="col"><input type="hidden" id="operationKind"><input type="hidden" id="operationId"><label class="field" id="operationAmountField" hidden><span>Amount in minor units (cents)</span><div class="inp"><input id="operationAmount" type="number" min="1" step="1"></div><small id="operationAmountHelp"></small></label><label class="field"><span>Audit reason</span><div class="inp"><input id="operationReason" required minlength="5" maxlength="300" placeholder="Explain why this action is required"></div></label><div class="alert warn"><div><b>Fresh MFA required</b><span>The server records this action and will request step-up authentication.</span></div></div><div class="modal-actions"><button type="button" class="btn" data-close-operation>Cancel</button><button type="submit" class="btn bad" id="operationSubmit">Confirm</button></div></form></div></div>
+
+  <div id="modalAddStaff" class="mdl" hidden role="dialog" aria-modal="true"><span class="ov" aria-hidden="true"></span><div class="bx"><div class="modal-head"><h3>Add staff member</h3><button class="ib" data-close-add-staff>✕</button></div><form id="addStaffForm" class="col"><label class="field"><span>Existing user email</span><div class="inp"><input name="email" type="email" required></div><small>The identity must already exist and have confirmed MFA.</small></label><label class="field"><span>Role</span><div class="inp"><select name="role"><option>SUPPORT</option><option>BILLING</option><option>INFRASTRUCTURE</option><option>AUDITOR</option><option>ADMINISTRATOR</option><option>OWNER</option></select></div></label><label class="field"><span>Audit reason</span><div class="inp"><input name="reason" minlength="8" required></div></label><div class="modal-actions"><button type="button" class="btn" data-close-add-staff>Cancel</button><button class="btn pri" type="submit">Grant access</button></div></form></div></div>
+
+  <div id="modalIncident" class="mdl" hidden role="dialog" aria-modal="true"><span class="ov" aria-hidden="true"></span><div class="bx"><div class="modal-head"><h3 id="incidentModalTitle">Declare incident</h3><button class="ib" data-close-incident>✕</button></div><form id="incidentForm" class="col"><input type="hidden" id="incidentId"><label class="field" id="incidentTitleField"><span>Title</span><div class="inp"><input id="incidentTitle" minlength="3" maxlength="200"></div></label><div class="form-grid"><label class="field"><span>Impact</span><div class="inp"><select id="incidentImpact"><option>NONE</option><option>MINOR</option><option>MAJOR</option><option>CRITICAL</option></select></div></label><label class="field"><span>Status</span><div class="inp"><select id="incidentStatus"><option>INVESTIGATING</option><option>IDENTIFIED</option><option>MONITORING</option><option>RESOLVED</option></select></div></label></div><label class="field"><span>Customer-visible update</span><div class="inp ta"><textarea id="incidentMessage" minlength="5" maxlength="2000" required></textarea></div></label><div class="modal-actions"><button type="button" class="btn" data-close-incident>Cancel</button><button type="submit" class="btn pri">Publish update</button></div></form></div></div>
+
+  <div id="modalComponent" class="mdl" hidden role="dialog" aria-modal="true"><span class="ov" aria-hidden="true"></span><div class="bx"><div class="modal-head"><h3>Change component status</h3><button class="ib" data-close-component>✕</button></div><form id="componentForm" class="col"><input type="hidden" id="componentId"><label class="field"><span>Status</span><div class="inp"><select id="componentStatus"><option>OPERATIONAL</option><option>DEGRADED</option><option>PARTIAL_OUTAGE</option><option>MAJOR_OUTAGE</option><option>MAINTENANCE</option></select></div></label><div class="alert warn"><div><b>Customer-visible change</b><span>This immediately changes the public status page and requires fresh MFA.</span></div></div><div class="modal-actions"><button type="button" class="btn" data-close-component>Cancel</button><button type="submit" class="btn pri">Update component</button></div></form></div></div>
+
+  <!-- STEP-UP AUTHENTICATION MODAL (TOP-LAYER PRIORITY) -->
+  <div id="modalStepUp" class="mdl stepup" data-priority="high" hidden role="dialog" aria-modal="true" aria-labelledby="stepUpTitle">
+    <span class="ov" aria-hidden="true"></span><div class="bx">
+      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
+        <h3 id="stepUpTitle" style="margin:0;font:700 18px var(--font)">Privileged Action Verification</h3>
+        <button class="btn ghost sq s" type="button" data-close-stepup-modal aria-label="Close">✕</button>
+      </div>
+      <p style="font-size:13px;color:var(--ink2);margin:12px 0">This administrative action requires recent step-up authentication. Please verify your identity with password and MFA code.</p>
+      <form id="adminStepUpForm" class="col" style="gap:12px">
+        <div class="field">
+          <label for="stepUpPassword">Current Password</label>
+          <div class="inp"><input type="password" id="stepUpPassword" required autocomplete="current-password" placeholder="Account password"></div>
+        </div>
+        <div class="field">
+          <label for="stepUpTotpCode">6-Digit Authenticator Code</label>
+          <div class="inp"><input type="text" id="stepUpTotpCode" required pattern="[0-9]{6}" maxlength="6" inputmode="numeric" placeholder="123456" class="mono"></div>
+        </div>
+        <div id="stepUpError" style="color:var(--bad);font-size:12.5px;display:none"></div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px">
+          <button type="button" class="btn sec" data-close-stepup-modal>Cancel</button>
+          <button type="submit" class="btn pri" id="stepUpSubmitBtn">Verify & Proceed</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script src="/assets/admin-ui.js?v=20261018_5" defer></script>
 </body>
 </html>

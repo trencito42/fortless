@@ -11,6 +11,9 @@ export interface CapabilitiesState {
     mode: string;
     details?: string;
   };
+  panelSso?: {
+    enabled: boolean;
+  };
   email?: {
     enabled: boolean;
     mode: string;

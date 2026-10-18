@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import { getDatabase, runInTransaction } from '../../database/index.js';
+import { config } from '../../config/index.js';
 import { queueEmail } from '../email/outbox.js';
 import { generateId } from './auth.js';
 
@@ -126,7 +127,7 @@ export function inviteAccountMember(
       payload: {
         workspaceName: inviter.workspaceName,
         role: data.role,
-        inviteUrl: `https://fortless.net/app/settings?invitation=${rawToken}`,
+        inviteUrl: `${config.APP_ORIGIN}/app/settings?invitation=${rawToken}`,
         inviterName: inviter.name,
       },
     });

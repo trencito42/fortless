@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { queueEmail } from '../email/outbox.js';
+import { createNotification } from '../notifications/notifications.js';
 
 export interface User {
   id: string;
@@ -155,6 +156,11 @@ export function createSessionForUser(
   mfaVerified: boolean = false,
   db: Database.Database = getDatabase()
 ): string {
+  // Prune expired sessions for this identity
+  db.prepare("DELETE FROM sessions WHERE user_id = ? AND expires_at <= datetime('now', 'utc')").run(userId);
+  // Supersede existing sessions on the same device/browser to avoid accumulating duplicates
+  db.prepare("DELETE FROM sessions WHERE user_id = ? AND user_agent = ?").run(userId, userAgent.slice(0, 512));
+
   const rawToken = generateOpaqueToken();
   const mfaVerifiedAt = mfaVerified ? new Date().toISOString() : null;
   db.prepare(`INSERT INTO sessions (id, user_id, ip_address, user_agent, mfa_verified_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
@@ -198,7 +204,7 @@ export function registerUser(
       template: 'email_verification',
       payload: {
         name: data.name.trim(),
-        verifyUrl: `https://fortless.net/verify-email?token=${verificationToken}`,
+        verifyUrl: `${config.APP_ORIGIN}/verify-email?token=${verificationToken}`,
       },
     });
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
@@ -227,6 +233,19 @@ export function verifyEmail(
       VALUES (?, ?, ?, 'USER', 'user.email_verified', 'user', ?, ?, ?)`)
       .run(generateId('aud'), account.id, row.user_id, row.user_id, context.ipAddress, generateId('cor'));
     const activeUser = trx.prepare('SELECT id, email, email_verified_at, name, status, is_staff, created_at, updated_at FROM users WHERE id = ?').get(row.user_id) as User;
+    createNotification({
+      accountId: account.id,
+      userId: row.user_id,
+      type: 'ACCOUNT_ACTIVATED',
+      title: 'Account Activated',
+      message: 'Welcome to Fortless! Your account has been verified successfully.',
+      linkUrl: '/app',
+    }, trx);
+    queueEmail(trx, {
+      recipient: activeUser.email,
+      template: 'welcome',
+      payload: { name: activeUser.name },
+    });
     return { user: activeUser, account, token: sessionToken };
   }, db);
 }
@@ -243,7 +262,7 @@ export function resendVerification(email: string, db: Database.Database = getDat
       template: 'email_verification',
       payload: {
         name: user.name,
-        verifyUrl: `https://fortless.net/verify-email?token=${token}`,
+        verifyUrl: `${config.APP_ORIGIN}/verify-email?token=${token}`,
       },
     });
     return token;
@@ -296,7 +315,7 @@ export function requestPasswordReset(email: string, db: Database.Database = getD
       recipient: normalizedEmail,
       template: 'password_reset',
       payload: {
-        resetUrl: `https://fortless.net/reset-password?token=${token}`,
+        resetUrl: `${config.APP_ORIGIN}/reset-password?token=${token}`,
       },
     });
     return token;
@@ -315,12 +334,22 @@ export function resetPassword(token: string, password: string, db: Database.Data
     trx.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.user_id);
     queueEmail(trx, {
       recipient: row.email,
-      template: 'security_alert',
-      payload: {
-        title: 'Password Changed',
-        details: 'Your Fortless account password was reset and all existing device sessions were revoked.',
-      },
+      template: 'password_changed',
+      payload: {},
     });
+    const userAcc = trx.prepare(`
+      SELECT account_id FROM memberships WHERE user_id = ? AND role = 'OWNER' LIMIT 1
+    `).get(row.user_id) as { account_id: string } | undefined;
+    if (userAcc) {
+      createNotification({
+        accountId: userAcc.account_id,
+        userId: row.user_id,
+        type: 'SECURITY_ALERT',
+        title: 'Password Reset',
+        message: 'Your account password was reset and all existing device sessions were revoked.',
+        linkUrl: '/app/settings',
+      }, trx);
+    }
   }, db);
 }
 
@@ -355,25 +384,31 @@ export function changePassword(
     // Queue security notification email
     queueEmail(trx, {
       recipient: user.email,
-      template: 'security_alert',
-      payload: {
-        title: 'Password Changed from Settings',
-        details: 'Your Fortless account password was changed from account settings. Other active sessions were revoked.',
-      },
+      template: 'password_changed',
+      payload: {},
     });
 
     trx.prepare(`
       INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.password_changed', 'user', ?, ?, ?)
     `).run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
+
+    createNotification({
+      accountId: data.accountId,
+      userId: data.userId,
+      type: 'SECURITY_ALERT',
+      title: 'Password Changed',
+      message: 'Your account password was updated from account settings.',
+      linkUrl: '/app/settings',
+    }, trx);
   }, db);
 }
 
-export function authenticateSession(token: string, db: Database.Database = getDatabase()): AuthContext | null {
-  const session = db.prepare(`SELECT s.id, s.expires_at, s.mfa_verified_at, s.step_up_verified_at, u.id AS user_id, u.email, u.email_verified_at,
+export function authenticateSession(token: string, db: Database.Database = getDatabase(), clientIp?: string): AuthContext | null {
+  const session = db.prepare(`SELECT s.id, s.ip_address, s.expires_at, s.mfa_verified_at, s.step_up_verified_at, u.id AS user_id, u.email, u.email_verified_at,
     u.name AS user_name, u.status AS user_status, u.is_staff, u.created_at, u.updated_at FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ? AND s.expires_at > datetime('now', 'utc')`).get(tokenDigest(token)) as ({
-      id: string; expires_at: string; mfa_verified_at: string | null; step_up_verified_at: string | null; user_id: string; email: string; email_verified_at: string | null;
+      id: string; ip_address: string; expires_at: string; mfa_verified_at: string | null; step_up_verified_at: string | null; user_id: string; email: string; email_verified_at: string | null;
       user_name: string; user_status: User['status']; is_staff: number; created_at: string; updated_at: string;
     }) | undefined;
   if (!session || session.user_status !== 'ACTIVE' || !session.email_verified_at) return null;
@@ -384,7 +419,11 @@ export function authenticateSession(token: string, db: Database.Database = getDa
       membership_id: string; role: Membership['role']; membership_created_at: string;
     }) | undefined;
   if (!accountAndRole) return null;
-  db.prepare("UPDATE sessions SET last_active_at = datetime('now', 'utc') WHERE id = ?").run(session.id);
+  if (clientIp && clientIp !== session.ip_address) {
+    db.prepare("UPDATE sessions SET last_active_at = datetime('now', 'utc'), ip_address = ? WHERE id = ?").run(clientIp, session.id);
+  } else {
+    db.prepare("UPDATE sessions SET last_active_at = datetime('now', 'utc') WHERE id = ?").run(session.id);
+  }
   return {
     user: { id: session.user_id, email: session.email, email_verified_at: session.email_verified_at, name: session.user_name,
       status: session.user_status, is_staff: session.is_staff, created_at: session.created_at, updated_at: session.updated_at },
@@ -473,7 +512,6 @@ export function getMfaStatus(userId: string, db: Database.Database = getDatabase
 export function beginTotpEnrollment(userId: string, password: string, email: string, db: Database.Database = getDatabase()): { secret: string; uri: string } {
   const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
   if (!user || !verifyPassword(user.password_hash, password)) throw new Error('The current password is incorrect.');
-  if (confirmedMfa(userId, db)) throw new Error('Multi-factor authentication is already enabled.');
   const secret = base32Encode(crypto.randomBytes(20));
   db.prepare(`INSERT INTO mfa_factors (id, user_id, type, secret_encrypted, is_confirmed)
     VALUES (?, ?, 'TOTP', ?, 0) ON CONFLICT(user_id, type) DO UPDATE SET secret_encrypted = excluded.secret_encrypted,
@@ -481,6 +519,26 @@ export function beginTotpEnrollment(userId: string, password: string, email: str
     .run(generateId('mff'), userId, encryptSecret(secret));
   const label = encodeURIComponent(`Fortless:${email}`);
   return { secret, uri: `otpauth://totp/${label}?secret=${secret}&issuer=Fortless&algorithm=SHA1&digits=6&period=30` };
+}
+
+export function regenerateRecoveryCodes(
+  data: { userId: string; accountId: string; ipAddress: string },
+  db: Database.Database = getDatabase()
+): string[] {
+  return runInTransaction((trx) => {
+    const factor = confirmedMfa(data.userId, db);
+    if (!factor) throw new Error('Multi-factor authentication is not enabled.');
+    const codes = Array.from({ length: 10 }, () => `${crypto.randomBytes(4).toString('hex').slice(0, 4)}-${crypto.randomBytes(4).toString('hex').slice(0, 4)}`.toUpperCase());
+    trx.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(data.userId);
+    const insert = trx.prepare('INSERT INTO mfa_recovery_codes (id, user_id, code_hash) VALUES (?, ?, ?)');
+    for (const code of codes) {
+      insert.run(generateId('mrc'), data.userId, recoveryDigest(data.userId, code));
+    }
+    trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+      VALUES (?, ?, ?, 'USER', 'user.mfa_recovery_codes_regenerated', 'user', ?, ?, ?)`)
+      .run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
+    return codes;
+  }, db);
 }
 
 export function confirmTotpEnrollment(data: { userId: string; accountId: string; sessionId: string; code: string; ipAddress: string }, db: Database.Database = getDatabase()): string[] {
@@ -498,6 +556,8 @@ export function confirmTotpEnrollment(data: { userId: string; accountId: string;
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.mfa_enabled', 'user', ?, ?, ?)`)
       .run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
+    const user = trx.prepare('SELECT email FROM users WHERE id = ?').get(data.userId) as { email: string };
+    queueEmail(trx, { recipient: user.email, template: 'mfa_changed', payload: { enabled: true } });
     return codes;
   }, db);
 }
@@ -514,6 +574,8 @@ export function disableTotp(data: { userId: string; accountId: string; password:
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.mfa_disabled', 'user', ?, ?, ?)`)
       .run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
+    const email = (trx.prepare('SELECT email FROM users WHERE id = ?').get(data.userId) as { email: string }).email;
+    queueEmail(trx, { recipient: email, template: 'mfa_changed', payload: { enabled: false } });
   }, db);
 }
 export function revokeSession(token: string, db: Database.Database = getDatabase()): void {
@@ -523,8 +585,10 @@ export function revokeSession(token: string, db: Database.Database = getDatabase
 export function listUserSessions(
   userId: string, currentSessionId: string, db: Database.Database = getDatabase()
 ): SessionDevice[] {
+  const mfaEnabled = Boolean(confirmedMfa(userId, db));
   const rows = db.prepare(`SELECT id, ip_address, user_agent, created_at, last_active_at, expires_at
     FROM sessions WHERE user_id = ? AND expires_at > datetime('now', 'utc')
+    ${mfaEnabled ? 'AND mfa_verified_at IS NOT NULL' : ''}
     ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, last_active_at DESC`).all(userId, currentSessionId) as Array<{
       id: string; ip_address: string; user_agent: string; created_at: string; last_active_at: string; expires_at: string;
     }>;

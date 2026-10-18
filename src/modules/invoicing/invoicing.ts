@@ -1,3 +1,4 @@
+import { config } from '../../config/index.js';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 
@@ -194,7 +195,7 @@ export function renderInvoiceText(invoiceId: string, accountId: string, db: Data
   out += `Total Amount:                          ${formatMinor(inv.total_minor_units)} ${currency}\n`;
   out += `Amount Paid:                           ${formatMinor(inv.amount_paid_minor_units)} ${currency}\n`;
   out += `${separator}\n`;
-  out += `Thank you for your business. For support, visit https://fortless.net/app/support\n`;
+  out += `Thank you for your business. For support, visit ${config.APP_ORIGIN}/app/support\n`;
   out += `${separator}\n`;
 
   return out;

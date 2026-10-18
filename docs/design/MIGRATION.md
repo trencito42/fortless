@@ -23,14 +23,14 @@ Status values: TODO, IN PROGRESS, DONE (only after `scripts/verify-views.py` pas
 | 14 | ticket | src/frontend/client/pages/support (detail) | 3 | DONE | commit 5c53f84 |
 | 15 | activity | src/frontend/client/pages/activity | 3 | DONE | commit dff5f19 |
 | 16 | settings | src/frontend/client/pages/settings | 3 | DONE | commit 684c7a8 |
-| 17 | o-over | public/admin.html, src/frontend/admin/pages/overview | 4 | TODO | |
-| 18 | o-acc | src/frontend/admin/pages/accounts | 4 | TODO | |
-| 19 | o-svc | src/frontend/admin/pages/services | 4 | TODO | |
-| 20 | o-tix | src/frontend/admin/pages/tickets | 4 | TODO | |
-| 21 | o-aud | src/frontend/admin/pages/audit | 4 | TODO | |
-| 22 | o-staff | src/frontend/admin/pages/staff | 4 | TODO | |
-| 23 | status | public/status.html | 5 | TODO | |
-| 24 | legal | public/legal.html | 5 | TODO | |
+| 17 | o-over | public/admin.html, src/frontend/admin/pages/overview | 4 | IN PROGRESS | Exact Petal shell/primitives; build + static contract test pass; browser verification pending |
+| 18 | o-acc | src/frontend/admin/pages/accounts | 4 | IN PROGRESS | Exact Petal list/drawer primitives; build + static contract test pass; browser verification pending |
+| 19 | o-svc | src/frontend/admin/pages/services | 4 | IN PROGRESS | Exact Petal banner/filter/table; build + static contract test pass; browser verification pending |
+| 20 | o-tix | src/frontend/admin/pages/tickets | 4 | IN PROGRESS | Exact Petal table/editor/modal primitives; build + static contract test pass; browser verification pending |
+| 21 | o-aud | src/frontend/admin/pages/audit | 4 | IN PROGRESS | Exact Petal search/table/export composition; build + static contract test pass; browser verification pending |
+| 22 | o-staff | src/frontend/admin/pages/staff | 4 | IN PROGRESS | Exact Petal table/permission matrix/modal primitives; build + static contract test pass; browser verification pending |
+| 23 | status | public/status.html | 5 | IN PROGRESS | Exact Petal public nav/banner/list/empty-state primitives; real status API only; build + static contract test pass; browser verification pending |
+| 24 | legal | public/legal.html | 5 | IN PROGRESS | Exact Petal public nav/TOC/prose/pill primitives; existing legal copy retained; build + static contract test pass; browser verification pending |
 
 Wave 0 (before any view): tokens, shared components (src/frontend/petal), shells (client sidebar + tabbar, ops shell, auth layout).
 Wave 6: landing page replaces public/index.html.

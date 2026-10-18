@@ -32,13 +32,17 @@ export interface PublishedPlan {
   prices: PlanPrice[];
 }
 
-export function seedInitialCatalog(db: Database.Database = getDatabase()): void {
+export function seedInitialCatalog(
+  db: Database.Database = getDatabase(),
+  options: { publishDemonstrationCatalog?: boolean } = { publishDemonstrationCatalog: true }
+): void {
   const existingCategory = db.prepare("SELECT id FROM categories WHERE id = 'cat_game_servers'").get();
   if (existingCategory) {
     return;
   }
 
   runInTransaction((trx) => {
+    const demoEnabled = options.publishDemonstrationCatalog !== false;
     // 1. Categories
     const catGame = 'cat_game_servers';
     const catBots = 'cat_discord_bots';
@@ -66,6 +70,11 @@ export function seedInitialCatalog(db: Database.Database = getDatabase()): void 
       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0)
     `).run(node2, regLon, 'pterodactyl_primary', 'lon-node-01.fortless.net', 'lon-node-01.fortless.net', 65536, 524288);
 
+    if (!demoEnabled) {
+      trx.prepare('UPDATE regions SET is_active = 0 WHERE id IN (?, ?)').run(regFra, regLon);
+      trx.prepare('UPDATE nodes SET maintenance_mode = 1 WHERE id IN (?, ?)').run(node1, node2);
+    }
+
     // 3. Products
     const prodMc = 'prod_minecraft';
     const prodPal = 'prod_palworld';
@@ -85,6 +94,10 @@ export function seedInitialCatalog(db: Database.Database = getDatabase()): void 
       INSERT INTO products (id, category_id, slug, name, provider_type, is_published)
       VALUES (?, ?, 'discord-bot', 'Discord Bot Container', 'PTERODACTYL', 1)
     `).run(prodBot, catBots);
+
+    if (!demoEnabled) {
+      trx.prepare('UPDATE products SET is_published = 0 WHERE id IN (?, ?, ?)').run(prodMc, prodPal, prodBot);
+    }
 
     // 4. Plan Versions & Prices
     // Minecraft 4GB
@@ -133,6 +146,10 @@ export function seedInitialCatalog(db: Database.Database = getDatabase()): void 
       INSERT OR IGNORE INTO products (id, category_id, slug, name, provider_type, is_published)
       VALUES (?, ?, 'nodejs-app', 'Node.js Web Application', 'PTERODACTYL', 1)
     `).run(prodApp, catApps);
+
+    if (!demoEnabled) {
+      trx.prepare('UPDATE products SET is_published = 0 WHERE id = ?').run(prodApp);
+    }
 
     const plvStarter = 'plv_node_starter';
     trx.prepare(`
@@ -184,6 +201,10 @@ export function seedInitialCatalog(db: Database.Database = getDatabase()): void 
       INSERT OR IGNORE INTO products (id, category_id, slug, name, provider_type, is_published)
       VALUES (?, ?, 'kvm-vps', 'KVM Cloud VPS', 'VPS', 1)
     `).run(prodVps, catVps);
+
+    if (!demoEnabled) {
+      trx.prepare('UPDATE products SET is_published = 0 WHERE id = ?').run(prodVps);
+    }
 
     const plvMicro = 'plv_vps_micro';
     trx.prepare(`
@@ -449,6 +470,94 @@ export function listProducts(options: { categorySlug?: string; includeUnpublishe
 
   query += ' ORDER BY c.sort_order ASC, p.name ASC';
   return db.prepare(query).all(...params);
+}
+
+export interface AdminCatalogProduct {
+  id: string;
+  slug: string;
+  name: string;
+  providerType: string;
+  isPublished: boolean;
+  category: { id: string; slug: string; name: string };
+  plans: Array<{
+    id: string;
+    version: number;
+    name: string;
+    status: 'DRAFT' | 'ACTIVE' | 'RETIRED';
+    resources: PlanResourceSpec;
+    prices: PlanPrice[];
+  }>;
+}
+
+/** Staff catalog read model, including drafts and retired immutable versions. */
+export function listAdminCatalog(db: Database.Database = getDatabase()): AdminCatalogProduct[] {
+  const products = db.prepare(`
+    SELECT p.id, p.slug, p.name, p.provider_type, p.is_published,
+           c.id AS category_id, c.slug AS category_slug, c.name AS category_name
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    ORDER BY c.sort_order ASC, p.name ASC
+  `).all() as Array<{
+    id: string; slug: string; name: string; provider_type: string; is_published: number;
+    category_id: string; category_slug: string; category_name: string;
+  }>;
+
+  const plans = db.prepare(`
+    SELECT id, product_id, version, name, resource_specs, status
+    FROM plan_versions
+    ORDER BY product_id ASC, version DESC
+  `).all() as Array<{
+    id: string; product_id: string; version: number; name: string;
+    resource_specs: string; status: 'DRAFT' | 'ACTIVE' | 'RETIRED';
+  }>;
+  const prices = db.prepare(`
+    SELECT plan_version_id, currency, interval, price_minor_units, setup_fee_minor_units
+    FROM plan_prices
+    ORDER BY currency ASC, interval ASC
+  `).all() as Array<{
+    plan_version_id: string; currency: string; interval: PlanPrice['interval'];
+    price_minor_units: number; setup_fee_minor_units: number;
+  }>;
+
+  const priceMap = new Map<string, PlanPrice[]>();
+  for (const price of prices) {
+    const values = priceMap.get(price.plan_version_id) || [];
+    values.push({
+      currency: price.currency,
+      interval: price.interval,
+      priceMinorUnits: price.price_minor_units,
+      setupFeeMinorUnits: price.setup_fee_minor_units,
+    });
+    priceMap.set(price.plan_version_id, values);
+  }
+
+  const planMap = new Map<string, AdminCatalogProduct['plans']>();
+  for (const plan of plans) {
+    const values = planMap.get(plan.product_id) || [];
+    values.push({
+      id: plan.id,
+      version: plan.version,
+      name: plan.name,
+      status: plan.status,
+      resources: JSON.parse(plan.resource_specs) as PlanResourceSpec,
+      prices: priceMap.get(plan.id) || [],
+    });
+    planMap.set(plan.product_id, values);
+  }
+
+  return products.map((product) => ({
+    id: product.id,
+    slug: product.slug,
+    name: product.name,
+    providerType: product.provider_type,
+    isPublished: Boolean(product.is_published),
+    category: {
+      id: product.category_id,
+      slug: product.category_slug,
+      name: product.category_name,
+    },
+    plans: planMap.get(product.id) || [],
+  }));
 }
 
 export function getProductDetail(slug: string, db: Database.Database = getDatabase()) {

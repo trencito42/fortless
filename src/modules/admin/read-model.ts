@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import { runInTransaction } from '../../database/index.js';
 import { generateId } from '../identity/auth.js';
 import { listTicketAttachments, type TicketAttachmentRecord } from '../support/tickets.js';
+import { queueEmail } from '../email/outbox.js';
+import { createNotification } from '../notifications/notifications.js';
 
 export interface AdminListOptions {
   query?: string;
@@ -223,11 +225,14 @@ export function getAdminAccountDetail(accountId: string, db: Database.Database):
   `).all(accountId) as AdminAccountDetail['members'];
 
   const services = db.prepare(`
-    SELECT s.id, s.identifier, s.contract_status, s.created_at, p.name AS product_name, pv.name AS plan_name
+    SELECT s.id, s.identifier, s.contract_status, s.created_at, p.name AS product_name, pv.name AS plan_name,
+           os.runtime_state, n.name AS node_name
     FROM services s
     JOIN order_items oi ON oi.id = s.order_item_id
     JOIN plan_versions pv ON pv.id = oi.plan_version_id
     JOIN products p ON p.id = pv.product_id
+    LEFT JOIN nodes n ON n.id = s.node_id
+    LEFT JOIN service_observed_states os ON os.service_id = s.id
     WHERE s.account_id = ?
     ORDER BY s.created_at DESC
   `).all(accountId) as AdminAccountDetail['services'];
@@ -249,6 +254,42 @@ export function getAdminAccountDetail(accountId: string, db: Database.Database):
   `).all(accountId) as AdminAccountDetail['tickets'];
 
   return { account, members, services, invoices, tickets };
+}
+
+export function getAdminServiceDetail(serviceId: string, db: Database.Database) {
+  const service = db.prepare(`
+    SELECT s.id, s.identifier, s.provider_type, s.provider_instance_id, s.external_id, s.contract_status,
+           s.created_at, s.updated_at,
+           a.id AS account_id, a.name AS account_name,
+           u.id AS owner_user_id, u.name AS owner_name, u.email AS owner_email,
+           p.id AS product_id, p.name AS product_name, p.slug AS product_slug,
+           pv.id AS plan_version_id, pv.name AS plan_name, pv.resource_specs,
+           n.name AS node_name, n.fqdn AS node_fqdn, r.name AS region_name,
+           dc.cpu_limit_pct, dc.memory_limit_mb, dc.disk_limit_mb, dc.startup_command,
+           os.runtime_state, os.last_checked_at, os.raw_metrics
+    FROM services s
+    JOIN accounts a ON a.id = s.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    JOIN order_items oi ON oi.id = s.order_item_id
+    JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    JOIN products p ON p.id = pv.product_id
+    JOIN nodes n ON n.id = s.node_id
+    JOIN regions r ON r.id = n.region_id
+    LEFT JOIN service_desired_configs dc ON dc.service_id = s.id
+    LEFT JOIN service_observed_states os ON os.service_id = s.id
+    WHERE s.id = ?
+  `).get(serviceId) as any;
+
+  if (!service) return null;
+
+  const audit = db.prepare(`
+    SELECT action, actor_type, created_at, metadata
+    FROM audit_events
+    WHERE resource_id = ?
+    ORDER BY created_at DESC LIMIT 10
+  `).all(serviceId);
+
+  return { service, audit };
 }
 
 export function updateAccountStatus(
@@ -359,6 +400,40 @@ export function addStaffTicketReply(
         SET status = 'WAITING_CUSTOMER', updated_at = datetime('now', 'utc'), assigned_staff_id = coalesce(assigned_staff_id, ?)
         WHERE id = ?
       `).run(data.staffUserId, data.ticketId);
+
+      const ticketRow = trx.prepare(`
+        SELECT t.subject, t.created_by_user_id, u.email, u.name
+        FROM tickets t
+        JOIN users u ON u.id = t.created_by_user_id
+        WHERE t.id = ?
+      `).get(data.ticketId) as { subject: string; created_by_user_id: string; email: string; name: string } | undefined;
+
+      const staffUser = trx.prepare('SELECT name FROM users WHERE id = ?').get(data.staffUserId) as { name: string } | undefined;
+      const authorName = staffUser?.name || 'Fortless Support';
+
+      if (ticketRow?.email) {
+        queueEmail(trx, {
+          recipient: ticketRow.email,
+          template: 'ticket_reply',
+          payload: {
+            ticketId: data.ticketId,
+            subject: ticketRow.subject,
+            author: authorName,
+            preview: data.body.slice(0, 300),
+          },
+        });
+      }
+
+      if (ticketRow) {
+        createNotification({
+          accountId: ticket.account_id,
+          userId: ticketRow.created_by_user_id,
+          type: 'TICKET_REPLY',
+          title: 'New Support Reply',
+          message: `${authorName} replied to your ticket "${ticketRow.subject}".`,
+          linkUrl: `/app/support/${data.ticketId}`,
+        }, trx);
+      }
     } else {
       trx.prepare("UPDATE tickets SET updated_at = datetime('now', 'utc') WHERE id = ?").run(data.ticketId);
     }

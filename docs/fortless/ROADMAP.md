@@ -1,5 +1,7 @@
 # FORTLESS — Phased Implementation Roadmap & Execution Backlog
 
+> This original roadmap remains useful for acceptance criteria, but its checkbox state is stale. Use `docs/PLAN_RECONCILIATION_2026-10-19.md` and current executable evidence to choose work; do not rebuild capabilities solely because they remain unchecked here.
+
 **Version:** 1.0.0-PROD  
 **Status:** Approved for Implementation (Phase 0 Baseline)  
 **Classification:** Engineering Roadmap & Task Board  
@@ -84,6 +86,7 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
   - Implement catalog schema: `categories`, `products`, `plan_versions`, `plan_prices`, `regions`.
   - Administrative endpoints to create/publish/retire plan versions.
   - *Acceptance:* Catalog API returns only published plans; retired versions immutable.
+  - *Progress 2026-10-18:* Added Petal `/admin/catalog`, complete staff catalog read model, private product/plan creation, step-up protected publication/status changes, live read-only Pterodactyl inventory, provider egg validation, and fail-closed removal of legacy demonstration offers from the customer deploy catalog. `[MOCK_ONLY]`
 - [ ] **Slice 2.2: Server-Side Cryptographic Quote Engine & Tax Calculator**
   - Generate server-owned quotes with exact minor unit totals, tax snapshots, and 15-minute TTL.
   - *Acceptance:* Quote hash rejects client manipulation (`FLT-01`); tax rounding verified.
@@ -114,6 +117,7 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 - [ ] **Slice 3.3: Pterodactyl 1.x Launch Adapter Implementation**
   - Build real Pterodactyl 1.x Application API client (users, nodes, allocations, server creation).
   - *Acceptance:* Verified against staging Pterodactyl panel or fixture server with real payload formats.
+  - *Progress 2026-10-18:* Application API inventory reads are operational against the configured panel and protected by anti-SSRF validation. Server creation still contains unresolved customer-user/allocation mapping and has not passed a real lifecycle test; verification remains `[NOT_STARTED]`.
 - [ ] **Slice 3.4: Provisioning Saga & Timeout Recovery Engine**
   - Implement full saga: create server -> handle timeout by lookup via correlation tag -> poll install status -> activate service.
   - *Acceptance:* Simulated HTTP timeout after creation links existing server without creating a duplicate (`PROV-04`).

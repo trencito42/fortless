@@ -62,6 +62,21 @@
       this.resolve();
     }
     resolve() {
+      const path = window.location.pathname;
+      const prev = this.currentMatch;
+      if (prev?.route.tabbed) {
+        const route = prev.route;
+        const params = this.matchRoute(route, path);
+        if (params !== null) {
+          const { tab: nextTab, ...rest } = params;
+          const { tab: _prevTab, ...prevRest } = prev.params;
+          if (JSON.stringify(rest) === JSON.stringify(prevRest)) {
+            this.currentMatch = { route, params, pathname: path };
+            window.dispatchEvent(new CustomEvent("fortless:tab", { detail: { route: route.id, tab: nextTab ?? null } }));
+            return;
+          }
+        }
+      }
       while (this.cleanups.length) {
         const cleanup = this.cleanups.pop();
         try {
@@ -142,6 +157,30 @@
       title: "Service Inventory \xB7 FORTLESS",
       subtitle: "Contract and provider-observed state."
     },
+    orders: {
+      id: "orders",
+      path: "/admin/orders",
+      title: "Orders \xB7 FORTLESS",
+      subtitle: "Commercial order lifecycle and fulfillment state."
+    },
+    billing: {
+      id: "billing",
+      path: "/admin/billing",
+      title: "Billing Operations \xB7 FORTLESS",
+      subtitle: "Invoices, credit notes and payment state."
+    },
+    infrastructure: {
+      id: "infrastructure",
+      path: "/admin/infrastructure",
+      title: "Infrastructure \xB7 FORTLESS",
+      subtitle: "Capacity pools and provider readiness."
+    },
+    catalog: {
+      id: "catalog",
+      path: "/admin/catalog",
+      title: "Catalog & Providers \xB7 FORTLESS",
+      subtitle: "Commercial products mapped explicitly to provider inventory."
+    },
     tickets: {
       id: "tickets",
       path: "/admin/tickets",
@@ -159,6 +198,18 @@
       path: "/admin/staff",
       title: "Staff Access \xB7 FORTLESS",
       subtitle: "Persisted roles, access status and MFA readiness. Click to edit role."
+    },
+    status: {
+      id: "status",
+      path: "/admin/status",
+      title: "System Status \xB7 FORTLESS",
+      subtitle: "Components and customer-visible incidents."
+    },
+    settings: {
+      id: "settings",
+      path: "/admin/settings",
+      title: "Platform Settings \xB7 FORTLESS",
+      subtitle: "System integrations, provider verification, and security governance."
     }
   };
 
@@ -257,7 +308,10 @@
       return this.request(url, { ...options, method: "GET" });
     }
     post(url, body, options) {
-      const headers = { "Content-Type": "application/json", ...options?.headers || {} };
+      const headers = { ...options?.headers || {} };
+      if (body !== void 0) {
+        headers["Content-Type"] = "application/json";
+      }
       return this.request(url, {
         ...options,
         method: "POST",
@@ -266,7 +320,10 @@
       });
     }
     patch(url, body, options) {
-      const headers = { "Content-Type": "application/json", ...options?.headers || {} };
+      const headers = { ...options?.headers || {} };
+      if (body !== void 0) {
+        headers["Content-Type"] = "application/json";
+      }
       return this.request(url, {
         ...options,
         method: "PATCH",
@@ -306,38 +363,136 @@
   }
 
   // src/frontend/petal/components/icons.ts
-  var heroPaths = {
-    servers: '<path d="M4.5 12a7.5 3 0 1 0 15 0 7.5 3 0 1 0-15 0Z"/><path d="M4.5 12v6a7.5 3 0 0 0 15 0v-6"/><path d="M4.5 6a7.5 3 0 1 0 15 0 7.5 3 0 1 0-15 0Z"/><path d="M4.5 6v6"/><path d="M19.5 6v6"/>',
-    plus: '<path d="M12 4.5v15m7.5-7.5h-15"/>',
-    credit: '<path d="M2.25 8.25h19.5M3.75 4.5h16.5A1.5 1.5 0 0 1 21.75 6v12a1.5 1.5 0 0 1-1.5 1.5H3.75A1.5 1.5 0 0 1 2.25 18V6a1.5 1.5 0 0 1 1.5-1.5Z"/><path d="M6 15.75h2.25"/>',
-    support: '<path d="M18.364 5.636A9 9 0 1 1 5.636 18.364 9 9 0 0 1 18.364 5.636Z"/><path d="m15.182 8.818-2.121 2.121m-2.122 2.122-2.121 2.121m0-6.364 2.121 2.121m2.122 2.122 2.121 2.121"/>',
-    shield: '<path d="M9 12.75 11.25 15 15 9.75"/><path d="M12 2.25c2.146 1.648 4.892 2.3 7.5 2.25v6c0 5.25-3.438 9.438-7.5 11.25C7.938 19.938 4.5 15.75 4.5 10.5v-6c2.608.05 5.354-.602 7.5-2.25Z"/>',
-    settings: '<path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.592c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.246c.275.476.17 1.079-.252 1.43l-.997.827c-.292.242-.438.613-.43.992a6.759 6.759 0 0 1 0 .258c-.008.379.138.75.43.992l.997.827c.422.35.527.954.252 1.43l-1.296 2.246a1.125 1.125 0 0 1-1.37.49l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.542-.56.94-1.11.94h-2.592c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.063-.374-.313-.686-.645-.87a6.5 6.5 0 0 1-.22-.127c-.324-.196-.72-.257-1.075-.124l-1.217.456a1.125 1.125 0 0 1-1.37-.49l-1.296-2.246a1.125 1.125 0 0 1 .252-1.43l.997-.827c.292-.242.438-.613.43-.992a6.759 6.759 0 0 1 0-.258c.008-.379-.138-.75-.43-.992l-.997-.827a1.125 1.125 0 0 1-.252-1.43l1.296-2.246a1.125 1.125 0 0 1 1.37-.49l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.086.22-.128.331-.183.581-.495.644-.869l.213-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>',
-    refresh: '<path d="M16.023 9.348h4.992V4.356"/><path d="M2.985 19.644v-4.992h4.992"/><path d="M4.74 9.75a7.5 7.5 0 0 1 12.54-3.03l3.735 3.735M19.26 14.25a7.5 7.5 0 0 1-12.54 3.03l-3.735-3.735"/>',
-    play: '<path d="M5.25 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.294.711 1.294 2.575 0 3.286L8.03 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z"/>',
-    stop: '<path d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z"/>',
-    check: '<path d="m4.5 12.75 6 6 9-13.5"/>',
-    cube: '<path d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25M21 7.5v9L12 21.75m0-9L3 7.5m9 5.25v9M3 7.5v9l9 5.25"/>',
-    paper: '<path d="m3.478 2.405 18.151 9.076c.368.184.368.71 0 .894L3.478 21.45a.5.5 0 0 1-.724-.447l.842-6.317a1 1 0 0 1 .757-.836L12 12 4.353 10.15a1 1 0 0 1-.757-.836l-.842-6.317a.5.5 0 0 1 .724-.447Z"/>',
-    x: '<path d="M6 18 18 6M6 6l12 12"/>',
-    document: '<path d="M19.5 14.25v-2.625A3.375 3.375 0 0 0 16.125 8.25h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H8.25m0 12.75h7.5m-7.5 3h4.5M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>',
-    copy: '<path d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-10.5A1.125 1.125 0 0 1 3 20.625v-10.5C3 9.504 3.504 9 4.125 9H7.5"/><path d="M10.125 3h9.75C20.496 3 21 3.504 21 4.125v9.75c0 .621-.504 1.125-1.125 1.125h-9.75A1.125 1.125 0 0 1 9 13.875v-9.75C9 3.504 9.504 3 10.125 3Z"/>',
-    warning: '<path d="M12 9v3.75m9.303 3.376c.866 1.5-.217 3.374-1.948 3.374H4.645c-1.73 0-2.813-1.874-1.948-3.374L10.052 3.38c.866-1.5 3.03-1.5 3.896 0l7.355 12.746ZM12 15.75h.008v.008H12v-.008Z"/>',
-    device: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.25 20.25h7.5M12 16.5v3.75"/>',
-    chevron: '<path d="m9 18 6-6-6-6"/>',
-    home: '<path d="M2.25 12 11.2 3.05a1.13 1.13 0 0 1 1.6 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-5.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"/>',
-    users: '<path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.34 9.34 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.03-.265-1.998-.73-2.84M15 19.128v.106A12.3 12.3 0 0 1 8.624 21C6.33 21 4.18 20.37 2.34 19.273l-.001-.14a6.375 6.375 0 0 1 11.93-3.238M12 6.75a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/>',
-    server: '<path d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.15-9.432a2.25 2.25 0 0 0-2.194-1.75H6.714A2.25 2.25 0 0 0 4.52 6.56l-2.15 9.432a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25m19.5 0v-.844c0-1.124-.91-2.034-2.034-2.034H4.284c-1.124 0-2.034.91-2.034 2.034v.844M6.75 17.25h.008v.008H6.75v-.008Zm3 0h.008v.008H9.75v-.008Z"/>',
-    search: '<path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.606 10.606Z"/>',
-    arrow: '<path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>'
-  };
   function hero(name, size = "") {
-    const path = heroPaths[name] || heroPaths.cube;
+    const petalNames = {
+      home: "dashboard-square-01",
+      users: "user-group",
+      server: "server",
+      servers: "server",
+      plus: "add-01",
+      credit: "credit-card",
+      support: "message-01",
+      shield: "shield-01",
+      settings: "settings-01",
+      refresh: "circle-arrow-reload-01",
+      play: "play",
+      stop: "stop",
+      check: "tick-02",
+      cube: "package",
+      paper: "sent",
+      x: "cancel-01",
+      document: "invoice-01",
+      copy: "copy-01",
+      warning: "alert-circle",
+      fingerprint: "finger-print-scan",
+      device: "laptop",
+      chevron: "arrow-right-01",
+      search: "search-01",
+      arrow: "arrow-up-right-01",
+      sun: "sun-03",
+      moon: "moon-01"
+    };
     const classes = ["ic", size, "hero-icon"].filter(Boolean).join(" ");
-    return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+    const iconName = petalNames[name] || name || "package";
+    return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${iconName}"></use></svg>`;
+  }
+
+  // src/frontend/petal/components/toasts.ts
+  function toast(message, type = "info") {
+    const host = document.getElementById("toasts") || createToastHost();
+    const item = document.createElement("div");
+    item.className = `toast ${type}`;
+    item.setAttribute("role", type === "bad" ? "alert" : "status");
+    const iconName = type === "bad" || type === "warn" ? "warning" : "check";
+    item.innerHTML = `${hero(iconName, "s")}<span>${esc(message)}</span>`;
+    host.appendChild(item);
+    window.setTimeout(() => {
+      item.style.opacity = "0";
+      item.style.transform = "translateY(6px)";
+      window.setTimeout(() => item.remove(), 220);
+    }, 4200);
+  }
+  function createToastHost() {
+    let host = document.getElementById("toasts");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "toasts";
+      host.className = "toasts";
+      document.body.appendChild(host);
+    }
+    return host;
+  }
+
+  // src/frontend/petal/components/modals.ts
+  var BASE_MODAL_Z = 900;
+  var PRIORITY_MODAL_Z = 1200;
+  var openModalStack = [];
+  function isPriorityModal(el) {
+    return el.id === "modalStepUp" || el.classList.contains("stepup") || el.getAttribute("data-priority") === "high";
+  }
+  function updateModalStacking(modal, isOpen) {
+    if (isOpen) {
+      if (!openModalStack.includes(modal)) {
+        openModalStack.push(modal);
+      }
+    } else {
+      const idx = openModalStack.indexOf(modal);
+      if (idx !== -1) {
+        openModalStack.splice(idx, 1);
+      }
+      modal.style.removeProperty("z-index");
+      const ov = modal.querySelector(".ov");
+      const bx = modal.querySelector(".bx");
+      if (ov) ov.style.removeProperty("z-index");
+      if (bx) bx.style.removeProperty("z-index");
+      return;
+    }
+    let standardCount = 0;
+    let priorityCount = 0;
+    openModalStack.forEach((el) => {
+      const isPri = isPriorityModal(el);
+      const z = isPri ? PRIORITY_MODAL_Z + priorityCount * 20 : BASE_MODAL_Z + standardCount * 20;
+      if (isPri) priorityCount++;
+      else standardCount++;
+      el.style.zIndex = String(z);
+      const ov = el.querySelector(".ov");
+      const bx = el.querySelector(".bx");
+      if (ov) ov.style.zIndex = String(z);
+      if (bx) bx.style.zIndex = String(z + 1);
+    });
+  }
+  var stackerInitialized = false;
+  function initModalStacker() {
+    if (stackerInitialized || typeof window === "undefined") return;
+    stackerInitialized = true;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "attributes") {
+          const target = mutation.target;
+          if (target.classList?.contains("mdl")) {
+            const isVisible = !target.hidden && target.style.display !== "none";
+            updateModalStacking(target, isVisible);
+          }
+        }
+      }
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["hidden", "style", "class"]
+    });
+    document.querySelectorAll(".mdl").forEach((el) => {
+      const isVisible = !el.hidden && el.style.display !== "none";
+      if (isVisible) updateModalStacking(el, true);
+    });
   }
 
   // src/frontend/petal/components/cmd.ts
+  function spaNavigate(path) {
+    if (window.location.pathname === path) return;
+    window.history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
   var CommandPaletteController = class {
     cmdList = [];
     activeIndex = 0;
@@ -359,7 +514,7 @@
         inp.value = "";
         inp.focus();
       }
-      this.search("");
+      this.renderDefaultNavigation();
     }
     close() {
       const modal = document.getElementById(this.modalId);
@@ -369,11 +524,46 @@
       const modal = document.getElementById(this.modalId);
       return Boolean(modal && !modal.hidden);
     }
+    getDefaultNavItems() {
+      const isAdmin = window.location.pathname.startsWith("/admin");
+      if (isAdmin) {
+        return [
+          { category: "Navigate", title: "Operations Overview", icon: "dashboard-square-01", kbd: "G O", action: () => spaNavigate("/admin") },
+          { category: "Navigate", title: "Customer Accounts", icon: "shield-user", kbd: "G A", action: () => spaNavigate("/admin/accounts") },
+          { category: "Navigate", title: "Managed Instances", icon: "server", kbd: "G S", action: () => spaNavigate("/admin/services") },
+          { category: "Navigate", title: "Support Helpdesk", icon: "message-01", kbd: "G T", action: () => spaNavigate("/admin/tickets") },
+          { category: "Navigate", title: "Security Audit Trail", icon: "history", action: () => spaNavigate("/admin/audit") },
+          { category: "Navigate", title: "Staff Directory", icon: "user-group", action: () => spaNavigate("/admin/staff") },
+          { category: "Switch", title: "Back to Client App", icon: "arrow-right-01", action: () => spaNavigate("/app") }
+        ];
+      }
+      return [
+        { category: "Navigate", title: "Dashboard", icon: "dashboard-square-01", kbd: "G D", action: () => spaNavigate("/app") },
+        { category: "Navigate", title: "Servers & Instances", icon: "server", kbd: "G S", action: () => spaNavigate("/app/services") },
+        { category: "Navigate", title: "Deploy Instance", icon: "rocket-01", kbd: "G R", action: () => spaNavigate("/app/deploy") },
+        { category: "Navigate", title: "Domains & DNS", icon: "globe-02", action: () => spaNavigate("/app/domains") },
+        { category: "Navigate", title: "Invoices & Billing", icon: "invoice-01", action: () => spaNavigate("/app/billing") },
+        { category: "Navigate", title: "Support Tickets", icon: "message-01", action: () => spaNavigate("/app/support") },
+        { category: "Navigate", title: "Security & Team", icon: "shield-user", action: () => spaNavigate("/app/settings") },
+        { category: "Navigate", title: "Audit Trail", icon: "history", action: () => spaNavigate("/app/activity") }
+      ];
+    }
+    renderDefaultNavigation() {
+      const resBox = document.getElementById(this.resultsId);
+      if (!resBox) return;
+      this.cmdList = this.getDefaultNavItems();
+      this.activeIndex = 0;
+      this.renderItems(resBox);
+    }
     async search(query) {
       const resBox = document.getElementById(this.resultsId);
       if (!resBox) return;
+      const q = (query || "").trim();
+      if (!q) {
+        this.renderDefaultNavigation();
+        return;
+      }
       try {
-        const q = (query || "").trim();
         const res = await api(`/api/v1/search?q=${encodeURIComponent(q)}`);
         this.cmdList = [];
         const data = res.results || res;
@@ -382,10 +572,8 @@
             (p) => this.cmdList.push({
               category: "Navigation",
               title: p.title,
-              icon: "servers",
-              action: () => {
-                window.location.href = p.path;
-              }
+              icon: "server",
+              action: () => spaNavigate(p.path)
             })
           );
         }
@@ -394,10 +582,8 @@
             (p) => this.cmdList.push({
               category: "Admin Control",
               title: p.title,
-              icon: "shield",
-              action: () => {
-                window.location.href = p.path;
-              }
+              icon: "shield-user",
+              action: () => spaNavigate(p.path)
             })
           );
         }
@@ -407,10 +593,8 @@
               category: "Services",
               title: s.title,
               subtitle: s.subtitle,
-              icon: "servers",
-              action: () => {
-                window.location.href = `/app/services/${encodeURIComponent(s.id)}`;
-              }
+              icon: "server",
+              action: () => spaNavigate(`/app/services/${encodeURIComponent(s.id)}`)
             })
           );
         }
@@ -420,10 +604,10 @@
               category: "Tickets",
               title: t.title,
               subtitle: t.subtitle,
-              icon: "support",
+              icon: "message-01",
               action: () => {
                 const url = window.location.pathname.startsWith("/admin") ? `/admin/tickets` : `/app/support`;
-                window.location.href = url;
+                spaNavigate(url);
               }
             })
           );
@@ -434,50 +618,54 @@
               category: "Billing",
               title: inv.title,
               subtitle: inv.subtitle,
-              icon: "credit",
-              action: () => {
-                window.location.href = "/app/billing";
-              }
+              icon: "invoice-01",
+              action: () => spaNavigate("/app/billing")
             })
           );
         }
         if (!this.cmdList.length) {
           resBox.innerHTML = `
-          <div style="padding:24px;text-align:center;color:var(--ink3);font-size:13px">
-            No matching resources found for "${esc(q)}"
+          <div class="es" data-c="Empty state" style="padding:28px 16px">
+            <span class="tile neu md"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"/></svg></span>
+            <p style="margin:8px 0 0;color:var(--ink2);font-weight:600">No results found for "${esc(q)}"</p>
           </div>
         `;
           return;
         }
         this.activeIndex = 0;
-        let html = "";
-        let lastCat = "";
-        this.cmdList.slice(0, 15).forEach((item, i) => {
-          if (item.category !== lastCat) {
-            html += `<div class="hd">${esc(item.category)}</div>`;
-            lastCat = item.category;
-          }
-          html += `
-          <button type="button" class="it ${i === 0 ? "act" : ""}" data-cmd-idx="${i}">
-            ${hero(item.icon || "cube", "s")}
-            <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
-              <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</span>
-              ${item.subtitle ? `<span style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.subtitle)}</span>` : ""}
-            </span>
-          </button>
-        `;
-        });
-        resBox.innerHTML = html;
+        this.renderItems(resBox);
       } catch {
-        resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad)">Search request failed.</div>';
+        resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad);font-weight:600">Search request failed.</div>';
       }
     }
+    renderItems(container) {
+      let html = "";
+      let lastCat = "";
+      this.cmdList.slice(0, 20).forEach((item, i) => {
+        if (item.category !== lastCat) {
+          html += `<div class="dh">${esc(item.category)}</div>`;
+          lastCat = item.category;
+        }
+        const icon = item.icon || "server";
+        html += `
+        <button type="button" class="li ${i === this.activeIndex ? "on" : ""}" data-cmd-idx="${i}" style="padding:11px 12px;cursor:pointer">
+          <span class="tile neu sm"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${icon}"/></svg></span>
+          <span class="tx">
+            <b>${esc(item.title)}</b>
+            ${item.subtitle ? `<small>${esc(item.subtitle)}</small>` : ""}
+          </span>
+          ${item.kbd ? `<span class="kbd">${esc(item.kbd)}</span>` : ""}
+        </button>
+      `;
+      });
+      container.innerHTML = html;
+    }
     moveSelection(dir) {
-      const items = document.querySelectorAll(`#${this.resultsId} .it`);
+      const items = document.querySelectorAll(`#${this.resultsId} .li`);
       if (!items.length) return;
       this.activeIndex = (this.activeIndex + dir + items.length) % items.length;
       items.forEach((btn, i) => {
-        btn.classList.toggle("act", i === this.activeIndex);
+        btn.classList.toggle("on", i === this.activeIndex);
         if (i === this.activeIndex) btn.scrollIntoView({ block: "nearest" });
       });
     }
@@ -529,7 +717,7 @@
           this.execute(Number(cmdItem.dataset.cmdIdx));
           return;
         }
-        if (target.id === this.modalId) {
+        if (target.id === this.modalId || target.matches(`#${this.modalId} .ov`)) {
           this.close();
         }
       };
@@ -553,9 +741,27 @@
       this.cmd = new CommandPaletteController("cmd", "cmd-in", "cmd-res");
     }
     init() {
+      initModalStacker();
+      this.initTheme();
       this.installIcons();
       this.cmd.bindKeyboard();
       this.bindStepUp();
+    }
+    initTheme() {
+      const theme = localStorage.getItem("fortless_theme") || localStorage.getItem("theme");
+      if (theme) document.documentElement.dataset.theme = theme;
+      window.addEventListener("storage", (e) => {
+        if ((e.key === "fortless_theme" || e.key === "theme") && e.newValue) {
+          document.documentElement.dataset.theme = e.newValue;
+        }
+      });
+    }
+    toggleTheme() {
+      const isDark = document.documentElement.dataset.theme === "dark" || !document.documentElement.dataset.theme && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const next = isDark ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem("fortless_theme", next);
+      localStorage.setItem("theme", next);
     }
     installIcons() {
       document.querySelectorAll("[data-icon]").forEach((x) => {
@@ -570,17 +776,24 @@
         ]);
         const userName = document.querySelector("#userName");
         const userAvatar = document.querySelector("#userAvatar");
+        const topAvatar = document.querySelector("#topAvatar");
         const staffRole = document.querySelector("#staffRole");
         if (userName) userName.textContent = identity.user.name;
         if (userAvatar) userAvatar.textContent = identity.user.name.slice(0, 2).toUpperCase();
+        if (topAvatar) topAvatar.textContent = identity.user.name.slice(0, 2).toUpperCase();
         if (staffRole) staffRole.textContent = `${access.staff.role.replaceAll("_", " ")} \xB7 MFA`;
         this.permissions = new Set(access.staff.permissions);
         const required = {
           accounts: "accounts:read",
           services: "services:read",
+          orders: "accounts:read",
+          billing: "accounts:read",
+          infrastructure: "services:read",
+          catalog: "catalog:read",
           tickets: "tickets:read",
           audit: "audit:read",
-          staff: "staff:read"
+          staff: "staff:read",
+          status: "services:read"
         };
         document.querySelectorAll("[data-route]").forEach((link) => {
           const route = link.dataset.route || "";
@@ -609,6 +822,7 @@
         errEl.style.display = "none";
       }
       modal.hidden = false;
+      updateModalStacking(modal, true);
       setTimeout(() => passInput?.focus(), 50);
     }
     bindStepUp() {
@@ -631,7 +845,10 @@
             body: JSON.stringify({ password, code })
           });
           const modal = document.getElementById("modalStepUp");
-          if (modal) modal.hidden = true;
+          if (modal) {
+            modal.hidden = true;
+            updateModalStacking(modal, false);
+          }
           if (this.pendingStepUpAction) {
             this.pendingStepUpAction.onSuccess();
             this.pendingStepUpAction = null;
@@ -649,8 +866,8 @@
   };
   function badge(v) {
     const x = String(v || "UNKNOWN");
-    const c = /ACTIVE|RUNNING|RESOLVED|CLOSED|COMPLETED/.test(x) ? "good" : /URGENT|ERROR|DEAD|OVERDUE|SUSPENDED|LOCKED/.test(x) ? "bad" : /PENDING|WAITING|HIGH|MOCK|NOT_CONFIGURED/.test(x) ? "warn" : "info";
-    return `<span class="badge ${c} s">${esc(x.replaceAll("_", " "))}</span>`;
+    const c = /ACTIVE|RUNNING|RESOLVED|CLOSED|COMPLETED/.test(x) ? "good" : /URGENT|ERROR|DEAD|OVERDUE|SUSPENDED|LOCKED/.test(x) ? "bad" : /PENDING|WAITING|HIGH|MOCK|NOT_CONFIGURED|NOT_STARTED|FLAGGED/.test(x) ? "warn" : "info";
+    return `<span class="pill ${c}" style="height:22px;padding:0 8px;font-size:11px">${esc(x.replaceAll("_", " "))}</span>`;
   }
   function row({
     symbol = "home",
@@ -661,14 +878,14 @@
     dataAttr = ""
   }) {
     return `
-    <article class="row" ${dataAttr} style="cursor:pointer;transition:background .15s">
-      <span class="row-icon">${hero(symbol)}</span>
-      <div class="row-copy">
+    <article class="li h" ${dataAttr} style="cursor:pointer">
+      <span class="tile neu sm">${hero(symbol)}</span>
+      <span class="tx">
         <b>${esc(title)}</b>
         <small>${esc(sub)}</small>
-      </div>
+      </span>
       ${status ? badge(status) : ""}
-      ${meta ? `<div class="row-meta">${esc(meta)}</div>` : ""}
+      ${meta ? `<span class="faint hide-n" style="font-weight:650;font-size:12.5px">${esc(meta)}</span>` : ""}
     </article>
   `;
   }
@@ -677,18 +894,18 @@
   async function renderOverview() {
     const d = await api("/api/v1/admin/overview");
     const metrics = [
-      ["Users", d.users],
-      ["Accounts", d.accounts],
-      ["Active services", d.activeServices],
-      ["Open tickets", d.openTickets],
-      ["Orders", d.orders],
-      ["Overdue invoices", d.overdueInvoices],
-      ["Pending events", d.pendingOutboxEvents],
-      ["Dead letters", d.deadLetterEvents]
+      ["Users", d.users, "users", ""],
+      ["Accounts", d.accounts, "users", ""],
+      ["Active services", d.activeServices, "server", "good"],
+      ["Open tickets", d.openTickets, "support", d.openTickets ? "warn" : "good"],
+      ["Orders", d.orders, "cube", ""],
+      ["Overdue invoices", d.overdueInvoices, "document", d.overdueInvoices ? "warn" : "good"],
+      ["Pending events", d.pendingOutboxEvents, "refresh", d.pendingOutboxEvents ? "warn" : "good"],
+      ["Dead letters", d.deadLetterEvents, "warning", d.deadLetterEvents ? "bad" : "good"]
     ];
     const metricsBox = document.querySelector("#overviewMetrics");
     if (metricsBox) {
-      metricsBox.innerHTML = metrics.map((x) => `<article class="metric"><span>${esc(x[0])}</span><strong>${Number(x[1] || 0)}</strong></article>`).join("");
+      metricsBox.innerHTML = metrics.map(([label, value, icon, tone]) => `<article class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${Number(value || 0)}</b></div><span class="tile ${tone}">${hero(icon)}</span></article>`).join("");
     }
     const capabilityList = document.querySelector("#capabilityList");
     if (capabilityList) {
@@ -725,6 +942,17 @@
         })
       ].join("");
     }
+    const outboxHealth = document.querySelector("#outboxHealth");
+    if (outboxHealth) {
+      outboxHealth.innerHTML = [
+        row({ symbol: "refresh", title: "Retries pending", sub: "Events awaiting worker dispatch", status: d.pendingOutboxEvents ? "PENDING" : "CLEAR", meta: String(d.pendingOutboxEvents) }),
+        row({ symbol: "warning", title: "Dead-letter events", sub: "Manual review required", status: d.deadLetterEvents ? "ATTENTION" : "CLEAR", meta: String(d.deadLetterEvents) })
+      ].join("");
+    }
+    const supportSummary = document.querySelector("#supportSummary");
+    if (supportSummary) {
+      supportSummary.innerHTML = row({ symbol: "support", title: "Open support tickets", sub: "Inspect priority and recent activity in the support queue", status: d.openTickets ? "OPEN" : "CLEAR", meta: String(d.openTickets) });
+    }
   }
 
   // src/frontend/core/utils/dates.ts
@@ -742,6 +970,15 @@
     }).format(dateObj);
   }
 
+  // src/frontend/core/utils/formatting.ts
+  function money(minorUnits, currency = "EUR") {
+    const val = Number(minorUnits) || 0;
+    return new Intl.NumberFormat(void 0, {
+      style: "currency",
+      currency
+    }).format(val / 100);
+  }
+
   // src/frontend/admin/pages/accounts/index.ts
   var activeAccountId = null;
   function getActiveAccountId() {
@@ -753,19 +990,14 @@
     try {
       const d = await api(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`);
       if (!d.accounts.length) {
-        host.innerHTML = `<div class="empty"><span class="row-icon"></span><b>No matching accounts.</b></div>`;
+        host.innerHTML = `<div class="empty"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"></use></svg></span><b>No matching accounts.</b></div>`;
         return;
       }
-      host.innerHTML = d.accounts.map(
-        (x) => row({
-          symbol: "users",
-          title: x.name,
-          sub: `${x.owner_name} \xB7 ${x.owner_email}`,
-          status: x.status,
-          meta: `${x.member_count} members \xB7 ${x.service_count} services \xB7 ${x.open_ticket_count} tickets`,
-          dataAttr: `data-account-id="${esc(x.id)}"`
-        })
-      ).join("");
+      host.innerHTML = d.accounts.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
+      <span class="tile sm ${x.status === "LOCKED" ? "bad" : x.status === "FLAGGED_FRAUD" ? "warn" : ""}">${hero("users")}</span>
+      <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} \xB7 ${esc(x.owner_email)}</small></span>
+      <span class="faint hide-n">${Number(x.member_count)} members \xB7 ${Number(x.service_count)} services \xB7 ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
+    </button>`).join("");
     } catch (e) {
       host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
     }
@@ -775,7 +1007,7 @@
     const modal = document.getElementById("modalAccountDetail");
     const content = document.getElementById("adminAccountContent");
     if (!modal || !content) return;
-    content.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink2)">Loading account profile\u2026</div>';
+    content.innerHTML = '<div style="padding:24px;text-align:center;color:var(--ink2)"><div class="sk"><i></i><i></i><i></i></div></div>';
     modal.hidden = false;
     try {
       const d = await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}`);
@@ -783,60 +1015,861 @@
       const metaEl = document.getElementById("adminAccountMeta");
       const statusSelect = document.getElementById("adminAccountStatusSelect");
       if (titleEl) titleEl.textContent = d.account.name;
-      if (metaEl)
+      if (metaEl) {
         metaEl.textContent = `Owner: ${d.account.owner_name} (${d.account.owner_email}) \xB7 Created ${formatDate(
           d.account.created_at
         )}`;
+      }
       if (statusSelect) statusSelect.value = d.account.status;
       content.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px">
-        <div class="card s2" style="padding:12px">
-          <b>Members (${d.members.length})</b>
-          <div style="font-size:12px;color:var(--ink2);margin-top:4px">
-            ${d.members.map((m) => `${esc(m.name)} (${m.role})`).join(", ") || "None"}
-          </div>
+      <div class="g g4" style="margin-bottom:6px">
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">MEMBERS</small>
+          <div style="font-size:18px;font-weight:700">${d.members.length}</div>
         </div>
-        <div class="card s2" style="padding:12px">
-          <b>Active Services (${d.services.length})</b>
-          <div style="font-size:12px;color:var(--ink2);margin-top:4px">
-            ${d.services.map((s) => `${esc(s.plan_name)} [${s.contract_status}]`).join(", ") || "None"}
-          </div>
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">ACTIVE SERVICES</small>
+          <div style="font-size:18px;font-weight:700">${d.services.length}</div>
         </div>
-        <div class="card s2" style="padding:12px">
-          <b>Invoices (${d.invoices.length})</b>
-          <div style="font-size:12px;color:var(--ink2);margin-top:4px">
-            ${d.invoices.slice(0, 3).map((i) => `${esc(i.invoice_number)} (${i.status})`).join(", ") || "None"}
-          </div>
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">TOTAL INVOICES</small>
+          <div style="font-size:18px;font-weight:700">${d.invoices.length}</div>
+        </div>
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">TICKETS</small>
+          <div style="font-size:18px;font-weight:700">${(d.tickets || []).length}</div>
+        </div>
+      </div>
+
+      <!-- Account Members -->
+      <div>
+        <div class="dh" style="margin-bottom:6px">ORGANIZATION MEMBERS (${d.members.length})</div>
+        <div class="table-scroll" style="max-height:160px">
+          <table class="tbl rsp">
+            <thead>
+              <tr>
+                <th>Member</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th class="r">Joined</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${d.members.length ? d.members.map((m) => `<tr>
+                <td><b>${esc(m.name)}</b><small class="faint">${esc(m.email)}</small></td>
+                <td><span class="pill ${m.role === "OWNER" ? "pri" : m.role === "ADMIN" ? "info" : ""}">${esc(m.role)}</span></td>
+                <td>${badge(m.status)}</td>
+                <td class="r faint" style="font-size:12px">${formatDate(m.created_at)}</td>
+              </tr>`).join("") : '<tr><td colspan="4"><div class="empty"><b>No members found.</b></div></td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Account Services -->
+      <div>
+        <div class="dh" style="margin-bottom:6px">HOSTED SERVICES & INSTANCES (${d.services.length})</div>
+        <div class="table-scroll" style="max-height:180px">
+          <table class="tbl rsp">
+            <thead>
+              <tr>
+                <th>Service / Plan</th>
+                <th>Node</th>
+                <th>Contract</th>
+                <th>Runtime</th>
+                <th class="r">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${d.services.length ? d.services.map((s) => `<tr>
+                <td><b>${esc(s.plan_name || s.product_name)}</b><small class="mono faint">${esc(s.identifier || s.id)}</small></td>
+                <td><span class="mono" style="font-size:12px">${esc(s.node_name || "Assigned node")}</span></td>
+                <td>${badge(s.contract_status)}</td>
+                <td>${badge(s.runtime_state || "UNKNOWN")}</td>
+                <td class="r"><button type="button" class="btn xs" data-service-id="${esc(s.id)}">Manage</button></td>
+              </tr>`).join("") : '<tr><td colspan="5"><div class="empty"><b>No active services in this account.</b></div></td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Account Invoices -->
+      <div>
+        <div class="dh" style="margin-bottom:6px">RECENT INVOICES (${d.invoices.length})</div>
+        <div class="table-scroll" style="max-height:160px">
+          <table class="tbl rsp">
+            <thead>
+              <tr>
+                <th>Invoice #</th>
+                <th>Date</th>
+                <th>Total</th>
+                <th class="r">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${d.invoices.length ? d.invoices.map((i) => `<tr>
+                <td><b class="mono">${esc(i.invoice_number)}</b></td>
+                <td class="faint" style="font-size:12px">${formatDate(i.created_at)}</td>
+                <td><b>${money(i.total_minor_units, i.currency)}</b></td>
+                <td class="r">${badge(i.status)}</td>
+              </tr>`).join("") : '<tr><td colspan="4"><div class="empty"><b>No invoices recorded.</b></div></td></tr>'}
+            </tbody>
+          </table>
         </div>
       </div>
     `;
     } catch (err) {
-      content.innerHTML = `<div style="color:var(--bad);padding:20px">Error loading account: ${esc(err.message)}</div>`;
+      content.innerHTML = `<div class="alert bad"><div><b>Error loading account</b><span>${esc(err.message)}</span></div></div>`;
     }
   }
 
   // src/frontend/admin/pages/services/index.ts
+  var activeServiceId = null;
   async function renderServices(q = "") {
     const host = document.querySelector("#servicesList");
     if (!host) return;
     try {
       const d = await api(`/api/v1/admin/services?q=${encodeURIComponent(q)}`);
       if (!d.services.length) {
-        host.innerHTML = `<div class="empty"><b>No matching services.</b></div>`;
+        host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching services.</b></div></td></tr>`;
         return;
       }
-      host.innerHTML = d.services.map(
-        (x) => row({
-          symbol: "server",
-          title: x.plan_name || x.product_name,
-          sub: `${x.account_name} \xB7 ${x.region_name} \xB7 ${x.node_name}`,
-          status: x.runtime_state || x.contract_status,
-          meta: `${x.provider_type} \xB7 ${x.identifier || x.id}`
-        })
-      ).join("");
+      host.innerHTML = d.services.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === "RUNNING" ? "RUNNING" : "OTHER"}" data-service-id="${esc(x.id)}" style="cursor:pointer">
+      <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
+      <td data-l="Account">${esc(x.account_name)}</td>
+      <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
+      <td data-l="Contract">${badge(x.contract_status)}</td>
+      <td data-l="Runtime">${badge(x.runtime_state || "UNKNOWN")}</td>
+      <td class="r" data-l="Manage"><button type="button" class="btn xs pri" data-service-id="${esc(x.id)}">Manage</button></td>
+    </tr>`).join("");
     } catch (e) {
-      host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+      host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
+  }
+  async function openServiceDetail(serviceId) {
+    activeServiceId = serviceId;
+    const modal = document.getElementById("modalAdminServiceDetail");
+    const body = document.getElementById("adminServiceBody");
+    if (!modal || !body) return;
+    body.innerHTML = '<div style="padding:28px;text-align:center;color:var(--ink2)"><div class="sk"><i></i><i></i><i></i></div></div>';
+    modal.hidden = false;
+    try {
+      const data = await api(`/api/v1/admin/services/${encodeURIComponent(serviceId)}`);
+      const s = data.service;
+      const titleEl = document.getElementById("adminServiceTitle");
+      const eyebrowEl = document.getElementById("adminServiceEyebrow");
+      if (titleEl) titleEl.textContent = `${s.plan_name || s.product_name} (${s.identifier || s.id.slice(0, 8)})`;
+      if (eyebrowEl) eyebrowEl.textContent = `${s.provider_type} Instance \xB7 ${s.account_name}`;
+      body.innerHTML = `
+      <!-- Status & Identity Bar -->
+      <div class="row nw" style="justify-content:space-between;align-items:center;background:var(--s2);padding:12px 14px;border-radius:10px">
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="tile ${s.runtime_state === "RUNNING" ? "good" : "neu"}">${hero("server")}</span>
+          <div>
+            <b>${esc(s.account_name)}</b>
+            <div class="faint" style="font-size:12px">Owner: ${esc(s.owner_name)} (${esc(s.owner_email)})</div>
+          </div>
+        </div>
+        <div class="row nw" style="gap:8px">
+          ${badge(s.contract_status)}
+          ${badge(s.runtime_state || "UNKNOWN")}
+        </div>
+      </div>
+
+      <!-- Quick Specs & Node Grid -->
+      <div class="g g4">
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">NODE & REGION</small>
+          <div style="font-size:14px;font-weight:700" class="mono">${esc(s.node_name)}</div>
+          <small class="faint">${esc(s.region_name)}</small>
+        </div>
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">ALLOCATED RAM</small>
+          <div style="font-size:14px;font-weight:700">${s.memory_limit_mb ? s.memory_limit_mb >= 1024 ? `${s.memory_limit_mb / 1024} GB` : `${s.memory_limit_mb} MB` : "Unspecified"}</div>
+          <small class="faint">${s.cpu_limit_pct || 100}% CPU Limit</small>
+        </div>
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">NVMe STORAGE</small>
+          <div style="font-size:14px;font-weight:700">${s.disk_limit_mb ? `${Math.round(s.disk_limit_mb / 1024)} GB` : "Unspecified"}</div>
+          <small class="faint">High IOPS SSD</small>
+        </div>
+        <div class="card flat" style="padding:10px 12px">
+          <small class="muted" style="font-size:11px;font-weight:700">EXTERNAL ID</small>
+          <div style="font-size:13px;font-weight:700" class="mono">${esc(s.external_id || "Pending")}</div>
+          <small class="faint">${esc(s.provider_instance_id || "local")}</small>
+        </div>
+      </div>
+
+      <!-- Live Provider Controls -->
+      <div class="card flat" style="padding:14px">
+        <div class="row nw" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div>
+            <div class="dh">HYPERVISOR POWER ACTIONS</div>
+            <small class="muted">Send audited power instructions to the hypervisor instance.</small>
+          </div>
+          <button type="button" class="btn xs" id="btnAdminSyncService" data-service-id="${esc(s.id)}">
+            ${hero("refresh-cw", "xs")} Sync State
+          </button>
+        </div>
+        <div class="row nw" style="gap:8px">
+          <button type="button" class="btn xs" id="btnPowerRestart" data-action="restart" data-service-id="${esc(s.id)}">
+            ${hero("refresh-cw", "xs")} Restart
+          </button>
+          <button type="button" class="btn xs good" id="btnPowerStart" data-action="start" data-service-id="${esc(s.id)}">
+            ${hero("play", "xs")} Start
+          </button>
+          <button type="button" class="btn xs bad" id="btnPowerStop" data-action="stop" data-service-id="${esc(s.id)}">
+            ${hero("square", "xs")} Stop
+          </button>
+        </div>
+        <div id="servicePowerFeedback" style="margin-top:8px" hidden></div>
+      </div>
+
+      <div class="card flat" style="padding:14px">
+        <div class="dh" style="margin-bottom:4px">RELINK TO PANEL SERVER</div>
+        <small class="muted">Use when the server was recreated on the panel under another id. Current link: <code>${esc(String(s.external_id || "none"))}</code></small>
+        <div class="row nw" style="gap:8px;margin-top:10px">
+          <div class="inp s pill" style="flex:1"><input id="relinkId" inputmode="numeric" placeholder="Panel server id (number)" aria-label="Panel server id"></div>
+          <button type="button" class="btn xs" id="btnRelink" data-service-id="${esc(s.id)}">Relink</button>
+        </div>
+      </div>
+
+      <!-- Lifecycle Management Form -->
+      <div class="card flat" style="padding:14px">
+        <div class="dh" style="margin-bottom:4px">LIFECYCLE SUSPENSION & TERMINATION</div>
+        <small class="muted" style="display:block;margin-bottom:10px">Administrative actions require audit rationale and recording.</small>
+
+        <div class="field" style="margin-bottom:10px">
+          <label for="adminServiceAuditReason">Audit reason (min 5 characters)</label>
+          <div class="inp"><input type="text" id="adminServiceAuditReason" placeholder="e.g. Chargeback investigation or Terms of Service violation"></div>
+        </div>
+
+        <div class="row nw" style="gap:8px;justify-content:flex-end">
+          ${s.contract_status === "ACTIVE" ? `
+            <button type="button" class="btn xs bad" id="btnAdminSuspend" data-service-id="${esc(s.id)}">Suspend Service</button>
+          ` : s.contract_status === "SUSPENDED" ? `
+            <button type="button" class="btn xs good" id="btnAdminUnsuspend" data-service-id="${esc(s.id)}">Unsuspend Service</button>
+          ` : ""}
+          ${s.contract_status !== "TERMINATED" ? `
+            <button type="button" class="btn xs bad" id="btnAdminTerminate" data-service-id="${esc(s.id)}">Terminate Service</button>
+          ` : ""}
+        </div>
+      </div>
+
+      <!-- Recent Audit Events -->
+      <div>
+        <div class="dh" style="margin-bottom:6px">AUDIT & LIFECYCLE HISTORY</div>
+        <div class="table-scroll" style="max-height:160px">
+          <table class="tbl rsp">
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Actor Type</th>
+                <th class="r">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(data.audit || []).length ? data.audit.map((a) => `<tr>
+                <td><b>${esc(a.action)}</b></td>
+                <td><span class="pill sm ${a.actor_type === "STAFF" ? "pri" : ""}">${esc(a.actor_type)}</span></td>
+                <td class="r faint" style="font-size:12px">${formatDate(a.created_at)}</td>
+              </tr>`).join("") : '<tr><td colspan="3"><div class="empty"><b>No audit events recorded for this service.</b></div></td></tr>'}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+      wireServiceDetailEvents(s.id);
+    } catch (err) {
+      body.innerHTML = `<div class="alert bad"><div><b>Error loading service details</b><span>${esc(err.message)}</span></div></div>`;
+    }
+  }
+  function wireServiceDetailEvents(serviceId) {
+    const syncBtn = document.getElementById("btnAdminSyncService");
+    const powerRestart = document.getElementById("btnPowerRestart");
+    const powerStart = document.getElementById("btnPowerStart");
+    const powerStop = document.getElementById("btnPowerStop");
+    const suspendBtn = document.getElementById("btnAdminSuspend");
+    const unsuspendBtn = document.getElementById("btnAdminUnsuspend");
+    const terminateBtn = document.getElementById("btnAdminTerminate");
+    const feedback = document.getElementById("servicePowerFeedback");
+    document.getElementById("btnRelink")?.addEventListener("click", async () => {
+      const value = document.getElementById("relinkId")?.value.trim() || "";
+      if (!value || !window.confirm(`Link this service to panel server ${value}?`)) return;
+      try {
+        await api(`/api/v1/admin/services/${encodeURIComponent(serviceId)}/relink`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ panelServerId: value }) });
+        toast("Service relinked", "good");
+      } catch (e) {
+        toast(e?.message || "Relink failed", "bad");
+      }
+    });
+    const executePower = async (action) => {
+      if (!feedback) return;
+      feedback.hidden = false;
+      feedback.className = "alert info";
+      feedback.innerHTML = `<span>Sending <b>${action}</b> signal to hypervisor\u2026</span>`;
+      try {
+        const res = await api(
+          `/api/v1/admin/services/${encodeURIComponent(serviceId)}/power`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action })
+          }
+        );
+        feedback.className = "alert good";
+        feedback.innerHTML = `<span>Power action <b>${res.action}</b> acknowledged. State: <b>${res.runtimeState}</b>.</span>`;
+        setTimeout(() => openServiceDetail(serviceId), 1200);
+      } catch (err) {
+        feedback.className = "alert bad";
+        feedback.innerHTML = `<span>Power command failed: ${esc(err.message)}</span>`;
+      }
+    };
+    if (powerRestart) powerRestart.addEventListener("click", () => executePower("restart"));
+    if (powerStart) powerStart.addEventListener("click", () => executePower("start"));
+    if (powerStop) powerStop.addEventListener("click", () => executePower("stop"));
+    if (syncBtn) {
+      syncBtn.addEventListener("click", async () => {
+        if (!feedback) return;
+        feedback.hidden = false;
+        feedback.className = "alert info";
+        feedback.innerHTML = `<span>Synchronizing state with Pterodactyl adapter\u2026</span>`;
+        try {
+          const res = await api(
+            `/api/v1/admin/services/${encodeURIComponent(serviceId)}/sync`,
+            { method: "POST" }
+          );
+          feedback.className = "alert good";
+          feedback.innerHTML = `<span>Synchronized. Current runtime state: <b>${res.runtimeState}</b>.</span>`;
+          setTimeout(() => openServiceDetail(serviceId), 1e3);
+        } catch (err) {
+          feedback.className = "alert bad";
+          feedback.innerHTML = `<span>Sync failed: ${esc(err.message)}</span>`;
+        }
+      });
+    }
+    const handleLifecycle = async (action) => {
+      const reasonInput = document.getElementById("adminServiceAuditReason");
+      const reason = reasonInput?.value.trim() || "";
+      if (reason.length < 5) {
+        alert("Please enter an audit reason of at least 5 characters.");
+        return;
+      }
+      if (!confirm(`Are you sure you want to ${action.toUpperCase()} this service?`)) return;
+      try {
+        await api(`/api/v1/admin/services/${encodeURIComponent(serviceId)}/${action}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason })
+        });
+        alert(`Service ${action} completed successfully.`);
+        await openServiceDetail(serviceId);
+        await renderServices();
+      } catch (err) {
+        alert(`Operation failed: ${err.message}`);
+      }
+    };
+    if (suspendBtn) suspendBtn.addEventListener("click", () => handleLifecycle("suspend"));
+    if (unsuspendBtn) unsuspendBtn.addEventListener("click", () => handleLifecycle("unsuspend"));
+    if (terminateBtn) terminateBtn.addEventListener("click", () => handleLifecycle("terminate"));
+  }
+
+  // src/frontend/admin/pages/catalog/index.ts
+  var products = [];
+  var inventory = null;
+  var cachedCategories = [];
+  var currentSearch = "";
+  var currentTab = "all";
+  var statusTone = (status) => status === "ACTIVE" ? "good" : status === "RETIRED" ? "bad" : "warn";
+  function planRow(plan, _product) {
+    const price = plan.prices[0];
+    const egg = inventory?.eggs.find((item) => item.id === plan.resources.eggId);
+    const mapping = plan.resources.eggId ? egg ? `<span class="pill good d">Egg #${egg.id}: ${esc(egg.name)}</span>` : `<span class="pill bad d">Egg #${plan.resources.eggId} missing</span>` : '<span class="pill warn d">No provider mapping</span>';
+    const memoryStr = plan.resources.memoryMb >= 1024 ? `${plan.resources.memoryMb / 1024} GB` : `${plan.resources.memoryMb} MB`;
+    const diskStr = Math.round(plan.resources.diskMb / 1024) >= 1 ? `${Math.round(plan.resources.diskMb / 1024)} GB` : `${plan.resources.diskMb} MB`;
+    return `<tr class="h" data-plan-id="${esc(plan.id)}">
+    <td data-l="Plan version">
+      <b>${esc(plan.name)}</b>
+      <div class="faint mono" style="font-size:12px">v${plan.version} \xB7 ${esc(plan.id)}</div>
+    </td>
+    <td data-l="Resources">
+      <b>${memoryStr} RAM</b> \xB7 <span class="muted">${plan.resources.cpuPct}% CPU</span> \xB7 <span class="muted">${diskStr} NVMe</span>
+      <div class="faint" style="font-size:12px">${plan.resources.databases} DB \xB7 ${plan.resources.backups} backups</div>
+    </td>
+    <td data-l="Monthly price">
+      <b class="mono" style="font-size:14px">${price ? money(price.priceMinorUnits, price.currency) : "\u2014"}</b>
+      <div class="faint" style="font-size:12px">${price?.interval || "No price set"}</div>
+    </td>
+    <td data-l="Provider egg mapping">
+      ${mapping}
+    </td>
+    <td data-l="Status">
+      <span class="pill ${statusTone(plan.status)}">${esc(plan.status)}</span>
+    </td>
+    <td class="r" data-l="Actions">
+      <div class="row nw" style="justify-content:flex-end;gap:6px">
+        ${plan.status !== "ACTIVE" ? `<button class="btn xs good" data-plan-status="ACTIVE" data-plan-id="${esc(plan.id)}">Activate</button>` : ""}
+        ${plan.status !== "RETIRED" ? `<button class="btn xs bad" data-plan-status="RETIRED" data-plan-id="${esc(plan.id)}">Retire</button>` : ""}
+      </div>
+    </td>
+  </tr>`;
+  }
+  function renderProducts(query = "") {
+    const host = document.getElementById("catalogProducts");
+    if (!host) return;
+    const q = query.trim().toLowerCase();
+    const visible = products.filter((p) => {
+      if (!q) return true;
+      const matchProduct = p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q) || p.category.name.toLowerCase().includes(q);
+      const matchPlan = p.plans.some((pl) => pl.name.toLowerCase().includes(q) || pl.id.toLowerCase().includes(q));
+      return matchProduct || matchPlan;
+    });
+    if (!visible.length) {
+      host.innerHTML = products.length ? `<div class="card"><div class="empty">${hero("search")}<b style="margin-top:6px">No products or plans match "${esc(query)}"</b><p>Check spelling or search by product slug or category.</p></div></div>` : `<div class="card"><div class="empty">${hero("cube")}<b style="margin-top:6px">No catalog products configured</b><p>Create a product first, then configure verified plan versions before publishing.</p><button class="btn s pri" type="button" data-new-product style="margin-top:10px">${hero("plus", "xs")}Create product</button></div></div>`;
+      return;
+    }
+    host.innerHTML = visible.map((product) => {
+      const plansToShow = q ? product.plans.filter((pl) => pl.name.toLowerCase().includes(q) || pl.id.toLowerCase().includes(q) || product.name.toLowerCase().includes(q)) : product.plans;
+      return `<article class="card catalog-product-card" id="product-${esc(product.id)}">
+      <div class="card-head" style="margin-bottom:14px">
+        <span class="tile ${product.providerType === "PTERODACTYL" ? "acc" : "neu"}">${hero("server")}</span>
+        <div>
+          <h2>${esc(product.name)}</h2>
+          <p>${esc(product.category.name)} \xB7 ${esc(product.providerType)} \xB7 <code class="mono">${esc(product.slug)}</code></p>
+        </div>
+        <span class="pill ${product.isPublished ? "good" : "warn"} d">${product.isPublished ? "Published" : "Draft (Private)"}</span>
+        <div class="row nw" style="gap:6px">
+          <button class="btn xs ${product.isPublished ? "bad" : "pri"}" data-product-publish="${product.isPublished ? "false" : "true"}" data-product-id="${esc(product.id)}">
+            ${product.isPublished ? "Unpublish" : "Publish"}
+          </button>
+          <button class="btn xs" data-new-plan-product="${esc(product.id)}">
+            ${hero("plus", "xs")}New plan
+          </button>
+        </div>
+      </div>
+      ${plansToShow.length ? `
+        <div class="table-scroll">
+          <table class="tbl rsp" data-c="Catalog plans">
+            <thead>
+              <tr>
+                <th>Plan version</th>
+                <th>Resources</th>
+                <th>Monthly price</th>
+                <th>Provider egg mapping</th>
+                <th>Status</th>
+                <th class="r">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${plansToShow.map((plan) => planRow(plan, product)).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `
+        <div class="es" style="padding:22px 14px">
+          <span class="tile neu">${hero("server")}</span>
+          <h4>No plan versions</h4>
+          <p>Add at least one plan with RAM, CPU and disk specs to make this product orderable.</p>
+          <button class="btn s" data-new-plan-product="${esc(product.id)}" style="margin-top:6px">
+            ${hero("plus", "xs")}Create first plan
+          </button>
+        </div>
+      `}
+    </article>`;
+    }).join("");
+  }
+  function renderInventory(query = "") {
+    const host = document.getElementById("providerInventory");
+    const summary = document.getElementById("providerSummary");
+    if (!host || !summary) return;
+    if (!inventory) {
+      summary.innerHTML = '<span class="pill bad d">Disconnected</span>';
+      host.innerHTML = `<div class="alert bad">
+      <span class="ic">${hero("shield")}</span>
+      <div>
+        <b>Provider inventory unavailable</b>
+        <span>The catalog operates fail-closed. Real provider mappings cannot be validated without Application API connection.</span>
+      </div>
+    </div>`;
+      return;
+    }
+    summary.innerHTML = `
+    <span class="pill good d">Connected</span>
+    <span class="pill info">${inventory.nodes.length} nodes</span>
+    <span class="pill">${inventory.eggs.length} eggs</span>
+  `;
+    const q = query.trim().toLowerCase();
+    const visibleNodes = q ? inventory.nodes.filter((n) => n.name.toLowerCase().includes(q) || n.fqdn.toLowerCase().includes(q)) : inventory.nodes;
+    const nodeCards = visibleNodes.map((node) => {
+      const memoryPct = node.memoryMb ? Math.min(100, Math.round(node.allocatedMemoryMb / node.memoryMb * 100)) : 0;
+      const diskPct = node.diskMb ? Math.min(100, Math.round(node.allocatedDiskMb / node.diskMb * 100)) : 0;
+      return `<div class="card flat">
+      <div class="ch" style="margin-bottom:12px">
+        <span class="tile ${node.maintenanceMode ? "warn" : "good"} sm">${hero("server")}</span>
+        <div class="tx">
+          <h3 style="font-size:15px">${esc(node.name)}</h3>
+          <p class="mono" style="font-size:12px">${esc(node.fqdn)} \xB7 Loc #${node.locationId}</p>
+        </div>
+        <span class="pill ${node.maintenanceMode ? "warn" : "good"} d">${node.maintenanceMode ? "Maintenance" : "Online"}</span>
+      </div>
+      <div class="col" style="gap:10px">
+        <div>
+          <div class="row nw" style="justify-content:space-between;font-weight:650;font-size:12px;margin-bottom:4px">
+            <span class="muted">Allocated RAM</span>
+            <span class="mono">${node.allocatedMemoryMb} / ${node.memoryMb} MB (${memoryPct}%)</span>
+          </div>
+          <div class="mtr ${memoryPct > 85 ? "bad" : memoryPct > 65 ? "warn" : "good"}"><b style="width:${memoryPct}%"></b></div>
+        </div>
+        <div>
+          <div class="row nw" style="justify-content:space-between;font-weight:650;font-size:12px;margin-bottom:4px">
+            <span class="muted">Allocated Disk</span>
+            <span class="mono">${node.allocatedDiskMb} / ${node.diskMb} MB (${diskPct}%)</span>
+          </div>
+          <div class="mtr ${diskPct > 85 ? "bad" : diskPct > 65 ? "warn" : "good"}"><b style="width:${diskPct}%"></b></div>
+        </div>
+      </div>
+    </div>`;
+    }).join("");
+    const visibleEggs = q ? inventory.eggs.filter((e) => e.name.toLowerCase().includes(q) || String(e.id).includes(q) || e.dockerImage && e.dockerImage.toLowerCase().includes(q)) : inventory.eggs;
+    const eggRows = visibleEggs.map((egg) => {
+      const nest = inventory?.nests.find((item) => item.id === egg.nestId);
+      const used = products.some((product) => product.plans.some((plan) => plan.resources.eggId === egg.id));
+      return `<tr class="h">
+      <td data-l="Egg & Nest">
+        <b>${esc(egg.name)}</b>
+        <div class="faint" style="font-size:12px">${esc(nest?.name || `Nest #${egg.nestId}`)}</div>
+      </td>
+      <td data-l="Egg ID" class="mono"><code>#${egg.id}</code></td>
+      <td data-l="Docker image" class="mono faint" style="font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis">${esc(egg.dockerImage || "Provider default")}</td>
+      <td class="r" data-l="Catalog mapping">
+        <div class="row nw" style="justify-content:flex-end;gap:6px">
+          <span class="pill ${used ? "good d" : ""}">${used ? "Mapped" : "Unmapped"}</span>
+          <button class="btn xs pri" data-create-from-egg="${egg.id}">Create product from egg</button>
+        </div>
+      </td>
+    </tr>`;
+    }).join("");
+    host.innerHTML = `
+    <div style="margin-bottom:18px">
+      <div class="dh" style="margin-bottom:10px">PROVISIONING HYPERVISOR NODES</div>
+      <div class="g g2">${nodeCards || '<div class="empty"><b>No nodes match filter.</b></div>'}</div>
+    </div>
+    <div>
+      <div class="dh" style="margin-bottom:10px">DISCOVERED SERVICE EGGS & DOCKER ENVIRONMENTS</div>
+      <div class="table-scroll">
+        <table class="tbl rsp">
+          <thead>
+            <tr>
+              <th>Egg & Nest</th>
+              <th>Egg ID</th>
+              <th>Docker default image</th>
+              <th class="r">Catalog mapping</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${eggRows.length ? eggRows : '<tr><td colspan="4"><div class="empty"><b>No provider eggs match filter.</b></div></td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  }
+  function hydrateForms(categories) {
+    cachedCategories = categories;
+    const categorySelect = document.getElementById("catalogProductCategory");
+    if (categorySelect) {
+      categorySelect.innerHTML = categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+    }
+    const eggCategorySelect = document.getElementById("eggProductCategory");
+    if (eggCategorySelect) {
+      eggCategorySelect.innerHTML = categories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+    }
+    const existingProductSelect = document.getElementById("eggExistingProductSelect");
+    if (existingProductSelect) {
+      existingProductSelect.innerHTML = products.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.slug)})</option>`).join("");
+    }
+    const productSelect = document.getElementById("catalogPlanProduct");
+    if (productSelect) {
+      productSelect.innerHTML = products.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
+    }
+    const eggSelect = document.getElementById("catalogPlanEgg");
+    if (eggSelect) {
+      eggSelect.innerHTML = '<option value="">Select a verified provider egg</option>' + (inventory?.eggs || []).map((egg) => {
+        const nest = inventory?.nests.find((item) => item.id === egg.nestId);
+        return `<option value="${egg.id}" data-image="${esc(egg.dockerImage || "")}">${esc(nest?.name || "Nest")} \xB7 ${esc(egg.name)} (#${egg.id})</option>`;
+      }).join("");
+    }
+  }
+  function filterCatalog(q = "") {
+    currentSearch = q;
+    renderProducts(currentSearch);
+    renderInventory(currentSearch);
+  }
+  function setCatalogTab(tab) {
+    currentTab = tab;
+    const prodSec = document.getElementById("catalogProductsSection");
+    const invSec = document.getElementById("catalogInventorySection");
+    if (prodSec) prodSec.hidden = tab === "inventory";
+    if (invSec) invSec.hidden = tab === "products";
+  }
+  function initCatalogEvents() {
+    const seg = document.getElementById("catalogViewSeg");
+    if (seg && !seg.dataset.bound) {
+      seg.dataset.bound = "true";
+      seg.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-tab]");
+        if (!btn) return;
+        seg.querySelectorAll("button").forEach((b) => {
+          b.classList.remove("on");
+          b.setAttribute("aria-selected", "false");
+        });
+        btn.classList.add("on");
+        btn.setAttribute("aria-selected", "true");
+        setCatalogTab(btn.dataset.tab || "all");
+      });
+    }
+    const searchInput = document.getElementById("catalogSearchInput");
+    if (searchInput && !searchInput.dataset.bound) {
+      searchInput.dataset.bound = "true";
+      let timer;
+      searchInput.addEventListener("input", () => {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => filterCatalog(searchInput.value), 180);
+      });
+    }
+  }
+  async function renderCatalog() {
+    initCatalogEvents();
+    const productHost = document.getElementById("catalogProducts");
+    const inventoryHost = document.getElementById("providerInventory");
+    if (productHost && !products.length) productHost.innerHTML = '<div class="sk"><i></i><i></i><i></i></div>';
+    if (inventoryHost && !inventory) inventoryHost.innerHTML = '<div class="sk"><i></i><i></i></div>';
+    const [catalogResult, categoriesResult, inventoryResult] = await Promise.allSettled([
+      api("/api/v1/admin/catalog/products"),
+      api("/api/v1/catalog/categories"),
+      api("/api/v1/admin/providers/pterodactyl/inventory")
+    ]);
+    if (catalogResult.status === "fulfilled") {
+      products = catalogResult.value.products;
+    } else if (productHost) {
+      productHost.innerHTML = `<div class="alert bad"><div><b>Catalog unavailable</b><span>${esc(catalogResult.reason?.message || "Request failed")}</span></div></div>`;
+    }
+    inventory = inventoryResult.status === "fulfilled" ? inventoryResult.value.inventory : null;
+    renderProducts(currentSearch);
+    renderInventory(currentSearch);
+    setCatalogTab(currentTab);
+    hydrateForms(categoriesResult.status === "fulfilled" ? categoriesResult.value.categories : []);
+  }
+  function openProductCreator() {
+    const modal = document.getElementById("modalCatalogProduct");
+    if (modal) modal.hidden = false;
+  }
+  function openPlanCreator(productId) {
+    const modal = document.getElementById("modalCatalogPlan");
+    const select = document.getElementById("catalogPlanProduct");
+    if (select && productId) select.value = productId;
+    if (modal) modal.hidden = false;
+  }
+  async function setProductPublished(productId, isPublished) {
+    await api(`/api/v1/admin/catalog/products/${encodeURIComponent(productId)}/publish`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPublished })
+    });
+    await renderCatalog();
+  }
+  async function setPlanStatus(planId, status) {
+    await api(`/api/v1/admin/catalog/plans/${encodeURIComponent(planId)}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status })
+    });
+    await renderCatalog();
+  }
+  async function submitProduct(form) {
+    const data = new FormData(form);
+    await api("/api/v1/admin/catalog/products", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        categoryId: data.get("categoryId"),
+        slug: data.get("slug"),
+        name: data.get("name"),
+        providerType: data.get("providerType"),
+        isPublished: false
+      })
+    });
+    form.reset();
+    const modal = document.getElementById("modalCatalogProduct");
+    if (modal) modal.hidden = true;
+    await renderCatalog();
+  }
+  async function submitPlan(form) {
+    const data = new FormData(form);
+    const eggSelect = document.getElementById("catalogPlanEgg");
+    const selectedEgg = eggSelect.selectedOptions[0];
+    const price = Math.round(Number(data.get("monthlyPrice")) * 100);
+    await api("/api/v1/admin/catalog/plans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productId: data.get("productId"),
+        name: data.get("name"),
+        resourceSpecs: {
+          memoryMb: Number(data.get("memoryMb")),
+          cpuPct: Number(data.get("cpuPct")),
+          diskMb: Number(data.get("diskMb")),
+          databases: Number(data.get("databases")),
+          backups: Number(data.get("backups")),
+          eggId: Number(data.get("eggId")),
+          dockerImage: selectedEgg?.dataset.image || void 0
+        },
+        prices: [{ currency: "EUR", interval: "MONTHLY", priceMinorUnits: price, setupFeeMinorUnits: 0 }]
+      })
+    });
+    form.reset();
+    const modal = document.getElementById("modalCatalogPlan");
+    if (modal) modal.hidden = true;
+    await renderCatalog();
+  }
+  function openCreateProductFromEgg(eggId) {
+    const egg = inventory?.eggs.find((e) => e.id === eggId);
+    if (!egg) {
+      alert(`Egg #${eggId} not found in inventory.`);
+      return;
+    }
+    const nest = inventory?.nests.find((n) => n.id === egg.nestId);
+    const modal = document.getElementById("modalCreateProductFromEgg");
+    if (!modal) return;
+    const idInput = document.getElementById("eggModalId");
+    const imageInput = document.getElementById("eggModalDockerImage");
+    const nameEl = document.getElementById("eggModalName");
+    const metaEl = document.getElementById("eggModalMeta");
+    const prodNameInput = document.getElementById("eggProductName");
+    const prodSlugInput = document.getElementById("eggProductSlug");
+    const planNameInput = document.getElementById("eggPlanName");
+    const categorySelect = document.getElementById("eggProductCategory");
+    const existingSelect = document.getElementById("eggExistingProductSelect");
+    const modeSelect = document.getElementById("eggTargetProductMode");
+    const newFields = document.getElementById("eggNewProductFields");
+    const existingFields = document.getElementById("eggExistingProductFields");
+    if (idInput) idInput.value = String(egg.id);
+    if (imageInput) imageInput.value = egg.dockerImage || "";
+    if (nameEl) nameEl.textContent = egg.name;
+    if (metaEl) metaEl.textContent = `Nest: ${nest?.name || "Default"} \xB7 Egg #${egg.id}`;
+    const cleanName = egg.name.replace(/[^\w\s-]/g, "").trim();
+    const slugified = cleanName.toLowerCase().replace(/\s+/g, "-");
+    if (prodNameInput) prodNameInput.value = `${cleanName} Hosting`;
+    if (prodSlugInput) prodSlugInput.value = slugified;
+    if (planNameInput) planNameInput.value = `${cleanName} 4GB Performance`;
+    if (categorySelect && cachedCategories.length) {
+      categorySelect.innerHTML = cachedCategories.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+    }
+    if (existingSelect) {
+      existingSelect.innerHTML = products.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} (${esc(p.slug)})</option>`).join("");
+    }
+    if (modeSelect) {
+      modeSelect.value = "NEW";
+      modeSelect.onchange = () => {
+        const isNew = modeSelect.value === "NEW";
+        if (newFields) newFields.hidden = !isNew;
+        if (existingFields) existingFields.hidden = isNew;
+        if (prodNameInput) prodNameInput.required = isNew;
+        if (prodSlugInput) prodSlugInput.required = isNew;
+      };
+    }
+    if (newFields) newFields.hidden = false;
+    if (existingFields) existingFields.hidden = true;
+    modal.hidden = false;
+  }
+  async function submitProductFromEgg(form) {
+    const data = new FormData(form);
+    const mode = data.get("productMode");
+    const eggId = Number(data.get("eggId"));
+    const dockerImage = data.get("dockerImage") || void 0;
+    const planName = data.get("planName");
+    const memoryMb = Number(data.get("memoryMb"));
+    const cpuPct = Number(data.get("cpuPct"));
+    const diskMb = Number(data.get("diskMb"));
+    const databases = Number(data.get("databases"));
+    const backups = Number(data.get("backups"));
+    const publishImmediate = data.get("publishImmediate") === "on";
+    let productId = data.get("existingProductId");
+    if (mode === "NEW") {
+      const createdProduct = await api("/api/v1/admin/catalog/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          categoryId: data.get("categoryId"),
+          slug: data.get("productSlug"),
+          name: data.get("productName"),
+          providerType: "PTERODACTYL",
+          isPublished: false
+        })
+      });
+      productId = createdProduct.id;
+    }
+    const prices = [];
+    const monthlyPrice = Number(data.get("priceMonthly"));
+    if (monthlyPrice >= 0) {
+      prices.push({
+        currency: "EUR",
+        interval: "MONTHLY",
+        priceMinorUnits: Math.round(monthlyPrice * 100),
+        setupFeeMinorUnits: 0
+      });
+    }
+    const quarterlyPrice = Number(data.get("priceQuarterly"));
+    if (quarterlyPrice > 0) {
+      prices.push({
+        currency: "EUR",
+        interval: "QUARTERLY",
+        priceMinorUnits: Math.round(quarterlyPrice * 100),
+        setupFeeMinorUnits: 0
+      });
+    }
+    const annualPrice = Number(data.get("priceAnnual"));
+    if (annualPrice > 0) {
+      prices.push({
+        currency: "EUR",
+        interval: "ANNUAL",
+        priceMinorUnits: Math.round(annualPrice * 100),
+        setupFeeMinorUnits: 0
+      });
+    }
+    await api("/api/v1/admin/catalog/plans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productId,
+        name: planName,
+        resourceSpecs: {
+          memoryMb,
+          cpuPct,
+          diskMb,
+          databases,
+          backups,
+          eggId,
+          dockerImage
+        },
+        prices
+      })
+    });
+    if (publishImmediate) {
+      try {
+        await api(`/api/v1/admin/catalog/products/${encodeURIComponent(productId)}/publish`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isPublished: true })
+        });
+      } catch (err) {
+        console.warn("Auto-publish failed, product left as draft:", err);
+      }
+    }
+    form.reset();
+    const modal = document.getElementById("modalCreateProductFromEgg");
+    if (modal) modal.hidden = true;
+    await renderCatalog();
   }
 
   // src/frontend/core/utils/markdown.ts
@@ -866,21 +1899,12 @@
     try {
       const d = await api(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}`);
       if (!d.tickets.length) {
-        host.innerHTML = `<div class="empty"><b>No matching support tickets.</b></div>`;
+        host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
         return;
       }
-      host.innerHTML = d.tickets.map(
-        (x) => row({
-          symbol: "support",
-          title: x.subject,
-          sub: `${x.account_name} \xB7 ${x.customer_name} \xB7 ${x.message_count} messages`,
-          status: `${x.priority} \xB7 ${x.status}`,
-          meta: `Updated ${formatDate(x.updated_at)}`,
-          dataAttr: `data-ticket-id="${esc(x.id)}"`
-        })
-      ).join("");
+      host.innerHTML = d.tickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === "WAITING_STAFF" ? "WAITING_STAFF" : "OPEN")}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
     } catch (e) {
-      host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
   }
   async function openTicketDetail(ticketId) {
@@ -903,7 +1927,7 @@
         (m) => `
         <div style="padding:10px 14px;border-radius:12px;background:${m.is_staff_internal_note ? "var(--warn-bg)" : m.is_staff_author ? "var(--accent-bg)" : "var(--s2)"};border:1px solid ${m.is_staff_internal_note ? "var(--warn)" : "transparent"}">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px">
-            <b>${esc(m.author_name)} ${m.is_staff_internal_note ? '<span class="badge warn s">INTERNAL NOTE</span>' : m.is_staff_author ? '<span class="badge accent s">STAFF</span>' : ""}</b>
+            <b>${esc(m.author_name)} ${m.is_staff_internal_note ? '<span class="pill warn" style="height:22px;padding:0 8px;font-size:11px">INTERNAL NOTE</span>' : m.is_staff_author ? '<span class="pill acc" style="height:22px;padding:0 8px;font-size:11px">STAFF</span>' : ""}</b>
             <span class="muted">${formatDate(m.created_at)}</span>
           </div>
           ${renderMarkdown(m.body)}
@@ -940,20 +1964,12 @@
     try {
       const d = await api(`/api/v1/admin/audit?q=${encodeURIComponent(q)}`);
       if (!d.logs.length) {
-        host.innerHTML = `<div class="empty"><b>No matching audit events.</b></div>`;
+        host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching audit events.</b></div></td></tr>`;
         return;
       }
-      host.innerHTML = d.logs.map(
-        (x) => row({
-          symbol: "shield",
-          title: x.action,
-          sub: `${x.actor_name || x.actor_type} \xB7 ${x.account_name || "Platform"} \xB7 ${x.resource_type} ${x.resource_id}`,
-          status: x.actor_type,
-          meta: formatDate(x.created_at)
-        })
-      ).join("");
+      host.innerHTML = d.logs.map((x) => `<tr class="h"><td data-l="Time" class="muted mono">${formatDate(x.created_at)}</td><td data-l="Actor"><b>${esc(x.actor_name || x.actor_type)}</b><small>${esc(x.actor_email || x.account_name || "Platform")}</small></td><td data-l="Action">${badge(x.action)}</td><td data-l="Target" class="mono">${esc(x.resource_type)} ${esc(x.resource_id)}</td><td data-l="IP" class="mono muted">${esc(x.ip_address || "\u2014")}</td></tr>`).join("");
     } catch (e) {
-      host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
   }
 
@@ -964,23 +1980,12 @@
     try {
       const d = await api(`/api/v1/admin/staff?q=${encodeURIComponent(q)}`);
       if (!d.staff.length) {
-        host.innerHTML = `<div class="empty"><b>No matching staff identities.</b></div>`;
+        host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching staff identities.</b></div></td></tr>`;
         return;
       }
-      host.innerHTML = d.staff.map(
-        (x) => row({
-          symbol: "users",
-          title: x.name,
-          sub: `${x.email} \xB7 MFA ${x.mfa_enabled ? "enabled" : "required"}`,
-          status: `${x.role} \xB7 ${x.status}`,
-          meta: `Updated ${formatDate(x.updated_at)}`,
-          dataAttr: `data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(
-            x.role
-          )}" data-staff-status="${esc(x.status)}"`
-        })
-      ).join("");
+      host.innerHTML = d.staff.map((x) => `<tr class="h"><td data-l="Member"><div class="row nw"><span class="av v">${esc(x.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase())}</span><div><b>${esc(x.name)}</b><small>${esc(x.email)}</small></div></div></td><td data-l="Role">${badge(x.role)}</td><td data-l="MFA">${badge(x.mfa_enabled ? "READY" : "NOT SET UP")}</td><td data-l="Access">${badge(x.status)}</td><td data-l="Action"><button class="btn xs" data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(x.role)}" data-staff-status="${esc(x.status)}">Edit</button></td></tr>`).join("");
     } catch (e) {
-      host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
   }
   function openStaffEditor(userId, name, currentRole, currentStatus) {
@@ -1000,6 +2005,195 @@
     if (modal) modal.hidden = false;
   }
 
+  // src/frontend/admin/pages/operations/index.ts
+  function money2(value, currency = "EUR") {
+    return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(value || 0) / 100);
+  }
+  function empty(message) {
+    return `<div class="es"><h4>${esc(message)}</h4><p>No persisted records match the current filter.</p></div>`;
+  }
+  function metric(label, value, icon, tone = "", detail = "") {
+    return `<article class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b>${detail ? `<small>${esc(detail)}</small>` : ""}</div><span class="tile ${tone}">${hero(icon)}</span></article>`;
+  }
+  async function renderOrders(q = "") {
+    const host = document.querySelector("#ordersList");
+    if (!host) return;
+    try {
+      const { orders } = await api(`/api/v1/admin/orders?q=${encodeURIComponent(q)}`);
+      const metrics = document.querySelector("#orderMetrics");
+      if (metrics) {
+        const pending = orders.filter((x) => /PENDING|CREATED|AWAITING|PROCESSING/.test(String(x.status))).length;
+        const settled = orders.filter((x) => /PAID|FULFILLED|COMPLETED/.test(String(x.status))).length;
+        const attention = orders.filter((x) => /FAILED|ANOMALY|CANCELLED/.test(String(x.status))).length;
+        metrics.innerHTML = metric("Loaded orders", orders.length, "cube") + metric("Settled", settled, "check", "good") + metric("In progress", pending, "refresh", pending ? "warn" : "good") + metric("Needs attention", attention, "warning", attention ? "bad" : "good");
+      }
+      host.innerHTML = orders.length ? orders.map((x) => `<tr>
+      <td data-l="Order"><b>${esc(x.id)}</b><small>${formatDate(x.created_at)}</small></td>
+      <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
+      <td data-l="Items">${Number(x.item_count)}</td><td data-l="Total"><b>${money2(x.total_minor_units, x.currency)}</b></td>
+      <td data-l="Status">${badge(x.status)}</td></tr>`).join("") : `<tr><td colspan="5">${empty("No orders")}</td></tr>`;
+    } catch (error) {
+      host.innerHTML = `<tr><td colspan="5">${empty(error.message)}</td></tr>`;
+    }
+  }
+  async function renderBilling(q = "") {
+    const invoiceHost = document.querySelector("#invoicesList");
+    const creditHost = document.querySelector("#creditNotesList");
+    if (!invoiceHost || !creditHost) return;
+    try {
+      const [invoiceData, creditData] = await Promise.all([
+        api(`/api/v1/admin/invoices?q=${encodeURIComponent(q)}`),
+        api(`/api/v1/admin/credit-notes?q=${encodeURIComponent(q)}`)
+      ]);
+      const metrics = document.querySelector("#billingMetrics");
+      if (metrics) {
+        const paid = invoiceData.invoices.reduce((sum, x) => sum + Number(x.amount_paid_minor_units || 0), 0);
+        const outstanding = invoiceData.invoices.reduce((sum, x) => sum + Math.max(0, Number(x.total_minor_units || 0) - Number(x.amount_paid_minor_units || 0)), 0);
+        const credited = creditData.creditNotes.reduce((sum, x) => sum + Number(x.amount_minor_units || 0), 0);
+        const currency = invoiceData.invoices[0]?.currency || creditData.creditNotes[0]?.currency || "EUR";
+        metrics.innerHTML = metric("Loaded invoices", invoiceData.invoices.length, "document") + metric("Paid", money2(paid, currency), "check", "good") + metric("Outstanding", money2(outstanding, currency), "warning", outstanding ? "warn" : "good") + metric("Credits issued", money2(credited, currency), "credit", credited ? "info" : "");
+      }
+      invoiceHost.innerHTML = invoiceData.invoices.length ? invoiceData.invoices.map((x) => `<tr>
+      <td data-l="Invoice"><b>${esc(x.invoice_number || x.id)}</b><small>${esc(x.id)}</small></td>
+      <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
+      <td data-l="Due">${x.due_date ? formatDate(x.due_date) : "\u2014"}</td>
+      <td data-l="Paid">${money2(x.amount_paid_minor_units, x.currency)} / <b>${money2(x.total_minor_units, x.currency)}</b></td>
+      <td data-l="Status">${badge(x.status)}</td>
+      <td data-l="Action">${x.status === "PAID" ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}">Refund</button>` : ""}</td></tr>`).join("") : `<tr><td colspan="6">${empty("No invoices")}</td></tr>`;
+      creditHost.innerHTML = creditData.creditNotes.length ? creditData.creditNotes.map((x) => `<tr>
+      <td data-l="Credit note"><b>${esc(x.credit_note_number)}</b><small>${esc(x.id)}</small></td>
+      <td data-l="Invoice">${esc(x.invoice_number)}</td><td data-l="Account">${esc(x.account_name)}</td>
+      <td data-l="Amount"><b>${money2(x.amount_minor_units, x.currency)}</b></td><td data-l="Reason">${esc(x.reason)}</td>
+      <td data-l="Created">${formatDate(x.created_at)}</td></tr>`).join("") : `<tr><td colspan="6">${empty("No credit notes")}</td></tr>`;
+    } catch (error) {
+      invoiceHost.innerHTML = `<tr><td colspan="6">${empty(error.message)}</td></tr>`;
+    }
+  }
+  async function renderInfrastructure() {
+    const regionsHost = document.querySelector("#capacityRegions");
+    const nodesHost = document.querySelector("#capacityNodes");
+    if (!regionsHost || !nodesHost) return;
+    try {
+      const data = await api("/api/v1/admin/capacity");
+      const metrics = document.querySelector("#infrastructureMetrics");
+      if (metrics) {
+        const services = data.nodes.reduce((sum, x) => sum + Number(x.active_service_count || 0), 0);
+        const allocatedMemory = data.nodes.reduce((sum, x) => sum + Number(x.allocated_memory_mb || 0), 0);
+        const maintenance = data.nodes.filter((x) => Boolean(x.maintenance_mode)).length;
+        metrics.innerHTML = metric("Regions", data.regions.length, "servers") + metric("Nodes", data.nodes.length, "server") + metric("Active services", services, "cube", "good", `${Math.round(allocatedMemory / 1024)} GB allocated`) + metric("Maintenance", maintenance, "warning", maintenance ? "warn" : "good");
+      }
+      regionsHost.innerHTML = data.regions.length ? data.regions.map((x) => {
+        const used = x.total_memory_mb ? Math.round(x.allocated_memory_mb / x.total_memory_mb * 100) : 0;
+        return `<article class="cap"><div><b>${esc(x.name)}</b><small>${esc(x.code)} \xB7 ${esc(x.country)} \xB7 ${x.node_count} nodes</small></div>${badge(x.is_active ? "ACTIVE" : "INACTIVE")}<div class="meter"><i style="width:${Math.min(used, 100)}%"></i></div><small>${used}% memory allocated</small></article>`;
+      }).join("") : empty("No configured capacity regions");
+      nodesHost.innerHTML = data.nodes.length ? data.nodes.map((x) => `<tr><td data-l="Node"><b>${esc(x.name)}</b><small>${esc(x.fqdn)}</small></td><td data-l="Region">${esc(x.region_name)}</td><td data-l="Services">${Number(x.active_service_count)}</td><td data-l="Memory">${Math.round(x.allocated_memory_mb / 1024)} / ${Math.round(x.max_memory_mb / 1024)} GB</td><td data-l="Disk">${Math.round(x.allocated_disk_mb / 1024)} / ${Math.round(x.max_disk_mb / 1024)} GB</td><td data-l="Mode">${badge(x.maintenance_mode ? "MAINTENANCE" : "AVAILABLE")}</td></tr>`).join("") : `<tr><td colspan="6">${empty("No configured nodes")}</td></tr>`;
+    } catch (error) {
+      regionsHost.innerHTML = empty(error.message);
+    }
+  }
+  async function renderStatus() {
+    const componentsHost = document.querySelector("#statusComponents");
+    const incidentsHost = document.querySelector("#statusIncidents");
+    if (!componentsHost || !incidentsHost) return;
+    try {
+      const data = await api("/api/v1/status");
+      const metrics = document.querySelector("#statusMetrics");
+      if (metrics) {
+        const operational = data.components.filter((x) => x.status === "OPERATIONAL").length;
+        const degraded = data.components.length - operational;
+        metrics.innerHTML = metric("Components", data.components.length, "servers") + metric("Operational", operational, "check", "good") + metric("Degraded", degraded, "warning", degraded ? "warn" : "good") + metric("Active incidents", data.activeIncidents.length, "support", data.activeIncidents.length ? "bad" : "good");
+      }
+      const headline = document.querySelector("#statusHeadline");
+      if (headline) headline.innerHTML = `<b>${esc(data.headline)}</b>${badge(data.indicator)}`;
+      componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} \xB7 updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}">Change</button></article>`).join("") || empty("No status components");
+      const incidents = [...data.activeIncidents, ...data.pastIncidents];
+      incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates \xB7 ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== "RESOLVED" ? `<button class="btn xs" data-incident-id="${esc(x.id)}">Update</button>` : ""}</article>`).join("") || empty("No incidents recorded");
+    } catch (error) {
+      componentsHost.innerHTML = empty(error.message);
+    }
+  }
+
+  // src/frontend/admin/pages/settings/index.ts
+  async function renderSettings() {
+    const panelStatus = document.getElementById("settingsPanelStatus");
+    const panelUrl = document.getElementById("settingsPanelUrl");
+    const stripeStatus = document.getElementById("settingsStripeStatus");
+    const stripeMode = document.getElementById("settingsStripeMode");
+    const mailStatus = document.getElementById("settingsMailStatus");
+    const mailSender = document.getElementById("settingsMailSender");
+    const mfaPolicy = document.getElementById("settingsMfaPolicy");
+    const sessionTtl = document.getElementById("settingsSessionTtl");
+    try {
+      const data = await api("/api/v1/admin/settings");
+      if (panelStatus) {
+        panelStatus.className = `pill ${data.provider.configured ? "good d" : "bad d"}`;
+        panelStatus.textContent = data.provider.configured ? "Configured & Active" : "Not Configured";
+      }
+      if (panelUrl) panelUrl.textContent = data.provider.panelUrl || "No panel URL configured";
+      if (stripeStatus) {
+        stripeStatus.className = `pill ${data.payments.stripeConfigured ? "good d" : "warn d"}`;
+        stripeStatus.textContent = data.payments.stripeConfigured ? "Connected (Live)" : "Mock / Inactive";
+      }
+      if (stripeMode) stripeMode.textContent = data.payments.mode.toUpperCase();
+      if (mailStatus) {
+        mailStatus.className = `pill ${data.email.configured ? "good d" : "neu d"}`;
+        mailStatus.textContent = data.email.configured ? `${data.email.transport.toUpperCase()} Active` : "Disabled";
+      }
+      if (mailSender) mailSender.textContent = data.email.fromAddress || "system-mailer@fortless.net";
+      if (mfaPolicy) {
+        mfaPolicy.className = `pill ${data.security.stepUpRequired ? "good d" : "warn d"}`;
+        mfaPolicy.textContent = data.security.stepUpRequired ? "Enforced (Fresh MFA)" : "Standard";
+      }
+      if (sessionTtl) {
+        const hours = Math.round(data.security.sessionTtlSeconds / 3600);
+        sessionTtl.textContent = `${hours} hours`;
+      }
+    } catch (err) {
+      const testResult = document.getElementById("providerTestResult");
+      if (testResult) {
+        testResult.hidden = false;
+        testResult.className = "alert bad";
+        testResult.innerHTML = `<div><b>Error loading settings</b><span>${esc(err.message)}</span></div>`;
+      }
+    }
+  }
+  async function testProviderConnection() {
+    const btn = document.getElementById("testProviderBtn");
+    const resultDiv = document.getElementById("providerTestResult");
+    if (!btn || !resultDiv) return;
+    btn.disabled = true;
+    btn.innerHTML = "Testing live connectivity\u2026";
+    resultDiv.hidden = true;
+    try {
+      const res = await api("/api/v1/admin/settings/test-provider", { method: "POST" });
+      resultDiv.hidden = false;
+      resultDiv.className = "alert good";
+      resultDiv.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="tile sm good">${hero("shield")}</span>
+        <div>
+          <b>Pterodactyl Application API Connected (${res.latencyMs}ms)</b>
+          <p style="margin:2px 0 0 0;font-size:12px">
+            Discovered <b>${res.nodesCount}</b> nodes, <b>${res.nestsCount}</b> nests, and <b>${res.eggsCount}</b> eggs available for catalog assignment.
+          </p>
+        </div>
+      </div>
+    `;
+    } catch (err) {
+      resultDiv.hidden = false;
+      resultDiv.className = "alert bad";
+      resultDiv.innerHTML = `
+      <div>
+        <b>Provider Ping Failed</b>
+        <p style="margin:2px 0 0 0;font-size:12px">${esc(err.message)}</p>
+      </div>
+    `;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${hero("activity", "xs")} Test Live Connection`;
+    }
+  }
+
   // src/frontend/admin/index.ts
   var adminShell = new AdminShell();
   var router = new Router(ADMIN_ROUTES);
@@ -1008,9 +2202,15 @@
       overview: ["Operations overview", "Real platform records, without simulated operational controls."],
       accounts: ["Customer accounts", "Ownership, membership and workload counts. Click an account to inspect or lock."],
       services: ["Service inventory", "Contract and provider-observed state."],
+      orders: ["Orders", "Commercial order lifecycle and fulfillment state."],
+      billing: ["Billing operations", "Invoices, credit notes and payment state."],
+      infrastructure: ["Infrastructure", "Capacity pools and provider readiness."],
+      catalog: ["Catalog & providers", "Products stay private until plans are mapped to real provider inventory."],
       tickets: ["Support queue", "Real customer threads. Click a ticket to view and reply."],
       audit: ["Global audit trail", "Security-relevant events across accounts."],
-      staff: ["Staff access", "Persisted roles, access status and MFA readiness. Click to edit role."]
+      staff: ["Staff access", "Persisted roles, access status and MFA readiness. Click to edit role."],
+      status: ["System status", "Components and customer-visible incidents."],
+      settings: ["Platform settings & integrations", "Environment configuration, payment modes, transactional mail, and hypervisor API diagnostics."]
     };
     const titleEntry = titles[routeName] ?? titles.overview;
     const pageTitle = document.querySelector("#pageTitle");
@@ -1033,6 +2233,22 @@
     updateAdminChrome("services");
     await renderServices();
   });
+  router.register("orders", async () => {
+    updateAdminChrome("orders");
+    await renderOrders();
+  });
+  router.register("billing", async () => {
+    updateAdminChrome("billing");
+    await renderBilling();
+  });
+  router.register("infrastructure", async () => {
+    updateAdminChrome("infrastructure");
+    await renderInfrastructure();
+  });
+  router.register("catalog", async () => {
+    updateAdminChrome("catalog");
+    await renderCatalog();
+  });
   router.register("tickets", async () => {
     updateAdminChrome("tickets");
     await renderTickets();
@@ -1045,9 +2261,46 @@
     updateAdminChrome("staff");
     await renderStaff();
   });
+  router.register("status", async () => {
+    updateAdminChrome("status");
+    await renderStatus();
+  });
+  router.register("settings", async () => {
+    updateAdminChrome("settings");
+    await renderSettings();
+  });
+  function openOperation(kind, id, maxAmount = 0, currency = "EUR") {
+    const titles = { suspend: "Suspend service", unsuspend: "Unsuspend service", terminate: "Terminate service", refund: "Refund invoice" };
+    document.getElementById("operationKind").value = kind;
+    document.getElementById("operationId").value = id;
+    document.getElementById("operationTitle").textContent = titles[kind] || "Confirm operation";
+    document.getElementById("operationReason").value = "";
+    const amountField = document.getElementById("operationAmountField");
+    amountField.hidden = kind !== "refund";
+    const amount = document.getElementById("operationAmount");
+    amount.required = kind === "refund";
+    amount.max = String(maxAmount);
+    amount.value = kind === "refund" ? String(maxAmount) : "";
+    const help = document.getElementById("operationAmountHelp");
+    if (help) help.textContent = `Maximum refundable: ${new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(maxAmount / 100)}`;
+    const modal = document.getElementById("modalOperation");
+    if (modal) modal.hidden = false;
+  }
+  function openIncident(id) {
+    document.getElementById("incidentId").value = id || "";
+    document.getElementById("incidentModalTitle").textContent = id ? "Publish incident update" : "Declare incident";
+    document.getElementById("incidentTitleField").hidden = Boolean(id);
+    document.getElementById("incidentTitle").required = !id;
+    const modal = document.getElementById("modalIncident");
+    if (modal) modal.hidden = false;
+  }
   function bindAdminEvents() {
     document.addEventListener("click", (e) => {
       const target = e.target;
+      if (target.closest('#themeToggleBtn, [data-act="theme"]')) {
+        adminShell.toggleTheme();
+        return;
+      }
       const link = target.closest("a[data-route]");
       if (link && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -1074,6 +2327,67 @@
         );
         return;
       }
+      if (target.closest("[data-new-product]")) {
+        openProductCreator();
+        return;
+      }
+      const createFromEgg = target.closest("[data-create-from-egg]");
+      if (createFromEgg) {
+        openCreateProductFromEgg(Number(createFromEgg.dataset.createFromEgg));
+        return;
+      }
+      const newPlan = target.closest("[data-new-plan-product]");
+      if (newPlan) {
+        openPlanCreator(newPlan.dataset.newPlanProduct);
+        return;
+      }
+      const publish = target.closest("[data-product-publish]");
+      if (publish) {
+        setProductPublished(publish.dataset.productId, publish.dataset.productPublish === "true").catch((error) => toast(error.message, "bad"));
+        return;
+      }
+      const planStatus = target.closest("[data-plan-status]");
+      if (planStatus) {
+        setPlanStatus(planStatus.dataset.planId, planStatus.dataset.planStatus).catch((error) => toast(error.message, "bad"));
+        return;
+      }
+      const serviceAction = target.closest("[data-service-action]");
+      if (serviceAction) {
+        openOperation(serviceAction.dataset.serviceAction, serviceAction.dataset.serviceId);
+        return;
+      }
+      const serviceRow = target.closest("[data-service-id]");
+      if (serviceRow) {
+        openServiceDetail(serviceRow.dataset.serviceId);
+        return;
+      }
+      const refund = target.closest("[data-refund-invoice]");
+      if (refund) {
+        openOperation("refund", refund.dataset.refundInvoice, Number(refund.dataset.refundMax || 0), refund.dataset.refundCurrency || "EUR");
+        return;
+      }
+      if (target.closest("[data-add-staff]")) {
+        const m = document.getElementById("modalAddStaff");
+        if (m) m.hidden = false;
+        return;
+      }
+      if (target.closest("[data-new-incident]")) {
+        openIncident();
+        return;
+      }
+      const incident = target.closest("[data-incident-id]");
+      if (incident) {
+        openIncident(incident.dataset.incidentId);
+        return;
+      }
+      const component = target.closest("[data-component-id]");
+      if (component) {
+        document.getElementById("componentId").value = component.dataset.componentId;
+        document.getElementById("componentStatus").value = component.dataset.componentStatus;
+        const m = document.getElementById("modalComponent");
+        if (m) m.hidden = false;
+        return;
+      }
       if (target.closest("[data-close-ticket-modal]")) {
         const m = document.getElementById("modalTicketDetail");
         if (m) m.hidden = true;
@@ -1090,8 +2404,51 @@
         const m = document.getElementById("modalStepUp");
         if (m) m.hidden = true;
       }
+      if (target.closest("[data-close-catalog-product]")) {
+        const m = document.getElementById("modalCatalogProduct");
+        if (m) m.hidden = true;
+      }
+      if (target.closest("[data-close-catalog-plan]")) {
+        const m = document.getElementById("modalCatalogPlan");
+        if (m) m.hidden = true;
+      }
+      if (target.closest("[data-close-service-modal]")) {
+        const m = document.getElementById("modalAdminServiceDetail");
+        if (m) m.hidden = true;
+      }
+      if (target.closest("[data-close-egg-modal]")) {
+        const m = document.getElementById("modalCreateProductFromEgg");
+        if (m) m.hidden = true;
+      }
+      if (target.closest("#testProviderBtn")) {
+        testProviderConnection().catch((err) => toast(err.message, "bad"));
+        return;
+      }
+      if (target.closest("#refreshSettingsBtn")) {
+        renderSettings().then(() => toast("Settings reloaded", "good")).catch((err) => toast(err.message, "bad"));
+        return;
+      }
+      for (const [selector, id] of [["[data-close-operation]", "modalOperation"], ["[data-close-add-staff]", "modalAddStaff"], ["[data-close-incident]", "modalIncident"], ["[data-close-component]", "modalComponent"]]) {
+        if (target.closest(selector)) {
+          const m = document.getElementById(id);
+          if (m) m.hidden = true;
+        }
+      }
       if (target.closest("[data-cmd]")) {
         adminShell.cmd.open();
+        return;
+      }
+      const filterButton = target.closest("[data-filter-value]");
+      if (filterButton) {
+        const group = filterButton.closest("[data-filter-target]");
+        if (!group) return;
+        group.querySelectorAll("[data-filter-value]").forEach((button) => button.setAttribute("aria-selected", String(button === filterButton)));
+        const value = filterButton.dataset.filterValue || "ALL";
+        const list = document.getElementById(group.dataset.filterTarget || "");
+        list?.querySelectorAll("[data-filter-state]").forEach((item) => {
+          item.hidden = value !== "ALL" && item.dataset.filterState !== value;
+        });
+        return;
       }
     });
     document.querySelectorAll("[data-search]").forEach((input) => {
@@ -1102,9 +2459,12 @@
         timer = window.setTimeout(() => {
           if (searchTarget === "accounts") renderAccounts(input.value);
           if (searchTarget === "services") renderServices(input.value);
+          if (searchTarget === "orders") renderOrders(input.value);
+          if (searchTarget === "billing") renderBilling(input.value);
           if (searchTarget === "tickets") renderTickets(input.value);
           if (searchTarget === "audit") renderAudit(input.value);
           if (searchTarget === "staff") renderStaff(input.value);
+          if (searchTarget === "catalog") filterCatalog(input.value);
         }, 220);
       });
     });
@@ -1166,7 +2526,7 @@
         await openTicketDetail(activeTicketId2);
         renderTickets();
       } catch (err) {
-        alert(`Error submitting reply: ${err.message}`);
+        toast(`Error submitting reply: ${err.message}`, "bad");
       } finally {
         btn.disabled = false;
       }
@@ -1185,12 +2545,12 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status, reason })
         });
-        alert("Account status updated successfully.");
+        toast("Account status updated successfully.", "good");
         const m = document.getElementById("modalAccountDetail");
         if (m) m.hidden = true;
         renderAccounts();
       } catch (err) {
-        alert(`Error updating account status: ${err.message}`);
+        toast(`Error updating account status: ${err.message}`, "bad");
       } finally {
         btn.disabled = false;
       }
@@ -1209,14 +2569,116 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ role, status, reason })
         });
-        alert("Staff permissions updated.");
+        toast("Staff permissions updated.", "good");
         const m = document.getElementById("modalStaffEditor");
         if (m) m.hidden = true;
         renderStaff();
       } catch (err) {
-        alert(`Error modifying staff: ${err.message}`);
+        toast(`Error modifying staff: ${err.message}`, "bad");
       } finally {
         btn.disabled = false;
+      }
+    });
+    document.getElementById("catalogProductForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        await submitProduct(form);
+      } catch (error) {
+        toast(`Unable to create product: ${error.message}`, "bad");
+      } finally {
+        if (button) button.disabled = false;
+      }
+    });
+    document.getElementById("catalogPlanForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        await submitPlan(form);
+      } catch (error) {
+        toast(`Unable to create plan: ${error.message}`, "bad");
+      } finally {
+        if (button) button.disabled = false;
+      }
+    });
+    document.getElementById("createProductFromEggForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        await submitProductFromEgg(form);
+        toast("Product and plan configured successfully from egg", "good");
+      } catch (error) {
+        toast(`Error creating product from egg: ${error.message}`, "bad");
+      } finally {
+        if (button) button.disabled = false;
+      }
+    });
+    document.getElementById("operationForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const kind = document.getElementById("operationKind").value;
+      const id = document.getElementById("operationId").value;
+      const reason = document.getElementById("operationReason").value.trim();
+      const amountMinorUnits = Number(document.getElementById("operationAmount").value || 0);
+      const endpoint = kind === "refund" ? `/api/v1/admin/invoices/${encodeURIComponent(id)}/refund` : `/api/v1/admin/services/${encodeURIComponent(id)}/${kind}`;
+      try {
+        await api(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(kind === "refund" ? { amountMinorUnits, reason } : { reason }) });
+        const modal = document.getElementById("modalOperation");
+        if (modal) modal.hidden = true;
+        toast(`${kind === "refund" ? "Refund" : "Service operation"} accepted and audited.`, "good");
+        if (kind === "refund") await renderBilling();
+        else await renderServices();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    document.getElementById("addStaffForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget;
+      const values = new FormData(form);
+      try {
+        await api("/api/v1/admin/staff", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: values.get("email"), role: values.get("role"), status: "ACTIVE", reason: values.get("reason") }) });
+        const modal = document.getElementById("modalAddStaff");
+        if (modal) modal.hidden = true;
+        form.reset();
+        toast("Staff access granted.", "good");
+        await renderStaff();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    document.getElementById("incidentForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = document.getElementById("incidentId").value;
+      const payload = { impact: document.getElementById("incidentImpact").value, status: document.getElementById("incidentStatus").value, message: document.getElementById("incidentMessage").value.trim() };
+      if (!id) payload.title = document.getElementById("incidentTitle").value.trim();
+      try {
+        await api(id ? `/api/v1/admin/incidents/${encodeURIComponent(id)}/updates` : "/api/v1/admin/incidents", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const modal = document.getElementById("modalIncident");
+        if (modal) modal.hidden = true;
+        toast("Status incident published.", "good");
+        await renderStatus();
+      } catch (error) {
+        toast(error.message, "bad");
+      }
+    });
+    document.getElementById("componentForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const id = document.getElementById("componentId").value;
+      const status = document.getElementById("componentStatus").value;
+      try {
+        await api(`/api/v1/admin/components/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+        const modal = document.getElementById("modalComponent");
+        if (modal) modal.hidden = true;
+        toast("Component status updated.", "good");
+        await renderStatus();
+      } catch (error) {
+        toast(error.message, "bad");
       }
     });
   }

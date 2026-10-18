@@ -6,6 +6,7 @@ import { queueEmail } from '../email/outbox.js';
 
 export interface RenewalResult {
   renewedCount: number;
+  remindersSentCount: number;
   dunningStartedCount: number;
   suspendedCount: number;
   canceledCount: number;
@@ -50,6 +51,7 @@ export async function processSubscriptionRenewals(
 ): Promise<RenewalResult> {
   const result: RenewalResult = {
     renewedCount: 0,
+    remindersSentCount: 0,
     dunningStartedCount: 0,
     suspendedCount: 0,
     canceledCount: 0,
@@ -95,6 +97,55 @@ export async function processSubscriptionRenewals(
       );
     }, db);
     result.canceledCount++;
+  }
+
+  // Send one reminder per billing period when renewal is within seven days.
+  const upcomingRenewals = db.prepare(`
+    SELECT sub.*, u.email AS owner_email, COALESCE(pv.name, 'Hosting subscription') AS service_name
+    FROM subscriptions sub
+    JOIN accounts acc ON acc.id = sub.account_id
+    JOIN users u ON u.id = acc.owner_user_id
+    LEFT JOIN services s ON s.id = sub.service_id
+    LEFT JOIN order_items oi ON oi.id = s.order_item_id
+    LEFT JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    WHERE sub.status = 'ACTIVE'
+      AND sub.auto_renew = 1
+      AND datetime(sub.next_renewal_date) > datetime('now', 'utc')
+      AND datetime(sub.next_renewal_date) <= datetime('now', '+7 days', 'utc')
+      AND NOT EXISTS (
+        SELECT 1 FROM audit_events ae
+        WHERE ae.action = 'subscription.renewal_reminder_sent'
+          AND ae.resource_type = 'subscription'
+          AND ae.resource_id = sub.id
+          AND datetime(ae.created_at) >= datetime(sub.current_period_start)
+      )
+  `).all() as any[];
+
+  for (const sub of upcomingRenewals) {
+    runInTransaction((trx) => {
+      const emailId = queueEmail(trx, {
+        recipient: sub.owner_email,
+        template: 'renewal_reminder',
+        payload: {
+          serviceName: sub.service_name,
+          date: sub.next_renewal_date,
+          amount: `${(sub.renewal_price_minor_units / 100).toFixed(2)} ${sub.currency}`,
+        },
+      });
+      trx.prepare(`
+        INSERT INTO audit_events (
+          id, account_id, actor_user_id, actor_type, action, resource_type,
+          resource_id, ip_address, correlation_id, metadata, created_at
+        ) VALUES (?, ?, NULL, 'SYSTEM', 'subscription.renewal_reminder_sent', 'subscription', ?, '127.0.0.1', ?, ?, datetime('now', 'utc'))
+      `).run(
+        `aud_${crypto.randomUUID()}`,
+        sub.account_id,
+        sub.id,
+        `corr_${crypto.randomUUID()}`,
+        JSON.stringify({ subscriptionId: sub.id, nextRenewalDate: sub.next_renewal_date, queued: Boolean(emailId) })
+      );
+      if (emailId) result.remindersSentCount++;
+    }, db);
   }
 
   // 2. Process Active Subscriptions Due for Renewal
@@ -172,11 +223,10 @@ export async function processSubscriptionRenewals(
       // Queue email notification
       queueEmail(trx, {
         recipient: sub.owner_email,
-        template: 'security_alert',
-        subject: 'Payment Required: Subscription Renewal Grace Period Active',
+        template: 'payment_failed',
         payload: {
-          title: 'Subscription Grace Period Active',
-          message: `Your subscription renewal invoice is ready. You have a 5-day grace period to complete payment before service suspension. Total: ${(sub.renewal_price_minor_units / 100).toFixed(2)} ${sub.currency}`,
+          amount: `${(sub.renewal_price_minor_units / 100).toFixed(2)} ${sub.currency}`,
+          endDate: graceEnd,
         },
       });
     }, db);

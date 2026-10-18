@@ -6,3 +6,5 @@ data/
 FORTLESS_CODEX_HANDOFF.zip
 scratch/
 *.log
+*.sqlite
+*.zip

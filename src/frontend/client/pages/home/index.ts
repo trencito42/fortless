@@ -1,5 +1,7 @@
 /** Customer workspace overview. Data sources are account-scoped APIs; no layout changes touch API calls, authz, or money logic. */
 import { api } from '../../../core/api/client.js';
+import { serviceState } from '../services/status.js';
+import { isTerminated, visibleServices } from '../services/filters.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { money } from '../../../core/utils/formatting.js';
@@ -10,7 +12,7 @@ import { capabilitiesStore } from '../../../core/state/capabilities.js';
 
 function tile(iconName: string, tone: string, size = 'sm'): string {
   const cls = ['tile', tone, size].filter(Boolean).join(' ');
-  return `<span class="${cls}">${hero(iconName)}</span>`;
+  return `<span class="${cls}"><svg class="ic" aria-hidden="true"><use href="#i-${iconName}"/></svg></span>`;
 }
 
 function pill(text: string, tone: string, dot = false): string {
@@ -18,11 +20,11 @@ function pill(text: string, tone: string, dot = false): string {
 }
 
 function metricCard(label: string, value: string | number, iconName: string, tone: string): string {
-  return `<div class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div>${tile(iconName, tone, '')}</div>`;
+  return `<div class="card mt" data-c="Metric tile"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-${iconName}"/></svg></span></div>`;
 }
 
 function emptyState(iconName: string, title: string, message: string, action = ''): string {
-  return `<div class="es">${tile(iconName, 'neu', 'lg')}<h4>${esc(title)}</h4><p>${esc(message)}</p>${action}</div>`;
+  return `<div class="es" data-c="Empty state">${tile(iconName, 'neu', 'lg')}<h4>${esc(title)}</h4><p>${esc(message)}</p>${action}</div>`;
 }
 
 function skeleton(n = 5): string {
@@ -36,7 +38,6 @@ function panel(title: string, sub: string, body: string, actionHref: string, act
 
 // ── Runtime / status helpers ──────────────────────────────────────────────────
 
-const RT_TONE: Record<string, string> = { RUNNING: 'good', INSTALLING: 'warn', ERROR: 'bad' };
 const TIX_TONE: Record<string, string> = {
   OPEN: 'info', WAITING_STAFF: 'warn', WAITING_CUSTOMER: 'violet', RESOLVED: 'good', CLOSED: '',
 };
@@ -60,7 +61,7 @@ export async function renderHome(): Promise<void> {
     api<{ logs: any[] }>('/api/v1/audit'),
   ]);
 
-  const services = serviceResult.status === 'fulfilled' ? serviceResult.value.services : [];
+  const services = visibleServices(serviceResult.status === 'fulfilled' ? serviceResult.value.services : []);
   const tickets = ticketResult.status === 'fulfilled' ? ticketResult.value.tickets : [];
   const invoices = invoiceResult.status === 'fulfilled' ? invoiceResult.value.invoices : [];
   const logs = auditResult.status === 'fulfilled' ? auditResult.value.logs : [];
@@ -78,9 +79,9 @@ export async function renderHome(): Promise<void> {
   ).length;
 
   // Fleet bar
-  const running = services.filter((s) => s.runtime_state === 'RUNNING').length;
-  const installing = services.filter((s) => s.runtime_state === 'INSTALLING').length;
-  const stopped = services.filter((s) => !['RUNNING', 'INSTALLING'].includes(s.runtime_state || '')).length;
+  const running = services.filter((s) => serviceState(s).running).length;
+  const installing = services.filter((s) => serviceState(s).label === 'INSTALLING').length;
+  const stopped = services.filter((s) => !serviceState(s).running && serviceState(s).label !== 'INSTALLING').length;
   const totalSvcs = services.length;
 
   const fleetBar = totalSvcs > 0
@@ -99,9 +100,12 @@ export async function renderHome(): Promise<void> {
 
   // Panel body builders
   const servicesBody = services.slice(0, 3).map((s) => {
-    const rt = s.runtime_state || 'UNKNOWN';
-    const tone = RT_TONE[rt] || 'info';
-    return `<a class="li" href="/app/services/${esc(s.id)}" data-app-route="service-detail">${tile('server', tone)}<span class="tx"><b>${esc(s.plan_name || 'Hosting service')}</b><small>${esc(s.node_name || s.node_id || 'No node assigned')}</small></span>${pill(rt, tone)}</a>`;
+    const st = serviceState(s);
+    const rt = st.label;
+    const tone = st.tone;
+    const tag = isTerminated(s) ? 'div' : 'a';
+    const attrs = isTerminated(s) ? 'class="li h"' : `class="li" href="/app/services/${esc(s.id)}" data-app-route="service-detail"`;
+    return `<${tag} ${attrs}>${tile('server', tone)}<span class="tx"><b>${esc(s.plan_name || 'Hosting service')}</b><small>${esc(s.node_name || s.node_id || 'No node assigned')}</small></span>${pill(rt, tone)}</${tag}>`;
   }).join('') || emptyState('server', 'No services yet', 'Ordering stays unavailable until providers are verified.');
 
   const supportBody = tickets.slice(0, 3).map((t) => {
@@ -128,27 +132,27 @@ export async function renderHome(): Promise<void> {
         <h2>Your workspace, at a glance.</h2>
         <p>Services, billing, support and security activity from your account.</p>
       </div>
-      <div class="act">
-        <button class="btn" data-modal="ticket">${hero('support', 's')}Open ticket</button>
-        <a class="btn pri" href="/app/deploy" data-app-route="deploy">${hero('plus', 's')}Deploy service</a>
+      <div class="row act" style="gap:8px">
+        <a class="btn" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" aria-hidden="true"><use href="#i-message-01"/></svg>Open ticket</a>
+        <a class="btn pri" href="/app/deploy" data-app-route="deploy"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>Deploy service</a>
       </div>
     </div>
 
-    <div class="grid g4 k2" style="margin-bottom:12px">
+    <div class="g g4 k2" style="margin-bottom:12px">
       ${metricCard('Active services', services.filter((s) => s.contract_status === 'ACTIVE').length, 'server', 'good')}
-      ${metricCard('Total services', services.length, 'cube', '')}
-      ${metricCard('Open tickets', openTickets.length, 'support', openTickets.length ? 'warn' : '')}
-      ${metricCard('Outstanding', money(outstandingTotal, currency), 'credit', outstandingTotal ? 'warn' : '')}
+      ${metricCard('Total services', services.length, 'package', '')}
+      ${metricCard('Open tickets', openTickets.length, 'message-01', openTickets.length ? 'warn' : '')}
+      ${metricCard('Outstanding', money(outstandingTotal, currency), 'credit-card', outstandingTotal ? 'warn' : '')}
     </div>
 
     <div style="margin-bottom:12px">
-      <section class="card">
+      <section class="card" data-c="Fleet bar">
         <div class="ch"><div class="tx"><h3>Fleet</h3><p>Runtime state across your services</p></div></div>
         ${fleetBar}
       </section>
     </div>
 
-    <div class="grid g2">
+    <div class="g g2">
       ${panel('My services', 'Provider-observed contract and runtime state.', servicesBody, '/app/services', 'View all')}
       ${panel('Support', 'Recent account conversations.', supportBody, '/app/support', 'View support')}
       ${panel('Billing', 'Latest issued account records.', billingBody, '/app/billing', 'View billing')}

@@ -5,7 +5,7 @@
 
 import { api, setStepUpInterceptor } from '../../core/api/client.js';
 import { esc } from '../../core/utils/dom.js';
-import { hero, CommandPaletteController } from '../../petal/index.js';
+import { hero, CommandPaletteController, initModalStacker, updateModalStacking } from '../../petal/index.js';
 
 export class AdminShell {
   public permissions: Set<string> = new Set();
@@ -17,9 +17,30 @@ export class AdminShell {
   }
 
   public init(): void {
+    initModalStacker();
+    this.initTheme();
     this.installIcons();
     this.cmd.bindKeyboard();
     this.bindStepUp();
+  }
+
+  public initTheme(): void {
+    const theme = localStorage.getItem('fortless_theme') || localStorage.getItem('theme');
+    if (theme) document.documentElement.dataset.theme = theme;
+    window.addEventListener('storage', (e) => {
+      if ((e.key === 'fortless_theme' || e.key === 'theme') && e.newValue) {
+        document.documentElement.dataset.theme = e.newValue;
+      }
+    });
+  }
+
+  public toggleTheme(): void {
+    const isDark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const next = isDark ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('fortless_theme', next);
+    localStorage.setItem('theme', next);
   }
 
   public installIcons(): void {
@@ -37,10 +58,12 @@ export class AdminShell {
 
       const userName = document.querySelector('#userName');
       const userAvatar = document.querySelector('#userAvatar');
+      const topAvatar = document.querySelector('#topAvatar');
       const staffRole = document.querySelector('#staffRole');
 
       if (userName) userName.textContent = identity.user.name;
       if (userAvatar) userAvatar.textContent = identity.user.name.slice(0, 2).toUpperCase();
+      if (topAvatar) topAvatar.textContent = identity.user.name.slice(0, 2).toUpperCase();
       if (staffRole) staffRole.textContent = `${access.staff.role.replaceAll('_', ' ')} · MFA`;
 
       this.permissions = new Set(access.staff.permissions);
@@ -49,9 +72,14 @@ export class AdminShell {
       const required: Record<string, string> = {
         accounts: 'accounts:read',
         services: 'services:read',
+        orders: 'accounts:read',
+        billing: 'accounts:read',
+        infrastructure: 'services:read',
+        catalog: 'catalog:read',
         tickets: 'tickets:read',
         audit: 'audit:read',
         staff: 'staff:read',
+        status: 'services:read',
       };
 
       document.querySelectorAll<HTMLElement>('[data-route]').forEach((link) => {
@@ -86,6 +114,7 @@ export class AdminShell {
     }
 
     modal.hidden = false;
+    updateModalStacking(modal, true);
     setTimeout(() => passInput?.focus(), 50);
   }
 
@@ -113,7 +142,10 @@ export class AdminShell {
         });
 
         const modal = document.getElementById('modalStepUp');
-        if (modal) modal.hidden = true;
+        if (modal) {
+          modal.hidden = true;
+          updateModalStacking(modal, false);
+        }
 
         if (this.pendingStepUpAction) {
           this.pendingStepUpAction.onSuccess();
@@ -137,10 +169,10 @@ export function badge(v: string): string {
     ? 'good'
     : /URGENT|ERROR|DEAD|OVERDUE|SUSPENDED|LOCKED/.test(x)
     ? 'bad'
-    : /PENDING|WAITING|HIGH|MOCK|NOT_CONFIGURED/.test(x)
+    : /PENDING|WAITING|HIGH|MOCK|NOT_CONFIGURED|NOT_STARTED|FLAGGED/.test(x)
     ? 'warn'
     : 'info';
-  return `<span class="badge ${c} s">${esc(x.replaceAll('_', ' '))}</span>`;
+  return `<span class="pill ${c}" style="height:22px;padding:0 8px;font-size:11px">${esc(x.replaceAll('_', ' '))}</span>`;
 }
 
 export function row({
@@ -159,14 +191,14 @@ export function row({
   dataAttr?: string;
 }): string {
   return `
-    <article class="row" ${dataAttr} style="cursor:pointer;transition:background .15s">
-      <span class="row-icon">${hero(symbol)}</span>
-      <div class="row-copy">
+    <article class="li h" ${dataAttr} style="cursor:pointer">
+      <span class="tile neu sm">${hero(symbol)}</span>
+      <span class="tx">
         <b>${esc(title)}</b>
         <small>${esc(sub)}</small>
-      </div>
+      </span>
       ${status ? badge(status) : ''}
-      ${meta ? `<div class="row-meta">${esc(meta)}</div>` : ''}
+      ${meta ? `<span class="faint hide-n" style="font-weight:650;font-size:12.5px">${esc(meta)}</span>` : ''}
     </article>
   `;
 }

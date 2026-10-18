@@ -7,22 +7,27 @@
 
 import { esc } from '../../core/utils/dom.js';
 
-const tool = (command: string, icon: string, label: string) =>
-  `<button type="button" class="btn sq s ghost" data-rcmd="${esc(command)}" aria-label="${esc(label)}" title="${esc(label)}"><svg class="ic s" aria-hidden="true"><use href="#i-${esc(icon)}"/></svg></button>`;
-
 export function petalRichTextEditor(id: string, label: string, placeholder: string): string {
-  return `<div class="rte" data-rte="${esc(id)}">
-    <div class="rtb" data-rtb role="toolbar" aria-label="${esc(label)} formatting">
-      ${tool('bold', 'text-bold', 'Bold')}
-      ${tool('italic', 'text-italic', 'Italic')}
-      <i aria-hidden="true"></i>
-      ${tool('insertUnorderedList', 'left-to-right-list-bullet', 'Bulleted list')}
-      ${tool('formatBlock:blockquote', 'quote', 'Quote')}
-      ${tool('formatBlock:pre', 'source-code', 'Code block')}
-      <i aria-hidden="true"></i>
-      ${tool('createLink', 'link-02', 'Add link')}
+  const action = (command: string, icon: string, title: string) => `<button type="button" data-rcmd="${command}" aria-label="${title}" title="${title}">
+        <svg class="ic s" aria-hidden="true" width="16" height="16"><use href="/assets/petal-icons.svg#i-${icon}"/></svg>
+      </button>`;
+  return `<div class="rte-shell" data-c="Markdown editor">
+    <div class="edtb" data-c="Rich text toolbar" role="toolbar" aria-label="${esc(label)} formatting">
+      ${action('heading', 'heading', 'Heading')}
+      ${action('bold', 'bold', 'Bold')}
+      ${action('italic', 'italic', 'Italic')}
+      ${action('strike', 'strikethrough', 'Strikethrough')}
+      <span class="rte-sep" aria-hidden="true"></span>
+      ${action('link', 'link-01', 'Link')}
+      ${action('quote', 'quote', 'Quote')}
+      ${action('bullet', 'left-to-right-list-bullet', 'Bulleted list')}
+      ${action('ordered', 'check-list', 'Numbered list')}
+      ${action('code', 'code', 'Inline code')}
+      ${action('codeblock', 'code', 'Code block')}
     </div>
-    <div id="${esc(id)}" class="rta" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(label)}" data-placeholder="${esc(placeholder)}" spellcheck="true"><p><br></p></div>
+    <div class="inp">
+      <textarea id="${esc(id)}" placeholder="${esc(placeholder)}" aria-label="${esc(label)}"></textarea>
+    </div>
   </div>`;
 }
 
@@ -67,14 +72,22 @@ function blockMarkdown(node: Node): string {
 }
 
 export function editorMarkdown(id: string): string {
-  const editor = document.getElementById(id);
-  if (!editor) return '';
-  return Array.from(editor.childNodes).map(blockMarkdown).filter(Boolean).join('\n\n').trim();
+  const el = document.getElementById(id);
+  if (!el) return '';
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    return el.value.trim();
+  }
+  return Array.from(el.childNodes).map(blockMarkdown).filter(Boolean).join('\n\n').trim();
 }
 
 export function resetEditor(id: string): void {
-  const editor = document.getElementById(id);
-  if (editor) editor.innerHTML = '<p><br></p>';
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+    el.value = '';
+    return;
+  }
+  el.innerHTML = '<p><br></p>';
 }
 
 export function installRichTextEditors(root: ParentNode = document): () => void {
@@ -85,22 +98,49 @@ export function installRichTextEditors(root: ParentNode = document): () => void 
   const onClick = (event: Event) => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-rcmd]');
     if (!button || !root.contains(button)) return;
-    const editor = button.closest<HTMLElement>('[data-rte]')?.querySelector<HTMLElement>('.rta');
-    if (!editor) return;
-    editor.focus();
-    const command = button.dataset.rcmd || '';
-    if (command === 'createLink') {
-      const requested = window.prompt('Paste an https:// link');
-      const href = requested ? safeHref(requested.trim()) : null;
-      if (href) document.execCommand('createLink', false, href);
-      return;
+    const container = button.closest('.rte-shell');
+    const textarea = container?.querySelector('textarea');
+    if (!textarea) return;
+
+    const cmd = button.dataset.rcmd;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const sel = text.slice(start, end);
+
+    const selectedOr = (fallback: string) => sel || fallback;
+    const prefixLines = (prefix: (index: number) => string, fallback: string) => selectedOr(fallback).split('\n').map((line, index) => `${prefix(index)}${line}`).join('\n');
+    let replacement = sel;
+    if (cmd === 'bold') {
+      replacement = `**${selectedOr('bold text')}**`;
+    } else if (cmd === 'italic') {
+      replacement = `*${selectedOr('italic text')}*`;
+    } else if (cmd === 'strike') {
+      replacement = `~~${selectedOr('strikethrough text')}~~`;
+    } else if (cmd === 'code') {
+      replacement = `\`${selectedOr('code')}\``;
+    } else if (cmd === 'codeblock') {
+      replacement = `\`\`\`\n${selectedOr('code')}\n\`\`\``;
+    } else if (cmd === 'heading') {
+      replacement = prefixLines(() => '## ', 'Heading');
+    } else if (cmd === 'quote') {
+      replacement = prefixLines(() => '> ', 'Quote');
+    } else if (cmd === 'bullet') {
+      replacement = prefixLines(() => '- ', 'List item');
+    } else if (cmd === 'ordered') {
+      replacement = prefixLines((index) => `${index + 1}. `, 'List item');
+    } else if (cmd === 'link') {
+      const url = window.prompt('Enter link URL (https://...):', 'https://');
+      const safe = url ? safeHref(url.trim()) : null;
+      if (safe) replacement = `[${selectedOr('link text')}](${safe})`;
+      else return;
     }
-    if (command.includes(':')) {
-      const [name, value] = command.split(':', 2);
-      if (name) document.execCommand(name, false, value || '');
-    } else {
-      document.execCommand(command, false);
-    }
+
+    textarea.value = text.slice(0, start) + replacement + text.slice(end);
+    textarea.focus();
+    const newPos = start + replacement.length;
+    textarea.setSelectionRange(newPos, newPos);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
   };
   root.addEventListener('mousedown', onMouseDown);
   root.addEventListener('click', onClick);

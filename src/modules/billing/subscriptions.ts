@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { terminateService } from '../provisioning/services.js';
+import { queueEmail } from '../email/outbox.js';
 
 export interface SubscriptionDetail {
   id: string;
@@ -105,6 +106,27 @@ export function cancelSubscription(
       `corr_${crypto.randomUUID()}`,
       JSON.stringify({ status: targetStatus, immediate: Boolean(params.immediate), reason: params.reason })
     );
+
+    if (!params.immediate) {
+      const recipient = trx.prepare('SELECT email FROM users WHERE id = ?').get(params.userId) as { email: string } | undefined;
+      const service = trx.prepare(`
+        SELECT pv.name
+        FROM services s
+        LEFT JOIN order_items oi ON oi.id = s.order_item_id
+        LEFT JOIN plan_versions pv ON pv.id = oi.plan_version_id
+        WHERE s.id = ?
+      `).get(sub.service_id) as { name: string | null } | undefined;
+      if (recipient) {
+        queueEmail(trx, {
+          recipient: recipient.email,
+          template: 'cancellation_scheduled',
+          payload: {
+            serviceName: service?.name || 'Hosting subscription',
+            endDate: sub.current_period_end,
+          },
+        });
+      }
+    }
   }, db);
 
   return { status: targetStatus };

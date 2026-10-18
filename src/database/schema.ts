@@ -483,7 +483,7 @@ CREATE TABLE IF NOT EXISTS idempotency_records (
 CREATE TABLE IF NOT EXISTS email_outbox (
   id TEXT PRIMARY KEY,
   recipient TEXT NOT NULL,
-  template TEXT NOT NULL CHECK(template IN ('email_verification', 'password_reset', 'account_invitation', 'security_alert')),
+  template TEXT NOT NULL CHECK(template IN ('email_verification', 'welcome', 'password_reset', 'password_changed', 'account_invitation', 'service_invitation', 'security_alert', 'mfa_changed', 'invoice_issued', 'payment_confirmed', 'payment_receipt', 'payment_failed', 'renewal_reminder', 'service_provisioned', 'service_ready', 'ticket_reply', 'cancellation_scheduled')),
   subject TEXT NOT NULL,
   payload_json TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'PROCESSING', 'SENT', 'FAILED', 'DEAD_LETTER')),
@@ -495,6 +495,14 @@ CREATE TABLE IF NOT EXISTS email_outbox (
   scheduled_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
   sent_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  billing_email INTEGER NOT NULL DEFAULT 1 CHECK(billing_email IN (0, 1)),
+  service_email INTEGER NOT NULL DEFAULT 1 CHECK(service_email IN (0, 1)),
+  support_email INTEGER NOT NULL DEFAULT 1 CHECK(support_email IN (0, 1)),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
 CREATE TABLE IF NOT EXISTS passkey_credentials (
@@ -619,6 +627,45 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_account ON audit_events(account_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_events_status ON outbox_events(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_account_invitations_account ON account_invitations(account_id, email);
+CREATE TABLE IF NOT EXISTS service_members (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  preset TEXT NOT NULL CHECK(preset IN ('viewer', 'operator', 'admin')),
+  panel_subuser_uuid TEXT,
+  invited_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  UNIQUE(service_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_service_members_user ON service_members(user_id);
+CREATE TABLE IF NOT EXISTS service_invitations (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  preset TEXT NOT NULL CHECK(preset IN ('viewer', 'operator', 'admin')),
+  token_hash TEXT NOT NULL UNIQUE,
+  invited_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL,
+  accepted_at TEXT,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+CREATE INDEX IF NOT EXISTS idx_service_invitations_service ON service_invitations(service_id, email);
+CREATE TABLE IF NOT EXISTS game_profiles (
+  id TEXT PRIMARY KEY,
+  slug TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  egg_names TEXT NOT NULL DEFAULT '[]',
+  config_file TEXT,
+  config_schema TEXT NOT NULL DEFAULT '[]',
+  game_version_variable TEXT,
+  java_rules TEXT NOT NULL DEFAULT '[]',
+  install_sources TEXT NOT NULL DEFAULT '[]',
+  icon_file TEXT,
+  is_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
 CREATE INDEX IF NOT EXISTS idx_notifications_account_user ON notifications(account_id, user_id, read_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id);
 CREATE INDEX IF NOT EXISTS idx_passkey_cred_id ON passkey_credentials(credential_id);

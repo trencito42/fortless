@@ -1,7 +1,7 @@
 {
   "00_GLOBAL_CONTRACT.md": {
-    "bytes": 7399,
-    "sha256": "6bc721d97eba9f8827f06b5349ef402c822edee5d1b4a43102be6f50faf3243d"
+    "bytes": 8093,
+    "sha256": "a8037691d06546af88c4ea3d41eeb305f6e784e9cf6852e6acbb3015566c999e"
   },
   "01_AUDIT_AND_REALITY_MAP.md": {
     "bytes": 4906,
@@ -44,15 +44,19 @@
     "sha256": "3629e4f409c45478c99a11b035d8d3cc429a2b87318adfa71de3e5d9f08a305c"
   },
   "11_MASTER_ORCHESTRATOR_PROMPT.md": {
-    "bytes": 4809,
-    "sha256": "f1343583e799b1ae150ce8dd96d73d50e9bad0421824587dc108ce47de1703d3"
+    "bytes": 5407,
+    "sha256": "21285564f9503446aee6603f39a6442639bde0dad6cbe9ec24dcc9c469cdf68e"
+  },
+  "12_SERVER_MANAGEMENT_EXTENSIONS.md": {
+    "bytes": 7686,
+    "sha256": "341df247424ce28d63cb58b2b459ce878752d50e4d906b18e19da6f4df55300a"
   },
   "ALL_STAGES_ONE_FILE.md": {
-    "bytes": 76961,
-    "sha256": "31ef95e52550cd08758b23eb706adaf7e528bff5d99684e5ae7b18c7a0f1a0a4"
+    "bytes": 77404,
+    "sha256": "c3ac929c3cbb0aad1f46f4fe6118c1413153b6177434338b16e13c07a820591c"
   },
   "README_START_HERE.md": {
-    "bytes": 5147,
-    "sha256": "8d4c06609a86d1ebb69f97c6d8eaf1784be3755269c160c76210172e2071537e"
+    "bytes": 6120,
+    "sha256": "20e2172051d55742919433584f7ad14962da39c0cd945888dd566de4627b3c4a"
   }
 }

@@ -2,6 +2,9 @@ import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { type ProviderAdapter, MockPterodactylAdapter } from '../provisioning/adapter.js';
+import { resolvePanelUserId } from '../provisioning/panel-link.js';
+import { queueEmail } from '../email/outbox.js';
+import { createNotification } from '../notifications/notifications.js';
 
 let defaultAdapter: ProviderAdapter = new MockPterodactylAdapter();
 
@@ -142,6 +145,12 @@ export async function processOutboxQueue(
         `).run(event.aggregate_id);
 
         db.prepare(`
+          INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+          SELECT ?, account_id, 'SYSTEM', 'service.provision_failed', 'service', id, ?, ?
+          FROM services WHERE id = ?
+        `).run(`aud_${crypto.randomUUID()}`, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }), event.aggregate_id);
+
+        db.prepare(`
           UPDATE service_observed_states
           SET runtime_state = 'ERROR'
           WHERE service_id = ?
@@ -273,6 +282,8 @@ async function executeProvisioningSaga(
       if (payload.customOptions?.osImage) envVars.OS_IMAGE = payload.customOptions.osImage;
       if (payload.customOptions?.sshKey) envVars.SSH_KEY = payload.customOptions.sshKey;
 
+      const ownerPanelUserId = await resolvePanelUserId(payload.accountId, adapter, db);
+
       const provisionRes = await adapter.provision({
         serviceId,
         name: payload.customOptions?.serverName || plan.name,
@@ -282,6 +293,7 @@ async function executeProvisioningSaga(
         databases: resources.databases || 1,
         backups: resources.backups || 2,
         eggId: resources.eggId || 1,
+        ownerPanelUserId,
         dockerImage: resources.dockerImage,
         environmentVariables: envVars,
         correlationTag,
@@ -338,6 +350,11 @@ async function executeProvisioningSaga(
       WHERE service_id = ?
     `).run(serviceId);
 
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+      VALUES (?, ?, 'SYSTEM', 'service.provisioned', 'service', ?, ?, ?)
+    `).run(`aud_${crypto.randomUUID()}`, payload.accountId, serviceId, correlationTag, JSON.stringify({ identifier }));
+
     // If all items for order fulfilled, mark order COMPLETED
     const item = trx.prepare('SELECT order_id FROM order_items WHERE id = ?').get(payload.orderItemId) as { order_id: string };
     const pendingItems = trx.prepare("SELECT count(*) as count FROM order_items WHERE order_id = ? AND fulfillment_status != 'FULFILLED'").get(item.order_id) as { count: number };
@@ -345,5 +362,29 @@ async function executeProvisioningSaga(
     if (pendingItems.count === 0) {
       trx.prepare("UPDATE orders SET status = 'COMPLETED', updated_at = datetime('now', 'utc') WHERE id = ?").run(item.order_id);
     }
+
+    // 5. Send Provisioning Success Email & In-App Notification
+    const account = trx.prepare('SELECT billing_email FROM accounts WHERE id = ?').get(payload.accountId) as { billing_email: string } | undefined;
+    const sName = payload.customOptions?.serverName || plan.name;
+
+    if (account?.billing_email) {
+      queueEmail(trx, {
+        recipient: account.billing_email,
+        template: 'service_provisioned',
+        payload: {
+          serviceName: sName,
+          serviceId,
+          planName: plan.name,
+        },
+      });
+    }
+
+    createNotification({
+      accountId: payload.accountId,
+      type: 'SERVICE_READY',
+      title: 'Service Provisioned',
+      message: `Your service "${sName}" (${identifier}) is live and ready.`,
+      linkUrl: `/app/services/${serviceId}`,
+    }, trx);
   }, db);
 }

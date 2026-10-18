@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { validateSafeOutboundUrl } from '../../utils/ssrf.js';
 
 export interface ProvisioningSpec {
@@ -9,10 +10,19 @@ export interface ProvisioningSpec {
   databases: number;
   backups: number;
   eggId: number;
+  ownerPanelUserId?: number;
   dockerImage?: string;
   startupCommand?: string;
   environmentVariables: Record<string, string>;
   correlationTag: string;
+}
+
+export interface PanelUserSpec {
+  correlationTag: string;
+  email: string;
+  username: string;
+  firstName: string;
+  lastName: string;
 }
 
 export interface ObservedResource {
@@ -28,8 +38,44 @@ export interface ObservedResource {
   };
 }
 
+export interface PterodactylInventory {
+  checkedAt: string;
+  locations: Array<{ id: number; short: string; long: string | null }>;
+  nodes: Array<{
+    id: number;
+    name: string;
+    locationId: number;
+    fqdn: string;
+    memoryMb: number;
+    diskMb: number;
+    allocatedMemoryMb: number;
+    allocatedDiskMb: number;
+    maintenanceMode: boolean;
+  }>;
+  nests: Array<{ id: number; name: string; author: string }>;
+  eggs: Array<{ id: number; nestId: number; name: string; dockerImage: string | null }>;
+}
+
+export interface PanelServerSummary {
+  id: number;
+  identifier: string;
+  name: string;
+  userId: number;
+  suspended: boolean;
+  limits: { memoryMb: number; cpuPct: number; diskMb: number };
+}
+
+export interface PanelFileEntry {
+  name: string;
+  isFile: boolean;
+  isSymlink: boolean;
+  size: number;
+  mime: string;
+  modifiedAt: string;
+}
+
 export class ProviderError extends Error {
-  constructor(message: string, public readonly code: string, public readonly statusCode?: number) {
+  constructor(message: string, public readonly code: string, public readonly statusCode?: number, public readonly detail?: string) {
     super(message);
     this.name = 'ProviderError';
   }
@@ -103,24 +149,36 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
       method?: string;
       body?: unknown;
       useClientKey?: boolean;
+      /** Per-account Client API key; takes precedence over the shared keys. */
+      bearerOverride?: string;
+      /** Sent as-is with text/plain (file writes). */
+      rawBody?: string;
+      /** Return the response body as text instead of JSON (file contents). */
+      asText?: boolean;
+      /** Overrides the default timeout for slow operations such as archiving. */
+      timeoutMs?: number;
     } = {}
   ): Promise<any> {
     const url = `${this.baseUrl}${endpoint}`;
     const method = options.method || 'GET';
-    const key = options.useClientKey && this.clientApiKey ? this.clientApiKey : this.appApiKey;
+    const key = options.bearerOverride ?? (options.useClientKey && this.clientApiKey ? this.clientApiKey : this.appApiKey);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const effectiveTimeout = options.timeoutMs ?? this.timeoutMs;
+    const timer = setTimeout(() => controller.abort(), effectiveTimeout);
 
     try {
+      // Provider URLs are configuration-controlled, but still receive the same
+      // anti-SSRF treatment as any other outbound integration endpoint.
+      await validateSafeOutboundUrl(url);
       const response = await fetch(url, {
         method,
         headers: {
           Authorization: `Bearer ${key}`,
-          'Content-Type': 'application/json',
+          'Content-Type': options.rawBody !== undefined ? 'text/plain' : 'application/json',
           Accept: 'Application/vnd.pterodactyl.v1+json',
         },
-        body: options.body ? JSON.stringify(options.body) : undefined,
+        body: options.rawBody !== undefined ? options.rawBody : options.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
       });
 
@@ -140,13 +198,24 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
 
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        throw new ProviderError(`Pterodactyl API HTTP ${response.status}: ${text}`, `HTTP_${response.status}`, response.status);
+        let detail: string | undefined;
+        try { detail = (JSON.parse(text) as { errors?: Array<{ detail?: string }> }).errors?.[0]?.detail; } catch { /* not JSON */ }
+        throw new ProviderError(`Pterodactyl API HTTP ${response.status}: ${text}`, `HTTP_${response.status}`, response.status, detail);
       }
 
-      return await response.json();
+      const responseText = await response.text();
+      if (options.asText) return responseText;
+      // Wings uses both 204 and successful responses with an empty body for
+      // write/power operations. An empty success is not malformed JSON.
+      if (!responseText.trim()) return null;
+      try {
+        return JSON.parse(responseText);
+      } catch {
+        throw new ProviderError('Pterodactyl returned an invalid JSON response.', 'INVALID_PROVIDER_RESPONSE', 502);
+      }
     } catch (err: unknown) {
       if ((err as Error).name === 'AbortError') {
-        throw new ProviderNetworkError(`Pterodactyl API timed out after ${this.timeoutMs}ms on ${method} ${endpoint}`);
+        throw new ProviderNetworkError(`Pterodactyl API timed out after ${effectiveTimeout}ms on ${method} ${endpoint}`);
       }
       if (err instanceof ProviderError) {
         throw err;
@@ -155,6 +224,58 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Returns a deliberately restricted, secret-free view of the provider catalog.
+   * This is read-only and is intended for staff-side catalog mapping.
+   */
+  async getInventory(): Promise<PterodactylInventory> {
+    const [locationsResponse, nodesResponse, nestsResponse] = await Promise.all([
+      this.request('/api/application/locations?per_page=100'),
+      this.request('/api/application/nodes?per_page=100'),
+      this.request('/api/application/nests?per_page=100'),
+    ]);
+
+    const locations = (Array.isArray(locationsResponse?.data) ? locationsResponse.data : []).map((item: any) => ({
+      id: Number(item.attributes.id),
+      short: String(item.attributes.short || ''),
+      long: item.attributes.long ? String(item.attributes.long) : null,
+    }));
+    const nodes = (Array.isArray(nodesResponse?.data) ? nodesResponse.data : []).map((item: any) => ({
+      id: Number(item.attributes.id),
+      name: String(item.attributes.name || ''),
+      locationId: Number(item.attributes.location_id),
+      fqdn: String(item.attributes.fqdn || ''),
+      memoryMb: Number(item.attributes.memory || 0),
+      diskMb: Number(item.attributes.disk || 0),
+      allocatedMemoryMb: Number(item.attributes.allocated_resources?.memory || 0),
+      allocatedDiskMb: Number(item.attributes.allocated_resources?.disk || 0),
+      maintenanceMode: Boolean(item.attributes.maintenance_mode),
+    }));
+    const nests: PterodactylInventory['nests'] = (Array.isArray(nestsResponse?.data) ? nestsResponse.data : []).map((item: any) => ({
+      id: Number(item.attributes.id),
+      name: String(item.attributes.name || ''),
+      author: String(item.attributes.author || ''),
+    }));
+
+    const eggGroups = await Promise.all(nests.map(async (nest) => {
+      const response = await this.request(`/api/application/nests/${nest.id}/eggs?per_page=100`);
+      return (Array.isArray(response?.data) ? response.data : []).map((item: any) => ({
+        id: Number(item.attributes.id),
+        nestId: nest.id,
+        name: String(item.attributes.name || ''),
+        dockerImage: item.attributes.docker_image ? String(item.attributes.docker_image) : null,
+      }));
+    }));
+
+    return {
+      checkedAt: new Date().toISOString(),
+      locations,
+      nodes,
+      nests,
+      eggs: eggGroups.flat(),
+    };
   }
 
   async lookupByCorrelationTag(tag: string): Promise<ObservedResource | null> {
@@ -185,6 +306,30 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
     }
   }
 
+  private async fetchEggDefinition(eggId: number): Promise<{ startup?: string; dockerImage?: string; defaults: Record<string, string> }> {
+    const eggs = await this.request('/api/application/nests?include=eggs&per_page=100');
+    let nestId: number | undefined;
+    for (const nest of eggs?.data ?? []) {
+      for (const egg of nest.attributes?.relationships?.eggs?.data ?? []) {
+        if (egg.attributes?.id === eggId) nestId = nest.attributes.id;
+      }
+    }
+    if (nestId === undefined) {
+      throw new ProviderValidationError(`Pterodactyl egg ${eggId} does not exist on the panel`);
+    }
+    const res = await this.request(`/api/application/nests/${nestId}/eggs/${eggId}?include=variables`);
+    const attrs = res?.attributes ?? {};
+    const defaults: Record<string, string> = {};
+    for (const v of attrs.relationships?.variables?.data ?? []) {
+      defaults[v.attributes.env_variable] = String(v.attributes.default_value ?? '');
+    }
+    return {
+      startup: attrs.startup,
+      dockerImage: attrs.docker_image || Object.values(attrs.docker_images ?? {})[0] as string | undefined,
+      defaults,
+    };
+  }
+
   async provision(spec: ProvisioningSpec): Promise<{ externalId: string; identifier: string }> {
     // 1. Pre-flight check: Reconcile before creating
     const existing = await this.lookupByCorrelationTag(spec.correlationTag);
@@ -192,13 +337,20 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
       return { externalId: existing.externalId, identifier: existing.identifier };
     }
 
+    if (!spec.ownerPanelUserId) {
+      throw new ProviderValidationError('Server must be owned by the customer panel user; none was resolved.');
+    }
+    const eggId = spec.eggId || 1;
+    const eggDef = await this.fetchEggDefinition(eggId);
+    const environment: Record<string, string> = { ...eggDef.defaults, ...(spec.environmentVariables || {}) };
+
     const payload = {
       name: spec.name,
-      user: 1, // Default administrative/root tenant user on staging panel
-      egg: spec.eggId || 1,
-      docker_image: spec.dockerImage || 'ghcr.io/pterodactyl/yolks:java_17',
-      startup: spec.startupCommand || 'java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar',
-      environment: spec.environmentVariables || {},
+      user: spec.ownerPanelUserId,
+      egg: eggId,
+      docker_image: spec.dockerImage || eggDef.dockerImage || 'ghcr.io/pterodactyl/yolks:java_17',
+      startup: spec.startupCommand || eggDef.startup || 'java -Xms128M -Xmx{{SERVER_MEMORY}}M -jar server.jar',
+      environment,
       limits: {
         memory: spec.memoryMb,
         swap: 0,
@@ -213,7 +365,7 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
       },
       external_id: spec.correlationTag,
       deploy: {
-        locations: [],
+        locations: [1],
         dedicated_ip: false,
         port_range: [],
       },
@@ -244,23 +396,291 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
     }
   }
 
-  async powerAction(externalId: string, action: 'START' | 'STOP' | 'RESTART' | 'KILL'): Promise<void> {
-    const signal = action.toLowerCase();
-    // Power actions can be executed via Application API or Client API
-    // Using application server lookup to get identifier if needed
+  async ensurePanelUser(spec: PanelUserSpec): Promise<{ panelUserId: number; username: string; email: string }> {
+    const find = async () => {
+      const res = await this.request(`/api/application/users?filter[external_id]=${encodeURIComponent(spec.correlationTag)}`);
+      const attrs = res?.data?.[0]?.attributes;
+      return attrs ? { panelUserId: Number(attrs.id), username: String(attrs.username), email: String(attrs.email) } : null;
+    };
+
+    const existing = await find();
+    if (existing) return existing;
+
     try {
-      await this.request(`/api/client/servers/${externalId}/power`, {
+      const res = await this.request('/api/application/users', {
+        method: 'POST',
+        body: {
+          external_id: spec.correlationTag,
+          email: spec.email,
+          username: spec.username,
+          first_name: spec.firstName,
+          last_name: spec.lastName,
+        },
+      });
+      const attrs = res?.attributes;
+      if (!attrs?.id) throw new ProviderError('Malformed user creation response from Pterodactyl', 'MALFORMED_RESPONSE');
+      return { panelUserId: Number(attrs.id), username: String(attrs.username), email: String(attrs.email) };
+    } catch (err: unknown) {
+      if (err instanceof ProviderNetworkError || (err instanceof ProviderError && (err.statusCode ?? 0) >= 500)) {
+        const recovered = await find().catch(() => null);
+        if (recovered) return recovered;
+      }
+      throw err;
+    }
+  }
+
+  /** Returns true when ownership changed, false when the server already belonged to the user. */
+  async assignServerOwner(externalId: string, panelUserId: number): Promise<boolean> {
+    const res = await this.request(`/api/application/servers/${externalId}`);
+    const attrs = res?.attributes;
+    if (!attrs?.id) throw new ProviderError('Pterodactyl server not found', 'NOT_FOUND', 404);
+    if (Number(attrs.user) === panelUserId) return false;
+    await this.request(`/api/application/servers/${externalId}/details`, {
+      method: 'PATCH',
+      body: {
+        name: attrs.name,
+        user: panelUserId,
+        external_id: attrs.external_id,
+        description: attrs.description ?? '',
+      },
+    });
+    return true;
+  }
+
+  private async resolveIdentifier(externalId: string): Promise<string> {
+    if (!/^\d+$/.test(externalId)) return externalId;
+    const res = await this.request(`/api/application/servers/${externalId}`);
+    const identifier = res?.attributes?.identifier;
+    if (!identifier) throw new ProviderError('Pterodactyl server identifier not found', 'MALFORMED_RESPONSE');
+    return String(identifier);
+  }
+
+  async getResourceUsage(externalId: string, accountClientKey?: string): Promise<{
+    state: string;
+    cpuPct: number;
+    memoryBytes: number;
+    diskBytes: number;
+    uptimeMs: number;
+  }> {
+    if (!accountClientKey && !this.clientApiKey) {
+      throw new ProviderError('Client API key is not configured', 'CLIENT_API_REQUIRED');
+    }
+    const identifier = await this.resolveIdentifier(externalId);
+    const res = await this.request(`/api/client/servers/${identifier}/resources`, { useClientKey: true, bearerOverride: accountClientKey });
+    const a = res?.attributes;
+    const r = a?.resources ?? {};
+    return {
+      state: String(a?.current_state ?? 'unknown'),
+      cpuPct: Number(r.cpu_absolute ?? 0),
+      memoryBytes: Number(r.memory_bytes ?? 0),
+      diskBytes: Number(r.disk_bytes ?? 0),
+      uptimeMs: Number(r.uptime ?? 0),
+    };
+  }
+
+  async powerAction(externalId: string, action: 'START' | 'STOP' | 'RESTART' | 'KILL', accountClientKey?: string): Promise<void> {
+    const signal = action.toLowerCase();
+    // Client API addresses servers by short identifier, not the numeric application id
+    const identifier = await this.resolveIdentifier(externalId);
+    try {
+      await this.request(`/api/client/servers/${identifier}/power`, {
         method: 'POST',
         body: { signal },
         useClientKey: true,
+        bearerOverride: accountClientKey,
       });
     } catch (err: unknown) {
       // If client key is not configured, fall back to Application API or error
-      if (err instanceof ProviderAuthenticationError && !this.clientApiKey) {
+      if (err instanceof ProviderAuthenticationError && !this.clientApiKey && !accountClientKey) {
         throw new ProviderError('Client API access not configured for power actions', 'CLIENT_API_REQUIRED');
       }
       throw err;
     }
+  }
+
+  private static summarize(a: any): PanelServerSummary {
+    return {
+      id: Number(a.id), identifier: String(a.identifier), name: String(a.name), userId: Number(a.user), suspended: Boolean(a.suspended),
+      limits: { memoryMb: Number(a.limits?.memory ?? 0), cpuPct: Number(a.limits?.cpu ?? 0), diskMb: Number(a.limits?.disk ?? 0) },
+    };
+  }
+
+  /** Every server on the panel in a handful of calls (100 per page), used to reconcile instead of one call per service. */
+  async listServers(): Promise<PanelServerSummary[]> {
+    const out: PanelServerSummary[] = [];
+    for (let page = 1; page <= 200; page++) {
+      const res = await this.request(`/api/application/servers?per_page=100&page=${page}`);
+      for (const item of res?.data ?? []) out.push(PterodactylHttpAdapter.summarize(item.attributes));
+      if (page >= Number(res?.meta?.pagination?.total_pages ?? 1)) break;
+    }
+    return out;
+  }
+
+  /** The egg name of a server, through the Application API. Profiles match by name so no panel ids are hardcoded. */
+  async getServerEggName(externalId: string): Promise<string | null> {
+    const res = await this.request(`/api/application/servers/${externalId}?include=egg`);
+    const name = res?.attributes?.relationships?.egg?.attributes?.name;
+    return typeof name === 'string' ? name : null;
+  }
+
+  /** Returns null when the server does not exist on the panel (definitive 404). */
+  async getServerSummary(panelServerId: number): Promise<PanelServerSummary | null> {
+    try {
+      const res = await this.request(`/api/application/servers/${panelServerId}`);
+      return res?.attributes ? PterodactylHttpAdapter.summarize(res.attributes) : null;
+    } catch (err: unknown) {
+      if (err instanceof ProviderError && err.statusCode === 404) return null;
+      throw err;
+    }
+  }
+
+  /** Definitive existence check through the Application API. A 404 means the server is gone from the panel. */
+  async serverExists(externalId: string): Promise<boolean> {
+    try {
+      await this.request(`/api/application/servers/${externalId}`);
+      return true;
+    } catch (err: unknown) {
+      if (err instanceof ProviderError && err.statusCode === 404) return false;
+      throw err;
+    }
+  }
+
+  /**
+   * Asks the panel (via the Fortless key-mint patch in panel-sso/) for a Client API key that belongs to ONE
+   * account's panel user. That key can only see that user's servers.
+   */
+  async mintAccountClientKey(correlationTag: string, secret: string): Promise<string> {
+    if (!secret || secret.length < 32) {
+      throw new ProviderError('Per-account client keys are not configured', 'KEYMINT_NOT_CONFIGURED');
+    }
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = crypto.randomBytes(18).toString('base64url');
+    const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${nonce}.${correlationTag}`).digest('hex');
+    const res = await this.request('/auth/sso/fortless/client-key', {
+      method: 'POST',
+      body: { external_id: correlationTag, timestamp, nonce, signature },
+      bearerOverride: 'unused',
+    });
+    const token = res?.token;
+    if (typeof token !== 'string' || token.length < 20) {
+      throw new ProviderError('Malformed key mint response from Pterodactyl', 'MALFORMED_RESPONSE');
+    }
+    return token;
+  }
+
+  /** Short-lived Wings websocket credentials for one server, requested with that account's own key. */
+  async getWebsocketCredentials(externalId: string, accountClientKey: string): Promise<{ token: string; socket: string }> {
+    const identifier = await this.resolveIdentifier(externalId);
+    const res = await this.request(`/api/client/servers/${identifier}/websocket`, { bearerOverride: accountClientKey });
+    const token = res?.data?.token;
+    const socket = res?.data?.socket;
+    if (typeof token !== 'string' || typeof socket !== 'string' || !/^wss?:\/\//.test(socket)) {
+      throw new ProviderError('Malformed websocket response from Pterodactyl', 'MALFORMED_RESPONSE');
+    }
+    return { token, socket };
+  }
+
+  // ---- Server files (Client API, always called with the account's own key) ----
+
+  private filesPath(identifier: string, action: string, query = ''): string {
+    return `/api/client/servers/${identifier}/files/${action}${query}`;
+  }
+
+  async listFiles(externalId: string, dir: string, key: string): Promise<PanelFileEntry[]> {
+    const id = await this.resolveIdentifier(externalId);
+    const res = await this.request(this.filesPath(id, 'list', `?directory=${encodeURIComponent(dir)}`), { bearerOverride: key });
+    return (res?.data ?? []).map((item: any) => ({
+      name: String(item.attributes.name),
+      isFile: Boolean(item.attributes.is_file),
+      isSymlink: Boolean(item.attributes.is_symlink),
+      size: Number(item.attributes.size ?? 0),
+      mime: String(item.attributes.mimetype ?? ''),
+      modifiedAt: String(item.attributes.modified_at ?? ''),
+    }));
+  }
+
+  async readFile(externalId: string, path: string, key: string): Promise<string> {
+    const id = await this.resolveIdentifier(externalId);
+    return this.request(this.filesPath(id, 'contents', `?file=${encodeURIComponent(path)}`), { bearerOverride: key, asText: true });
+  }
+
+  async writeFile(externalId: string, path: string, content: string, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'write', `?file=${encodeURIComponent(path)}`), { method: 'POST', rawBody: content, bearerOverride: key });
+  }
+
+  async createFolder(externalId: string, dir: string, name: string, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'create-folder'), { method: 'POST', body: { root: dir, name }, bearerOverride: key });
+  }
+
+  async deleteFiles(externalId: string, dir: string, names: string[], key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'delete'), { method: 'POST', body: { root: dir, files: names }, bearerOverride: key });
+  }
+
+  async renameFile(externalId: string, dir: string, from: string, to: string, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'rename'), { method: 'PUT', body: { root: dir, files: [{ from, to }] }, bearerOverride: key });
+  }
+
+  async chmodFiles(externalId: string, dir: string, names: string[], mode: string, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'chmod'), { method: 'POST', body: { root: dir, files: names.map((file) => ({ file, mode })) }, bearerOverride: key });
+  }
+
+  /** The node downloads the file itself. Foreground, so success means the file is already there. */
+  async pullFile(externalId: string, dir: string, url: string, filename: string | undefined, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'pull'), {
+      method: 'POST', body: { url, directory: dir, filename, use_header: false, foreground: true }, bearerOverride: key, timeoutMs: 120000,
+    });
+  }
+
+  async compressFiles(externalId: string, dir: string, names: string[], key: string): Promise<string> {
+    const id = await this.resolveIdentifier(externalId);
+    const res = await this.request(this.filesPath(id, 'compress'), { method: 'POST', body: { root: dir, files: names }, bearerOverride: key, timeoutMs: 120000 });
+    return String(res?.attributes?.name ?? '');
+  }
+
+  async decompressFile(externalId: string, dir: string, file: string, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'decompress'), { method: 'POST', body: { root: dir, file }, bearerOverride: key, timeoutMs: 120000 });
+  }
+
+  async copyFile(externalId: string, path: string, key: string): Promise<void> {
+    const id = await this.resolveIdentifier(externalId);
+    await this.request(this.filesPath(id, 'copy'), { method: 'POST', body: { location: path }, bearerOverride: key });
+  }
+
+  /**
+   * Generic Client API call for one server, always with the account's own key. The sub-path is restricted
+   * to the areas Fortless exposes, so a bug upstream cannot reach other panel endpoints.
+   */
+  async clientServerCall(
+    externalId: string,
+    key: string,
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    subpath: string,
+    body?: unknown
+  ): Promise<any> {
+    if (!/^\/(backups|network\/allocations|startup|settings|databases|users|schedules|activity)(\/[A-Za-z0-9_-]+){0,3}(\?(include=(password|tasks)|page=\d{1,5}))?$/.test(subpath) && subpath !== '') {
+      throw new ProviderError('Unsupported panel path', 'UNSUPPORTED_PATH');
+    }
+    const id = await this.resolveIdentifier(externalId);
+    return this.request(`/api/client/servers/${id}${subpath}`, { method, body, bearerOverride: key, timeoutMs: 30000 });
+  }
+
+  /** Signed, short-lived Wings URL. kind 'upload' takes a directory (added by the browser), 'download' a file path. */
+  async signedFileUrl(externalId: string, kind: 'upload' | 'download', pathOrDir: string, key: string): Promise<string> {
+    const id = await this.resolveIdentifier(externalId);
+    const query = kind === 'download' ? `?file=${encodeURIComponent(pathOrDir)}` : '';
+    const res = await this.request(this.filesPath(id, kind, query), { bearerOverride: key });
+    const url = res?.attributes?.url;
+    if (typeof url !== 'string' || !/^https:\/\//.test(url)) {
+      throw new ProviderError('Malformed signed URL from Pterodactyl', 'MALFORMED_RESPONSE');
+    }
+    return url;
   }
 
   async suspend(externalId: string): Promise<void> {

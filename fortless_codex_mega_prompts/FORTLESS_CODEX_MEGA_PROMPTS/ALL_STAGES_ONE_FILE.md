@@ -1,4 +1,6 @@
-# FORTLESS — Complete Codex Mega-Prompt Pack
+# FORTLESS — Complete Codex Mega-Prompt Pack (legacy snapshot)
+
+> **Do not use this snapshot for new work.** It predates Stage 12 and the 2026-10-19 repository reconciliation. Use the individual files listed in `README_START_HERE.md`, especially `00_GLOBAL_CONTRACT.md`, `docs/PLAN_RECONCILIATION_2026-10-19.md`, and `12_SERVER_MANAGEMENT_EXTENSIONS.md`. The binding visual reference is the read-only `fortless-redesign/Fortless Views.html`; never alter it during feature implementation.
 This document concatenates all instructions. Usually use the separate stage files.
 
 

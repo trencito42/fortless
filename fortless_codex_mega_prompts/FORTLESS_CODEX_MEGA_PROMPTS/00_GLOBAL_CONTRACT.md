@@ -10,7 +10,8 @@ Finish a commercially viable, secure, self-service hosting platform. The user ex
 
 - Root `AGENTS.md` and `docs/HANDOFF.md`, `docs/IMPLEMENTATION_STATUS.md`, `docs/REPOSITORY_AUDIT.md`.
 - `docs/fortless/*`, `blueprint/fortless-blueprint/MASTER_PROMPT.md`, numbered blueprint specs.
-- Petal design references: `blueprint/fortless-blueprint/design/{out.html,panel.html,parts/}` and `handoff/references/design-system/`; brand reference assets in `handoff/references/brand`.
+- **Canonical Petal visual reference (read-only):** `fortless-redesign/Fortless Views.html`. The normalized in-repo copy `docs/design/views.html` has the same design content and may be used for inspection. Do not edit either reference while implementing product features.
+- Supporting Petal references: `blueprint/fortless-blueprint/design/{out.html,panel.html,parts/}` and `handoff/references/design-system/`; brand reference assets in `handoff/references/brand`.
 - Production code `src/*`, `public/*`, package scripts and tests. Check HEAD; do not assume it is the inspected baseline SHA.
 
 Resolve contradictions by favoring safety, actual behavior, and latest verified user requirements. Document each decision in `docs/DECISIONS.md` with tradeoffs; ask about business/legal data only where an implementation would otherwise be unsafe.
@@ -31,7 +32,7 @@ Never equate automated test names, compilation, API status codes or local mock p
 ## Implementation guardrails
 
 1. Prefer incremental vertical slices in the existing Fastify/TypeScript architecture; do not perform an unaudited rewrite to Next.js, NestJS, Prisma or microservices. A PostgreSQL transition may be justified, and must use versioned migration tooling and verification.
-2. Retain existing Petal components, Inter Tight, monogram FL, the actual site's lime/blue/navy/white tokens, adaptive mobile/navigation patterns and accessibility behavior. No generic Tailwind/Bootstrap/Material redesign. Build common components/adapters; do not paste 400 KB of duplicate design markup into each new route.
+2. Retain existing Petal components, Inter Tight, monogram FL, the actual site's lime/blue/navy/white tokens, adaptive mobile/navigation patterns and accessibility behavior. `fortless-redesign/Fortless Views.html` is the binding visual grammar for spacing, radii, hierarchy, controls, states, dialogs, responsive behavior and motion. Reuse the production primitives in `public/assets/petal-app.css` and `src/frontend/petal/`; when a missing primitive is genuinely required, derive a reusable production component from the canonical reference without altering that reference. No generic Tailwind/Bootstrap/Material redesign, no parallel design system, and no ad-hoc one-page styling. Do not paste the full reference markup into product routes.
 3. Trust no client-supplied identity, price, permissions, VAT eligibility, quantity limits, server ID, provider ID, plan resources or PSP payment status. Validate server-side and tie to authenticated account membership.
 4. All read and write paths are tenant-scoped by account. Staff roles use separate server-side RBAC. Do not use legacy `is_staff` for authority; never grant staff or first OWNER automatically from an email/domain/IP hint.
 5. Monetary values use integer minor units and explicit currency. Every quote/order/payment/invoice/refund has identity and immutability rules. Never store card data; PSP handles PCI-sensitive payment flow.

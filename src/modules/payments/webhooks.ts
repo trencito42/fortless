@@ -4,6 +4,8 @@ import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
 import { markInvoicePaid, getNextCreditNoteNumber } from '../invoicing/invoicing.js';
+import { queueEmail } from '../email/outbox.js';
+import { createNotification } from '../notifications/notifications.js';
 
 export interface StripeWebhookPayload {
   id: string;
@@ -234,7 +236,10 @@ export function ingestPSPWebhook(
   }
 
   // Amount & Currency Verification
-  if (paymentObj.amount !== attemptRow.amount_minor_units || paymentObj.currency.toUpperCase() !== attemptRow.currency.toUpperCase()) {
+  // checkout.session.completed uses amount_total; payment_intent.succeeded uses amount
+  const effectiveAmount = (paymentObj as Record<string, any>)['amount_total'] ?? paymentObj.amount;
+  const effectiveCurrency = ((paymentObj as Record<string, any>)['currency'] as string | undefined) ?? '';
+  if (effectiveAmount !== attemptRow.amount_minor_units || effectiveCurrency.toUpperCase() !== attemptRow.currency.toUpperCase()) {
     db.prepare("UPDATE psp_inbox_events SET status = 'ANOMALY', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
     return { status: 'ANOMALY_HELD', eventId, orderId: attemptRow.order_id };
   }
@@ -324,6 +329,32 @@ export function ingestPSPWebhook(
       INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id)
       VALUES (?, ?, 'PSP_WEBHOOK', 'order.paid', 'order', ?, ?)
     `).run(generateId('aud'), attemptRow.account_id, attemptRow.order_id, eventId);
+
+    // 5g. Send Payment Confirmation Email & In-App Notification
+    const account = trx.prepare('SELECT billing_email FROM accounts WHERE id = ?').get(attemptRow.account_id) as { billing_email: string } | undefined;
+    const invoice = trx.prepare('SELECT invoice_number FROM invoices WHERE id = ?').get(attemptRow.invoice_id) as { invoice_number: string } | undefined;
+    const invNumber = invoice?.invoice_number || 'INV-PAID';
+    const formattedAmount = `${(paymentObj.amount / 100).toFixed(2)} ${paymentObj.currency.toUpperCase()}`;
+
+    if (account?.billing_email) {
+      queueEmail(trx, {
+        recipient: account.billing_email,
+        template: 'payment_confirmed',
+        payload: {
+          invoiceNumber: invNumber,
+          amount: formattedAmount,
+          serviceName: 'Fortless Cloud Hosting',
+        },
+      });
+    }
+
+    createNotification({
+      accountId: attemptRow.account_id,
+      type: 'PAYMENT_SUCCESS',
+      title: 'Payment Confirmed',
+      message: `Invoice #${invNumber} for ${formattedAmount} was settled successfully.`,
+      linkUrl: '/app/billing',
+    }, trx);
   }, db);
 
   return { status: 'PROCESSED', eventId, orderId: attemptRow.order_id };

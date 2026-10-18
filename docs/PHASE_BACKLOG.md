@@ -1,5 +1,7 @@
 # Fortless Implementation Backlog & Phase Roadmap
 
+> Historical phase checklist. Many unchecked slices below now exist in the working tree. Reconcile against executable code and `docs/PLAN_RECONCILIATION_2026-10-19.md`; do not replay this list mechanically. The current continuation is Stage 12, beginning with the admin Game Profiles UI.
+
 **Governed by Dual Playbooks:**
 1. `FORTLESS_CODEX_MEGA_PROMPTS/` — Primary Engineering Roadmap (Architecture, Security, Multi-Tenancy, Commerce, Provisioning).
 2. `FORTLESS_PETAL_APP_PROMPTS/` — Specialized Product Experience & UI Completion (Command Palette, Dashboard, Charts, Ticketing, Markdown Attachments, Advanced Admin).

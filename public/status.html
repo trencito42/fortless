@@ -4,533 +4,153 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#eff1f5">
-  <meta name="description" content="Fortless real-time infrastructure status, component health, and incident reporting.">
+  <meta name="description" content="Fortless infrastructure status, component health, and incident reporting.">
   <title>System Status — Fortless</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;650;700;750;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="/assets/petal-app.css">
+  <link rel="stylesheet" href="/assets/petal-app.css?v=20261018_5">
+  <script>
+    (function(){
+      try{
+        var t = localStorage.getItem('fortless_theme') || localStorage.getItem('theme') || localStorage.getItem('ftv-theme');
+        if(t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      }catch(e){}
+    })();
+  </script>
   <style>
-    /* Petal Design System — Status Page Extensions */
-    :root {
-      --bg:#eff1f5; --s1:#ffffff; --s2:#f5f6fa; --s3:#e5e8ee; --s4:#d5dae3;
-      --ink:#0b1a2b; --ink2:#4a576a; --ink3:#5a687b; --on-ink:#ffffff;
-      --accent:#2a5fe8; --accent-bg:#e6edff; --on-accent:#ffffff;
-      --good:#0e6b35; --good-bg:#d6f5e0; --lime:#b9ff3d; --lime-ink:#0b1a12;
-      --warn:#855000; --warn-bg:#fdefc8; --bad:#b8232a; --bad-bg:#fde1e2;
-      --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter Tight","Helvetica Neue",Arial,sans-serif;
-      --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-      --ease:cubic-bezier(.2,.8,.2,1); --max:1240px; --overlay:rgba(5,10,18,.48);
-    }
-    [data-theme="dark"] {
-      color-scheme:dark;
-      --bg:#0a0e15; --s1:#141a24; --s2:#1b2330; --s3:#252f3f; --s4:#344156;
-      --ink:#eef2f7; --ink2:#a0adbd; --ink3:#8d9bae; --on-ink:#0a0e15;
-      --accent:#7aa2ff; --accent-bg:#1a2750; --on-accent:#0a0e15;
-      --good:#3ddc84; --good-bg:#123525; --warn:#f0b232; --warn-bg:#352a0e;
-      --bad:#ff6b70; --bad-bg:#3b1618;
-    }
-    @media(prefers-color-scheme:dark){
-      :root:not([data-theme="light"]){
-        color-scheme:dark;
-        --bg:#0a0e15; --s1:#141a24; --s2:#1b2330; --s3:#252f3f; --s4:#344156;
-        --ink:#eef2f7; --ink2:#a0adbd; --ink3:#8d9bae; --on-ink:#0a0e15;
-        --accent:#7aa2ff; --accent-bg:#1a2750; --on-accent:#0a0e15;
-        --good:#3ddc84; --good-bg:#123525; --warn:#f0b232; --warn-bg:#352a0e;
-        --bad:#ff6b70; --bad-bg:#3b1618;
-      }
-    }
-    *,*::before,*::after{box-sizing:border-box}
-    html{scroll-behavior:smooth;scroll-padding-top:100px;-webkit-text-size-adjust:100%}
-    body{margin:0;background:var(--bg);color:var(--ink);font:500 15px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow-x:hidden}
-    a{color:inherit;text-decoration:none}
-    button,input{font:inherit}
-    button{cursor:pointer;-webkit-tap-highlight-color:transparent}
-    p,h1,h2,h3,h4{margin:0}
-    :focus-visible{outline:3px solid var(--accent);outline-offset:4px}
-    ::selection{background:var(--accent);color:var(--on-accent)}
-    .wrap{max-width:var(--max);margin:0 auto;padding-left:24px;padding-right:24px}
-    .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-    .ic{width:20px;height:20px;flex:none;display:block;fill:none;stroke:currentColor;stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round}
-    .ic.s{width:16px;height:16px}.ic.l{width:24px;height:24px}.ic.xl{width:32px;height:32px}
-    .muted{color:var(--ink2)}
-    
-    /* Petal Components */
-    .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:44px;padding:0 20px;border:0;border-radius:99px;background:var(--ink);color:var(--on-ink);font-weight:700;font-size:14px;white-space:nowrap;transition:filter .15s,transform .15s,background .15s}
-    .btn:hover{filter:brightness(1.12)}.btn:active{transform:scale(.97)}
-    .btn.accent{background:var(--accent);color:var(--on-accent)}.btn.sec{background:var(--s3);color:var(--ink)}.btn.lime{background:var(--lime);color:var(--lime-ink)}
-    .btn.l{min-height:54px;padding:0 24px;font-size:15px}.btn.s{min-height:38px;padding:0 15px;font-size:13px}
-    
-    .badge{display:inline-flex;align-items:center;gap:7px;min-height:27px;padding:4px 11px;border-radius:99px;background:var(--s3);color:var(--ink2);font-size:11px;line-height:1.15;font-weight:800;white-space:nowrap}
-    .badge.lime{background:var(--lime);color:var(--lime-ink)}.badge.blue{background:var(--accent-bg);color:var(--accent)}
-    .badge.good{background:var(--good-bg);color:var(--good)}.badge.warn{background:var(--warn-bg);color:var(--warn)}.badge.bad{background:var(--bad-bg);color:var(--bad)}
-    
-    .card{background:var(--s1);border-radius:24px;padding:24px;min-width:0;transition:background .2s}
-    .eyebrow{display:flex;align-items:center;gap:9px;text-transform:uppercase;letter-spacing:.13em;font:700 11px/1.4 var(--mono);color:var(--ink3)}
-    .dot{width:8px;height:8px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
-    .dot.pulse{animation:petal-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite}
-    @keyframes petal-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
-
-    /* Petal Site Header */
-    .site-header{position:sticky;top:0;z-index:50;background:var(--bg)}
-    .nav-inner{min-height:80px;display:flex;align-items:center;gap:34px}
-    .brand{display:inline-flex;align-items:center;gap:10px;flex:none;font:800 20px/1 var(--font);letter-spacing:-.04em}
-    .brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:var(--ink);color:var(--on-ink)}
-    .brand-mark img{display:none!important}.brand-mark::before{content:"";width:21px;height:21px;background:var(--on-ink);mask:url('/assets/fortless-icon.svg') center/contain no-repeat;-webkit-mask:url('/assets/fortless-icon.svg') center/contain no-repeat}
-    .brand small{font:700 10px/1 var(--mono);letter-spacing:-.06em;color:var(--accent);align-self:flex-start;margin-left:1px}
-    .nav-links{display:flex;align-items:center;gap:30px;margin-left:auto}
-    .nav-links a{font-size:13.5px;font-weight:700;color:var(--ink2);transition:color .15s}
-    .nav-links a:hover,.nav-links a.active{color:var(--ink)}
-    .nav-acts{display:flex;align-items:center;gap:9px;margin-left:18px}
-    .icon-btn{width:42px;height:42px;display:grid;place-items:center;border:0;border-radius:50%;background:var(--s1);color:var(--ink);transition:background .15s}
-    .icon-btn:hover{background:var(--s3)}
-    .menu-btn{display:none}
-
-    /* Auth state toggles */
     [data-auth-user]{display:none!important}
     [data-authenticated="true"] [data-auth-guest]{display:none!important}
-    [data-authenticated="true"] .nav-acts [data-auth-user]{display:inline-flex!important}
-
-    /* Status Page Hero */
-    .status-page{padding-top:40px;padding-bottom:120px}
-    .status-hero{background:var(--s1);border-radius:28px;padding:36px;margin-bottom:32px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
-    .status-hero-main{display:flex;flex-direction:column;gap:12px}
-    .status-hero h1{font:850 clamp(32px,4.5vw,52px)/1.05 var(--font);letter-spacing:-.05em}
-    .status-hero p{font-size:15px;color:var(--ink2);max-width:540px}
-    .status-hero-badge{display:inline-flex;align-items:center;gap:10px;padding:10px 18px;border-radius:99px;font:750 14px/1 var(--font)}
-    .status-hero-badge.good{background:var(--good-bg);color:var(--good)}
-    .status-hero-badge.warn{background:var(--warn-bg);color:var(--warn)}
-    .status-hero-badge.bad{background:var(--bad-bg);color:var(--bad)}
-
-    /* Component Grid */
-    .components-section{display:flex;flex-direction:column;gap:24px;margin-bottom:44px}
-    .group-card{background:var(--s1);border-radius:24px;overflow:hidden;padding:0}
-    .group-header{padding:18px 24px;background:var(--s2);display:flex;align-items:center;justify-content:space-between}
-    .group-title{display:flex;align-items:center;gap:10px;font:700 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--ink2)}
-    .group-title .ic{color:var(--accent)}
-    .component-list{display:flex;flex-direction:column}
-    .component-row{display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid var(--s2);gap:16px}
-    .component-row:last-child{border-bottom:none}
-    .component-info{display:flex;flex-direction:column;gap:4px}
-    .component-name{font-weight:750;font-size:15px;color:var(--ink);letter-spacing:-.015em}
-    .component-meta{font:500 11.5px/1.4 var(--mono);color:var(--ink3)}
-    .component-status{display:flex;align-items:center;gap:16px}
-    .uptime-bar{display:flex;gap:3px;align-items:center}
-    .uptime-tick{width:3px;height:18px;border-radius:2px;background:var(--good);opacity:.85}
-
-    /* Incidents Section */
-    .incidents-section{display:flex;flex-direction:column;gap:18px;margin-bottom:44px}
-    .incident-card{background:var(--s1);border-radius:24px;padding:28px;display:flex;flex-direction:column;gap:16px}
-    .incident-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
-    .incident-title{font:800 20px/1.2 var(--font);letter-spacing:-.03em}
-    .incident-timeline{display:flex;flex-direction:column;gap:16px;margin-top:8px;padding-left:14px;border-left:2px solid var(--s3)}
-    .update-item{display:flex;flex-direction:column;gap:4px}
-    .update-time{font:650 11px/1.4 var(--mono);color:var(--ink3);text-transform:uppercase}
-    .update-body{font-size:14px;color:var(--ink2);line-height:1.55}
-
-    /* Empty state */
-    .empty-incidents{display:flex;align-items:center;gap:16px;padding:24px 28px;background:var(--s1);border-radius:20px;color:var(--ink2)}
-    .empty-incidents .ic{color:var(--good)}
-
-    /* Refresh indicator */
-    .live-indicator{display:inline-flex;align-items:center;gap:7px;font:600 11px/1 var(--mono);color:var(--ink3)}
-    .live-indicator button{background:none;border:0;color:inherit;padding:2px;border-radius:4px;display:inline-flex;align-items:center}
-    .live-indicator button:hover{color:var(--ink)}
-
-    /* Footer */
-    .site-footer{padding-top:60px;padding-bottom:50px;border-top:1px solid var(--s3);color:var(--ink2)}
-    .footer-inner{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:36px}
-    .footer-brand{display:flex;flex-direction:column;gap:14px}
-    .footer-brand p{font-size:13.5px;line-height:1.6;color:var(--ink3);max-width:320px}
-    .footer-col{display:flex;flex-direction:column;gap:10px}
-    .footer-col b{font-size:13px;font-weight:750;color:var(--ink);letter-spacing:.02em;margin-bottom:4px}
-    .footer-col a{font-size:13px;color:var(--ink2);transition:color .15s}
-    .footer-col a:hover{color:var(--ink)}
-    .footer-bottom{display:flex;align-items:center;justify-content:space-between;padding-top:36px;margin-top:36px;border-top:1px solid var(--s2);font:500 12px var(--mono);color:var(--ink3)}
-    .launch-status{display:flex;align-items:center;gap:8px}
-    .launch-status .dot{background:var(--lime)}
-
-    /* Responsive */
-    @media (max-width:950px){
-      .nav-links{display:none}
-      .footer-inner{grid-template-columns:1fr 1fr;gap:24px}
-      .footer-brand{grid-column:1/-1}
-    }
-    @media (max-width:650px){
-      .wrap{padding-left:16px;padding-right:16px}
-      .status-hero{padding:24px}
-      .status-hero h1{font-size:28px}
-      .component-row{flex-direction:column;align-items:flex-start}
-      .component-status{width:100%;justify-content:space-between}
-      .uptime-bar{display:none}
-    }
+    [data-authenticated="true"] [data-auth-user]{display:inline-flex!important}
+    .status-meta{font:650 12px var(--mono);color:var(--ink3)}
+    .incident-updates{display:grid;gap:8px;margin-top:12px}
+    .incident-update{background:var(--s2);border-radius:16px;padding:12px 14px}
+    .incident-update small{display:block;color:var(--ink3);font:650 11.5px var(--mono);margin-bottom:4px}
   </style>
 </head>
 <body data-authenticated="__AUTH_STATE__">
-  <!-- Load HugeIcons sprite from Petal asset pack -->
-  <script>
-    fetch("/assets/petal-icons.svg").then(r=>r.text()).then(t=>{
-      const d=document.createElement("div");
-      d.style.display="none";
-      d.innerHTML=t;
-      document.body.prepend(d);
-    }).catch(()=>{});
-  </script>
+  <div class="m"><div class="scr pb">
+    <header class="pn" data-c="Public nav"><div class="in">
+      <a class="brand" href="/" style="padding:0;font-size:21px"><img src="/assets/fortless-icon.svg" width="30" height="30" alt="">fortless</a>
+      <nav class="lnk" aria-label="Public navigation"><a href="/status" class="on" aria-current="page">Status</a><a href="/legal/terms">Legal</a><a href="/#faq">Docs</a></nav>
+      <span class="sp"></span>
+      <button class="ib" id="themeToggleBtn" type="button" aria-label="Toggle theme" style="width:36px;height:36px"><svg class="ic" viewBox="0 0 24 24"><use id="themeIcon" href="/assets/petal-icons.svg#i-sun-03"></use></svg></button>
+      <a class="btn s ghost hide-n" data-auth-guest href="/login">Sign in</a><a class="btn s pri" data-auth-guest href="/register">Get started</a><a class="btn s pri" data-auth-user href="/app">Dashboard</a>
+    </div></header>
 
-  <!-- Fallback critical navigation icons -->
-  <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
-    <symbol id="i-arrow-up-right" viewBox="0 0 24 24"><path d="M7 17 17 7M7 7h10v10"/></symbol>
-    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.5 13a8.8 8.8 0 0 1-9.5-9.5A9 9 0 1 0 20.5 13Z"/></symbol>
-    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4"/></symbol>
-    <symbol id="i-checkmark-circle-01" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="m8.5 12.5 2.5 2.5 5-5"/></symbol>
-    <symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><path d="M12 8v5m0 3.5h.01"/></symbol>
-    <symbol id="i-arrow-reload-horizontal" viewBox="0 0 24 24"><path d="M20 5.5H9.5a6.5 6.5 0 0 0 0 13H11M18 3l2.5 2.5L18 8M4 18.5h10.5a6.5 6.5 0 0 0 0-13H13M6 21l-2.5-2.5L6 16"/></symbol>
-    <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01M11 7h6M11 17h6"/></symbol>
-    <symbol id="i-shield-01" viewBox="0 0 24 24"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/></symbol>
-  </svg>
+    <main class="pc">
+      <section class="ban" id="statusBanner" data-c="Status banner" aria-live="polite">
+        <div class="row"><span class="pill good d" id="statusPill">Checking status</span><span class="status-meta" id="statusUpdated">Connecting to telemetry…</span></div>
+        <h1 id="statusHeadline">Checking system status</h1>
+        <p id="statusSummary">Loading the current component and incident state from Fortless.</p>
+      </section>
 
-  <!-- Canonical Fortless Site Header -->
-  <header class="site-header" id="top">
-    <nav class="wrap nav-inner" aria-label="Primary navigation">
-      <a class="brand" href="/" aria-label="Fortless home">
-        <span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true"></span>
-        fortless<small>.net</small>
-      </a>
-      <div class="nav-links">
-        <a href="/#services">Hosting</a>
-        <a href="/#platform">Platform</a>
-        <a href="/#features">Why Fortless</a>
-        <a href="/status" class="active">Status</a>
-        <a href="/#faq">FAQ</a>
-      </div>
-      <div class="nav-acts">
-        <button class="icon-btn" id="themeToggle" type="button" aria-label="Switch color theme" title="Toggle light/dark mode">
-          <svg class="ic s"><use href="#i-moon"/></svg>
-        </button>
-        <a class="btn s sec access" data-auth-guest href="/login">Sign in</a>
-        <a class="btn s accent access" data-auth-guest href="/register">Get started <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a>
-        <a class="btn s accent access" data-auth-user href="/app">Dashboard <svg class="ic s"><use href="#i-arrow-up-right"/></svg></a>
-      </div>
-    </nav>
-  </header>
+      <section class="card" style="margin-top:12px" data-c="Component list" aria-labelledby="componentsTitle">
+        <div class="ch"><div class="tx"><h3 id="componentsTitle">Platform services</h3><p>Current provider-observed state. Historical uptime is not exposed by the status API.</p></div><button class="btn xs" id="refreshStatus" type="button">Refresh</button></div>
+        <div class="col" id="components" style="gap:10px"><div class="sk" role="status" aria-label="Loading platform services"><i></i><i></i><i></i></div></div>
+      </section>
 
-  <main class="wrap status-page">
-    <!-- Live Platform Indicator Hero -->
-    <section class="status-hero" aria-labelledby="status-headline">
-      <div class="status-hero-main">
-        <div class="eyebrow">
-          <span class="dot pulse" id="heroDot" style="color:var(--good)"></span>
-          <span>Fortless Global Network Telemetry</span>
-          <span class="live-indicator">
-            <span id="lastUpdated">Updating...</span>
-            <button id="refreshBtn" type="button" aria-label="Refresh status data" title="Refresh">
-              <svg class="ic s"><use href="#i-arrow-reload-horizontal"/></svg>
-            </button>
-          </span>
-        </div>
-        <h1 id="statusHeadline">All Systems Operational</h1>
-        <p>Live health monitoring across all edge computation clusters, payment gateways, and core management APIs.</p>
-      </div>
-      <div id="heroBadgeContainer">
-        <div class="status-hero-badge good" id="heroBadge">
-          <svg class="ic"><use href="#i-checkmark-circle-01"/></svg>
-          <span id="heroBadgeText">Operational</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Component Health by Architectural Group -->
-    <section class="components-section" aria-labelledby="components-title">
-      <div class="eyebrow" style="margin-bottom:8px">
-        <span class="dot" style="color:var(--accent)"></span>
-        <span id="components-title">Platform Services &amp; Regions</span>
-      </div>
-      <div id="componentsContainer" class="components-section">
-        <div class="card" style="padding:40px;text-align:center;color:var(--ink2)">
-          <div class="mono">Loading system components telemetry...</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Active & Past Incidents Timeline -->
-    <section class="incidents-section" aria-labelledby="incidents-title">
-      <div class="eyebrow" style="margin-bottom:8px">
-        <span class="dot" style="color:var(--accent)"></span>
-        <span id="incidents-title">Service Incidents &amp; Maintenance</span>
-      </div>
-      <div id="incidentsContainer">
-        <div class="empty-incidents card">
-          <svg class="ic l"><use href="#i-checkmark-circle-01"/></svg>
-          <div>
-            <b style="color:var(--ink)">No active incidents or service disruptions</b>
-            <div class="muted" style="font-size:13px;margin-top:2px">All regions, storage clusters, and API workers operating nominally with zero active advisories.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- Petal Footer matching Index -->
-  <footer class="wrap site-footer">
-    <div class="footer-inner">
-      <div class="footer-brand">
-        <a class="brand" href="/"><span class="brand-mark"><img src="/assets/fortless-icon.svg" alt="" aria-hidden="true"></span>fortless</a>
-        <p>Next-generation hosting management infrastructure for game servers, bots, and modern cloud apps.</p>
-      </div>
-      <div class="footer-col">
-        <b>Platform</b>
-        <a href="/#services">Hosting services</a>
-        <a href="/#platform">Interactive demo</a>
-        <a href="/status">System status</a>
-      </div>
-      <div class="footer-col">
-        <b>Architecture</b>
-        <a href="/#features">Zero-trust security</a>
-        <a href="/#roadmap">Technical roadmap</a>
-        <a href="/#faq">Documentation &amp; FAQ</a>
-      </div>
-      <div class="footer-col">
-        <b>Account</b>
-        <a data-auth-guest href="/login">Sign in</a>
-        <a data-auth-guest href="/register">Create account</a>
-        <a data-auth-user href="/app">Dashboard</a>
-      </div>
-    </div>
-    <div class="footer-bottom">
-      <span>&copy; <span id="year">2026</span> Fortless Technologies. Commercial grade reliability.</span>
-      <span class="launch-status"><span class="dot"></span> Telemetry online</span>
-    </div>
-  </footer>
+      <section class="card" style="margin-top:12px" aria-labelledby="incidentsTitle">
+        <div class="ch"><div class="tx"><h3 id="incidentsTitle">Incidents &amp; maintenance</h3><p>Active advisories and the latest resolved incidents.</p></div></div>
+        <div class="col" id="incidents" style="gap:10px"><div class="sk" role="status" aria-label="Loading incidents"><i></i></div></div>
+      </section>
+    </main>
+  </div></div>
 
   <script>
-    (()=>{
+    (() => {
       'use strict';
-      const root = document.documentElement;
-      const toggle = document.getElementById('themeToggle');
-      const themeIcon = toggle.querySelector('use');
+      const components = document.getElementById('components');
+      const incidents = document.getElementById('incidents');
+      const banner = document.getElementById('statusBanner');
+      const headline = document.getElementById('statusHeadline');
+      const summary = document.getElementById('statusSummary');
+      const pill = document.getElementById('statusPill');
+      const updated = document.getElementById('statusUpdated');
+      const refresh = document.getElementById('refreshStatus');
+      const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[char]);
+      const tone = (status) => {
+        const value = String(status || '').toUpperCase();
+        if (value === 'OPERATIONAL' || value === 'RESOLVED') return 'good';
+        if (['DEGRADED','PARTIAL_OUTAGE','MAINTENANCE','INVESTIGATING','IDENTIFIED','MONITORING','MINOR'].includes(value)) return 'warn';
+        if (['MAJOR_OUTAGE','MAJOR','CRITICAL'].includes(value)) return 'bad';
+        return '';
+      };
+      const label = (value) => String(value || 'Unknown').toLowerCase().replaceAll('_', ' ').replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+      const when = (value) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Time unavailable' : date.toLocaleString(); };
+      const makePill = (value) => `<span class="pill ${tone(value)} d">${esc(label(value))}</span>`;
 
-      function applyTheme(theme){
-        root.dataset.theme = theme;
-        themeIcon.setAttribute('href', theme === 'dark' ? '#i-sun' : '#i-moon');
-        toggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-        const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', theme === 'dark' ? '#0a0e15' : '#eff1f5');
+      function render(data) {
+        const indicator = String(data.indicator || 'OPERATIONAL').toUpperCase();
+        const stateTone = tone(indicator);
+        banner.className = `ban${stateTone === 'warn' ? ' warn' : stateTone === 'bad' ? ' bad' : ''}`;
+        headline.textContent = data.headline || 'System status available';
+        summary.textContent = indicator === 'OPERATIONAL' ? 'Live health monitoring across Fortless platform components.' : 'A service condition is active. Current component details and incident updates are listed below.';
+        pill.className = `pill ${stateTone || 'good'} d`;
+        pill.textContent = label(indicator);
+        updated.textContent = `Updated ${when(data.generatedAt)}`;
+
+        const list = Array.isArray(data.components) ? data.components : [];
+        components.innerHTML = list.length ? list.map((component) => `<div class="li" style="padding:14px 16px"><div class="tile sm ${tone(component.status)}"><svg class="ic s" aria-hidden="true"><use href="/assets/petal-icons.svg#i-server"></use></svg></div><div class="tx"><b>${esc(component.name)}</b><small>${esc(component.groupName || 'Platform')} · updated ${esc(when(component.updatedAt))}</small></div>${makePill(component.status)}</div>`).join('') : '<div class="es"><div class="tile neu"><svg class="ic"><use href="/assets/petal-icons.svg#i-server"></use></svg></div><h4>No registered components</h4><p>The status API did not return platform components.</p></div>';
+
+        const active = Array.isArray(data.activeIncidents) ? data.activeIncidents : [];
+        const past = Array.isArray(data.pastIncidents) ? data.pastIncidents.slice(0, 5) : [];
+        const all = [...active, ...past];
+        incidents.innerHTML = all.length ? all.map((incident) => {
+          const updatesHtml = Array.isArray(incident.updates) && incident.updates.length ? `<div class="incident-updates">${incident.updates.map((item) => `<div class="incident-update"><small>${esc(label(item.status))} · ${esc(when(item.createdAt))}</small><p>${esc(item.message)}</p></div>`).join('')}</div>` : '';
+          return `<article class="li" style="display:block;padding:14px 16px"><div class="row" style="margin-bottom:6px">${makePill(incident.status)}<span class="pill ${tone(incident.impact)}">${esc(label(incident.impact))} impact</span><small class="faint" style="font-weight:650">${esc(when(incident.resolvedAt || incident.updatedAt))}</small></div><b>${esc(incident.title)}</b>${updatesHtml}</article>`;
+        }).join('') : '<div class="es"><div class="tile good"><svg class="ic"><use href="/assets/petal-icons.svg#i-tick-02"></use></svg></div><h4>No active incidents</h4><p>No incident or maintenance record is currently published.</p></div>';
       }
 
-      try {
-        const saved = localStorage.getItem('fortless_theme');
-        applyTheme(saved === 'dark' || saved === 'light' ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
-      } catch(_) {
-        applyTheme('light');
+      function renderFailure() {
+        banner.className = 'ban warn';
+        headline.textContent = 'Status data unavailable';
+        summary.textContent = 'Fortless could not load current telemetry. This is not confirmation of an outage.';
+        pill.className = 'pill warn d'; pill.textContent = 'Telemetry unavailable'; updated.textContent = 'Last check failed';
+        components.innerHTML = '<div class="alert warn"><svg class="ic"><use href="/assets/petal-icons.svg#i-alert-circle"></use></svg><div><b>Component status unavailable</b><span>Try refreshing this page.</span></div></div>';
+        incidents.innerHTML = '<div class="alert warn"><svg class="ic"><use href="/assets/petal-icons.svg#i-alert-circle"></use></svg><div><b>Incident feed unavailable</b><span>No success or outage state is being inferred.</span></div></div>';
       }
 
-      toggle.addEventListener('click', ()=>{
-        const current = root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-        const next = current === 'dark' ? 'light' : 'dark';
-        applyTheme(next);
-        try { localStorage.setItem('fortless_theme', next); } catch(_) {}
-      });
-
-      document.getElementById('year').textContent = String(new Date().getFullYear());
-
-      // Status polling logic
-      const headlineEl = document.getElementById('statusHeadline');
-      const heroDot = document.getElementById('heroDot');
-      const heroBadge = document.getElementById('heroBadge');
-      const heroBadgeText = document.getElementById('heroBadgeText');
-      const lastUpdatedEl = document.getElementById('lastUpdated');
-      const refreshBtn = document.getElementById('refreshBtn');
-      const componentsContainer = document.getElementById('componentsContainer');
-      const incidentsContainer = document.getElementById('incidentsContainer');
-
-      function getGroupIcon(groupName) {
-        const gn = groupName.toLowerCase();
-        if (gn.includes('billing') || gn.includes('payment')) return '#i-credit';
-        if (gn.includes('infra') || gn.includes('node') || gn.includes('edge')) return '#i-server';
-        if (gn.includes('platform') || gn.includes('email')) return '#i-shield-01';
-        return '#i-server';
-      }
-
-      function getStatusBadge(status) {
-        const s = (status || '').toUpperCase();
-        if (s === 'OPERATIONAL') {
-          return '<span class="badge good"><svg class="ic s"><use href="#i-checkmark-circle-01"/></svg> Operational</span>';
-        }
-        if (s === 'DEGRADED') {
-          return '<span class="badge warn"><svg class="ic s"><use href="#i-alert-circle"/></svg> Degraded Performance</span>';
-        }
-        if (s === 'PARTIAL_OUTAGE') {
-          return '<span class="badge warn"><svg class="ic s"><use href="#i-alert-circle"/></svg> Partial Outage</span>';
-        }
-        if (s === 'MAJOR_OUTAGE') {
-          return '<span class="badge bad"><svg class="ic s"><use href="#i-alert-circle"/></svg> Major Outage</span>';
-        }
-        if (s === 'MAINTENANCE') {
-          return '<span class="badge blue"><svg class="ic s"><use href="#i-arrow-reload-horizontal"/></svg> Maintenance</span>';
-        }
-        return `<span class="badge">${s}</span>`;
-      }
-
-      function generateUptimeTicks(status) {
-        const isGood = (status || '').toUpperCase() === 'OPERATIONAL';
-        let ticks = '';
-        for (let i = 0; i < 30; i++) {
-          const color = (isGood || i < 28) ? 'var(--good)' : 'var(--warn)';
-          ticks += `<div class="uptime-tick" style="background:${color}" title="99.98% availability"></div>`;
-        }
-        return `<div class="uptime-bar" aria-label="30 day operational history">${ticks}</div>`;
-      }
-
-      async function fetchStatus() {
-        refreshBtn.style.transform = 'rotate(180deg)';
-        refreshBtn.style.transition = 'transform 0.5s ease';
+      async function loadStatus() {
+        refresh.disabled = true;
         try {
-          const res = await fetch('/api/v1/status');
-          if (!res.ok) throw new Error('Status service unavailable');
-          const data = await res.json();
-          renderStatus(data);
-        } catch (err) {
-          headlineEl.textContent = 'Telemetry Unavailable';
-          heroDot.style.color = 'var(--warn)';
-          heroBadge.className = 'status-hero-badge warn';
-          heroBadgeText.textContent = 'Degraded Telemetry';
-          lastUpdatedEl.textContent = 'Check failed';
-        } finally {
-          setTimeout(() => { refreshBtn.style.transform = ''; }, 500);
-        }
+          const response = await fetch('/api/v1/status', {headers:{Accept:'application/json'}});
+          if (!response.ok) throw new Error(`Status request failed: ${response.status}`);
+          render(await response.json());
+        } catch (_) { renderFailure(); }
+        finally { refresh.disabled = false; }
       }
+      refresh.addEventListener('click', loadStatus);
+      loadStatus();
+      window.setInterval(loadStatus, 30000);
 
-      function renderStatus(data) {
-        headlineEl.textContent = data.headline || 'All Systems Operational';
-        const indicator = (data.indicator || 'OPERATIONAL').toUpperCase();
-        
-        if (indicator === 'OPERATIONAL') {
-          heroDot.style.color = 'var(--good)';
-          heroBadge.className = 'status-hero-badge good';
-          heroBadge.querySelector('use').setAttribute('href', '#i-checkmark-circle-01');
-          heroBadgeText.textContent = 'Operational';
-        } else if (indicator === 'DEGRADED' || indicator === 'PARTIAL_OUTAGE') {
-          heroDot.style.color = 'var(--warn)';
-          heroBadge.className = 'status-hero-badge warn';
-          heroBadge.querySelector('use').setAttribute('href', '#i-alert-circle');
-          heroBadgeText.textContent = indicator === 'DEGRADED' ? 'Degraded Performance' : 'Partial Outage';
-        } else {
-          heroDot.style.color = 'var(--bad)';
-          heroBadge.className = 'status-hero-badge bad';
-          heroBadge.querySelector('use').setAttribute('href', '#i-alert-circle');
-          heroBadgeText.textContent = 'Major Outage';
-        }
-
-        const now = new Date();
-        lastUpdatedEl.textContent = `Updated ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
-
-        // Group components by groupName
-        const groups = {};
-        (data.components || []).forEach(comp => {
-          const g = comp.groupName || 'Core Platform';
-          if (!groups[g]) groups[g] = [];
-          groups[g].push(comp);
-        });
-
-        let groupHtml = '';
-        for (const [groupName, comps] of Object.entries(groups)) {
-          const icon = getGroupIcon(groupName);
-          let compRows = '';
-          comps.forEach(c => {
-            compRows += `
-              <div class="component-row">
-                <div class="component-info">
-                  <div class="component-name">${c.name}</div>
-                  <div class="component-meta">Node: <span class="mono">${c.slug}</span> &middot; Latency: &lt;14ms</div>
-                </div>
-                <div class="component-status">
-                  ${generateUptimeTicks(c.status)}
-                  ${getStatusBadge(c.status)}
-                </div>
-              </div>
-            `;
-          });
-
-          groupHtml += `
-            <div class="group-card card">
-              <div class="group-header">
-                <div class="group-title">
-                  <svg class="ic s"><use href="${icon}"/></svg>
-                  <span>${groupName}</span>
-                </div>
-                <span class="badge lime" style="font-size:10px">100.0% UPTIME</span>
-              </div>
-              <div class="component-list">
-                ${compRows}
-              </div>
-            </div>
-          `;
-        }
-        componentsContainer.innerHTML = groupHtml || '<div class="card muted">No registered system components.</div>';
-
-        // Incidents
-        const active = data.activeIncidents || [];
-        const past = data.pastIncidents || [];
-
-        if (active.length === 0 && past.length === 0) {
-          incidentsContainer.innerHTML = `
-            <div class="empty-incidents card">
-              <svg class="ic l"><use href="#i-checkmark-circle-01"/></svg>
-              <div>
-                <b style="color:var(--ink)">No active incidents or service disruptions</b>
-                <div class="muted" style="font-size:13px;margin-top:2px">All regions, storage clusters, and API workers operating nominally with zero active advisories.</div>
-              </div>
-            </div>
-          `;
-        } else {
-          let incHtml = '';
-          active.forEach(inc => {
-            const updates = (inc.updates || []).map(u => `
-              <div class="update-item">
-                <div class="update-time">${new Date(u.createdAt).toLocaleString()} &middot; ${u.status}</div>
-                <div class="update-body">${u.message}</div>
-              </div>
-            `).join('');
-
-            incHtml += `
-              <div class="incident-card card" style="border-left: 4px solid var(--bad)">
-                <div class="incident-head">
-                  <div>
-                    <span class="badge bad" style="margin-bottom:8px">${inc.status} &middot; ${inc.impact} IMPACT</span>
-                    <h2 class="incident-title">${inc.title}</h2>
-                  </div>
-                  <div class="mono muted" style="font-size:12px">Started ${new Date(inc.createdAt).toLocaleString()}</div>
-                </div>
-                <div class="incident-timeline">
-                  ${updates || '<div class="muted">Investigation underway.</div>'}
-                </div>
-              </div>
-            `;
-          });
-
-          past.slice(0, 5).forEach(inc => {
-            incHtml += `
-              <div class="incident-card card" style="opacity:0.85">
-                <div class="incident-head">
-                  <div>
-                    <span class="badge good" style="margin-bottom:8px">RESOLVED</span>
-                    <h3 class="incident-title" style="font-size:17px">${inc.title}</h3>
-                  </div>
-                  <div class="mono muted" style="font-size:12px">Resolved ${new Date(inc.resolvedAt || inc.updatedAt).toLocaleString()}</div>
-                </div>
-              </div>
-            `;
-          });
-
-          incidentsContainer.innerHTML = incHtml;
-        }
+      // Theme sync
+      function isDarkTheme() {
+        var t = document.documentElement.dataset.theme;
+        return t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
       }
-
-      fetchStatus();
-      refreshBtn.addEventListener('click', fetchStatus);
-      // Auto-poll every 30 seconds
-      setInterval(fetchStatus, 30000);
+      function updateThemeIcon() {
+        var icon = document.getElementById('themeIcon');
+        if (icon) icon.setAttribute('href', '/assets/petal-icons.svg#i-' + (isDarkTheme() ? 'moon-01' : 'sun-03'));
+      }
+      function toggleTheme() {
+        var next = isDarkTheme() ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        try {
+          localStorage.setItem('fortless_theme', next);
+          localStorage.setItem('theme', next);
+        } catch(e){}
+        updateThemeIcon();
+      }
+      document.getElementById('themeToggleBtn')?.addEventListener('click', toggleTheme);
+      window.addEventListener('storage', function(e) {
+        if ((e.key === 'fortless_theme' || e.key === 'theme') && (e.newValue === 'light' || e.newValue === 'dark')) {
+          document.documentElement.dataset.theme = e.newValue;
+          updateThemeIcon();
+        }
+      });
+      updateThemeIcon();
     })();
   </script>
 </body>

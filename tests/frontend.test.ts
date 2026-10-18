@@ -29,9 +29,15 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(ADMIN_ROUTES.overview!.path).toBe('/admin');
       expect(ADMIN_ROUTES.accounts!.path).toBe('/admin/accounts');
       expect(ADMIN_ROUTES.services!.path).toBe('/admin/services');
+      expect(ADMIN_ROUTES.orders!.path).toBe('/admin/orders');
+      expect(ADMIN_ROUTES.billing!.path).toBe('/admin/billing');
+      expect(ADMIN_ROUTES.infrastructure!.path).toBe('/admin/infrastructure');
+      expect(ADMIN_ROUTES.catalog!.path).toBe('/admin/catalog');
       expect(ADMIN_ROUTES.tickets!.path).toBe('/admin/tickets');
       expect(ADMIN_ROUTES.audit!.path).toBe('/admin/audit');
       expect(ADMIN_ROUTES.staff!.path).toBe('/admin/staff');
+      expect(ADMIN_ROUTES.status!.path).toBe('/admin/status');
+      expect(ADMIN_ROUTES.settings!.path).toBe('/admin/settings');
     });
 
     it('Router registers handlers and matches static and parameterized paths', () => {
@@ -149,6 +155,114 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(serviceDetailSrc).toContain('role="tabpanel"');
       expect(serviceDetailSrc).not.toContain('class="tab-btn');
       expect(appHtml).not.toContain('class="tab-btn');
+    });
+
+    it('uses the canonical Petal shell and component contracts in operations', () => {
+      const adminHtml = readFileSync(new URL('../public/admin.html', import.meta.url), 'utf8');
+      const adminCss = readFileSync(new URL('../public/assets/admin-ui.css', import.meta.url), 'utf8');
+      const iconsSource = readFileSync(new URL('../src/frontend/petal/components/icons.ts', import.meta.url), 'utf8');
+      expect(adminHtml).toContain('/assets/petal-app.css');
+      expect(adminHtml).toContain('class="ap"');
+      expect(adminHtml).toContain('class="sd"');
+      expect(adminHtml).toContain('class="nv"');
+      expect(adminHtml).toContain('class="mdl"');
+      expect(adminHtml).toContain('class="bx');
+      expect(adminHtml).toContain('class="tbl rsp"');
+      expect(iconsSource).toContain('/assets/petal-icons.svg#');
+      expect(adminHtml).not.toContain('class="scrim"');
+      expect(adminHtml).not.toContain('class="modal"');
+      expect(adminHtml).not.toContain('class="badge');
+      expect(adminCss).not.toContain('.badge{');
+      expect(adminCss).not.toContain('.scrim{');
+      expect(adminCss).not.toContain('.modal{');
+    });
+
+    it('keeps mobile More sheets below the dock and prevents iOS form zoom', () => {
+      const landing = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+      const appHtml = readFileSync(new URL('../public/app.html', import.meta.url), 'utf8');
+      const appCss = readFileSync(new URL('../public/assets/app-ui.css', import.meta.url), 'utf8');
+      const petalCss = readFileSync(new URL('../public/assets/petal-app.css', import.meta.url), 'utf8');
+      expect(landing).toContain("{label:'Menu',docked:true}");
+      expect(landing).toContain('#modal.dock-sheet{z-index:54}');
+      expect(appHtml).toContain('class="mdl dr mobile-nav-sheet"');
+      expect(appCss).toContain('.mdl.mobile-nav-sheet{display:grid;z-index:98');
+      expect(petalCss).toContain('[contenteditable="true"]{font-size:16px!important}');
+      expect(landing).toContain('[contenteditable="true"]{font-size:16px!important}');
+    });
+
+    it('keeps database secrets disclosed on demand and deploy checkout behind the completed wizard', () => {
+      const databaseSource = readFileSync(new URL('../src/frontend/client/pages/services/panel-tabs.ts', import.meta.url), 'utf8');
+      const serviceSource = readFileSync(new URL('../src/frontend/client/pages/services/index.ts', import.meta.url), 'utf8');
+      const deploySource = readFileSync(new URL('../src/frontend/client/pages/deploy/index.ts', import.meta.url), 'utf8');
+      const appHtml = readFileSync(new URL('../public/app.html', import.meta.url), 'utf8');
+      expect(databaseSource).toContain('data-db-details hidden');
+      expect(databaseSource).toContain('data-db-create hidden');
+      expect(databaseSource).toContain('aria-expanded="false"');
+      expect(serviceSource).toContain('data-service-mode="easy"');
+      expect(serviceSource).toContain('data-service-mode="advanced"');
+      expect(serviceSource).toContain("fortless_service_mode_${serviceId}");
+      expect(deploySource).toContain('if (deployStep !== 2)');
+      expect(deploySource).toContain("item.id === deployState.selectedRegionId && !item.isSoldOut");
+      expect(deploySource).not.toContain('deployState.selectedPlanId = deployState.plans[0].planVersionId');
+      expect(deploySource).toContain("marker.innerHTML = hero('check', 'xs')");
+      expect(deploySource).not.toContain("marker.textContent = index < deployStep ? '✓'");
+      expect(appHtml).toContain('id="doDeployBtn" class="btn pri blk" style="height:50px" hidden disabled');
+    });
+
+    it('uses customer-friendly activity, active-ticket defaults and a bounded recent ticket thread', () => {
+      const activitySource = readFileSync(new URL('../src/frontend/client/pages/activity/index.ts', import.meta.url), 'utf8');
+      const serverSource = readFileSync(new URL('../src/server.ts', import.meta.url), 'utf8');
+      const supportSource = readFileSync(new URL('../src/frontend/client/pages/support/index.ts', import.meta.url), 'utf8');
+      const gameSource = readFileSync(new URL('../src/frontend/client/pages/services/game.ts', import.meta.url), 'utf8');
+      const appHtml = readFileSync(new URL('../public/app.html', import.meta.url), 'utf8');
+      expect(activitySource).toContain('Signed in to the server panel with SSO');
+      expect(activitySource).toContain('Signed out of Fortless');
+      expect(activitySource).toContain('item.service_name');
+      expect(activitySource).toContain('item.ticket_subject');
+      expect(serverSource).toContain("AS service_name");
+      expect(serverSource).toContain("AS ticket_subject");
+      expect(activitySource).not.toContain("item.action.replaceAll('.', ' · ')");
+      expect(appHtml).toContain('name="ticketStatus" value="OPEN" checked hidden');
+      expect(supportSource).toContain('data-ticket-message');
+      expect(supportSource).toContain('max-height:min(680px,62vh)');
+      expect(supportSource).toContain('conversation.scrollTop = conversation.scrollHeight');
+      expect(gameSource).toContain('/game/eula/accept');
+      expect(gameSource).toContain('Accept and restart');
+      expect(gameSource).toContain("headers: body === undefined ? {} : { 'Content-Type': 'application/json' }");
+    });
+
+    it('uses the canonical Petal public contracts for status and legal without fake telemetry', () => {
+      const statusHtml = readFileSync(new URL('../public/status.html', import.meta.url), 'utf8');
+      const legalHtml = readFileSync(new URL('../public/legal.html', import.meta.url), 'utf8');
+      for (const html of [statusHtml, legalHtml]) {
+        expect(html).toContain('/assets/petal-app.css');
+        expect(html).toContain('class="pn"');
+        expect(html).toContain('class="pc"');
+        expect(html).not.toContain('class="site-header"');
+        expect(html).not.toContain('class="badge');
+      }
+      expect(statusHtml).toContain('class="ban"');
+      expect(statusHtml).toContain('class="pill good d"');
+      expect(statusHtml).toContain("fetch('/api/v1/status'");
+      expect(statusHtml).toContain('id="themeToggleBtn"');
+      expect(statusHtml).toContain("localStorage.getItem('fortless_theme')");
+      expect(statusHtml).not.toContain('Latency:');
+      expect(statusHtml).not.toContain('100.0% UPTIME');
+      expect(statusHtml).not.toContain('generateUptimeTicks');
+      expect(legalHtml).toContain('class="doc"');
+      expect(legalHtml).toContain('class="toc"');
+      expect(legalHtml).toContain('id="themeToggleBtn"');
+      expect(legalHtml).toContain("localStorage.getItem('fortless_theme')");
+      expect(legalHtml).toContain('class="prose card legal-document"');
+      expect(legalHtml).toContain("activate('__ACTIVE_DOC__', false)");
+
+      // Admin panel markup checks
+      const adminHtml = readFileSync('public/admin.html', 'utf8');
+      expect(adminHtml).toContain('id="modalAdminServiceDetail"');
+      expect(adminHtml).toContain('id="modalCreateProductFromEgg"');
+      expect(adminHtml).toContain('id="page-settings"');
+      expect(adminHtml).toContain('id="nav-settings"');
+      expect(adminHtml).toContain('id="testProviderBtn"');
     });
   });
 

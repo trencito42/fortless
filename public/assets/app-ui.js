@@ -62,6 +62,21 @@
       this.resolve();
     }
     resolve() {
+      const path = window.location.pathname;
+      const prev = this.currentMatch;
+      if (prev?.route.tabbed) {
+        const route = prev.route;
+        const params = this.matchRoute(route, path);
+        if (params !== null) {
+          const { tab: nextTab, ...rest } = params;
+          const { tab: _prevTab, ...prevRest } = prev.params;
+          if (JSON.stringify(rest) === JSON.stringify(prevRest)) {
+            this.currentMatch = { route, params, pathname: path };
+            window.dispatchEvent(new CustomEvent("fortless:tab", { detail: { route: route.id, tab: nextTab ?? null } }));
+            return;
+          }
+        }
+      }
       while (this.cleanups.length) {
         const cleanup = this.cleanups.pop();
         try {
@@ -103,14 +118,14 @@
     }
     updateActiveLinks(activeId) {
       const navId = activeId === "service-detail" ? "services" : activeId === "ticket-detail" || activeId === "ticket-new" ? "tickets" : activeId;
-      document.querySelectorAll("[data-app-route], [data-route]").forEach((el) => {
-        const rId = el.dataset.appRoute || el.dataset.route;
+      document.querySelectorAll("[data-app-route], [data-route]").forEach((el2) => {
+        const rId = el2.dataset.appRoute || el2.dataset.route;
         if (rId === navId) {
-          el.setAttribute("aria-current", "page");
-          el.classList.add("act");
+          el2.setAttribute("aria-current", "page");
+          el2.classList.add("act");
         } else {
-          el.removeAttribute("aria-current");
-          el.classList.remove("act");
+          el2.removeAttribute("aria-current");
+          el2.classList.remove("act");
         }
       });
       const more = document.getElementById("mobileMoreBtn");
@@ -183,14 +198,17 @@
       id: "settings",
       path: "/app/settings",
       title: "Settings \xB7 FORTLESS",
-      subtitle: "Account access, active device sessions, and authentication security."
+      subtitle: "Account access, active device sessions, and authentication security.",
+      pattern: /^\/app\/settings\/(?<tab>[a-z-]+)$/,
+      tabbed: true
     },
     "service-detail": {
       id: "service-detail",
       path: "/app/services/:id",
       title: "Service Detail \xB7 FORTLESS",
       subtitle: "Node and connection telemetry.",
-      pattern: /^\/app\/services\/(?<id>[^/]+)$/
+      pattern: /^\/app\/services\/(?<id>[^/]+?)(?:\/(?<tab>[a-z-]+))?$/,
+      tabbed: true
     }
   };
 
@@ -289,7 +307,10 @@
       return this.request(url, { ...options, method: "GET" });
     }
     post(url, body, options) {
-      const headers = { "Content-Type": "application/json", ...options?.headers || {} };
+      const headers = { ...options?.headers || {} };
+      if (body !== void 0) {
+        headers["Content-Type"] = "application/json";
+      }
       return this.request(url, {
         ...options,
         method: "POST",
@@ -298,7 +319,10 @@
       });
     }
     patch(url, body, options) {
-      const headers = { "Content-Type": "application/json", ...options?.headers || {} };
+      const headers = { ...options?.headers || {} };
+      if (body !== void 0) {
+        headers["Content-Type"] = "application/json";
+      }
       return this.request(url, {
         ...options,
         method: "PATCH",
@@ -324,35 +348,68 @@
   var api = apiFn;
 
   // src/frontend/petal/components/icons.ts
-  var heroPaths = {
-    servers: '<path d="M4.5 12a7.5 3 0 1 0 15 0 7.5 3 0 1 0-15 0Z"/><path d="M4.5 12v6a7.5 3 0 0 0 15 0v-6"/><path d="M4.5 6a7.5 3 0 1 0 15 0 7.5 3 0 1 0-15 0Z"/><path d="M4.5 6v6"/><path d="M19.5 6v6"/>',
-    plus: '<path d="M12 4.5v15m7.5-7.5h-15"/>',
-    credit: '<path d="M2.25 8.25h19.5M3.75 4.5h16.5A1.5 1.5 0 0 1 21.75 6v12a1.5 1.5 0 0 1-1.5 1.5H3.75A1.5 1.5 0 0 1 2.25 18V6a1.5 1.5 0 0 1 1.5-1.5Z"/><path d="M6 15.75h2.25"/>',
-    support: '<path d="M18.364 5.636A9 9 0 1 1 5.636 18.364 9 9 0 0 1 18.364 5.636Z"/><path d="m15.182 8.818-2.121 2.121m-2.122 2.122-2.121 2.121m0-6.364 2.121 2.121m2.122 2.122 2.121 2.121"/>',
-    shield: '<path d="M9 12.75 11.25 15 15 9.75"/><path d="M12 2.25c2.146 1.648 4.892 2.3 7.5 2.25v6c0 5.25-3.438 9.438-7.5 11.25C7.938 19.938 4.5 15.75 4.5 10.5v-6c2.608.05 5.354-.602 7.5-2.25Z"/>',
-    settings: '<path d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.592c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.246c.275.476.17 1.079-.252 1.43l-.997.827c-.292.242-.438.613-.43.992a6.759 6.759 0 0 1 0 .258c-.008.379.138.75.43.992l.997.827c.422.35.527.954.252 1.43l-1.296 2.246a1.125 1.125 0 0 1-1.37.49l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.542-.56.94-1.11.94h-2.592c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.063-.374-.313-.686-.645-.87a6.5 6.5 0 0 1-.22-.127c-.324-.196-.72-.257-1.075-.124l-1.217.456a1.125 1.125 0 0 1-1.37-.49l-1.296-2.246a1.125 1.125 0 0 1 .252-1.43l.997-.827c.292-.242.438-.613.43-.992a6.759 6.759 0 0 1 0-.258c.008-.379-.138-.75-.43-.992l-.997-.827a1.125 1.125 0 0 1-.252-1.43l1.296-2.246a1.125 1.125 0 0 1 1.37-.49l1.217.456c.355.133.75.072 1.076-.124.072-.044.146-.086.22-.128.331-.183.581-.495.644-.869l.213-1.281Z"/><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>',
-    refresh: '<path d="M16.023 9.348h4.992V4.356"/><path d="M2.985 19.644v-4.992h4.992"/><path d="M4.74 9.75a7.5 7.5 0 0 1 12.54-3.03l3.735 3.735M19.26 14.25a7.5 7.5 0 0 1-12.54 3.03l-3.735-3.735"/>',
-    play: '<path d="M5.25 5.653c0-1.427 1.529-2.33 2.779-1.643l11.54 6.347c1.294.711 1.294 2.575 0 3.286L8.03 19.99c-1.25.687-2.779-.217-2.779-1.643V5.653Z"/>',
-    stop: '<path d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z"/>',
-    check: '<path d="m4.5 12.75 6 6 9-13.5"/>',
-    cube: '<path d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25M21 7.5v9L12 21.75m0-9L3 7.5m9 5.25v9M3 7.5v9l9 5.25"/>',
-    paper: '<path d="m3.478 2.405 18.151 9.076c.368.184.368.71 0 .894L3.478 21.45a.5.5 0 0 1-.724-.447l.842-6.317a1 1 0 0 1 .757-.836L12 12 4.353 10.15a1 1 0 0 1-.757-.836l-.842-6.317a.5.5 0 0 1 .724-.447Z"/>',
-    x: '<path d="M6 18 18 6M6 6l12 12"/>',
-    document: '<path d="M19.5 14.25v-2.625A3.375 3.375 0 0 0 16.125 8.25h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H8.25m0 12.75h7.5m-7.5 3h4.5M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>',
-    copy: '<path d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-10.5A1.125 1.125 0 0 1 3 20.625v-10.5C3 9.504 3.504 9 4.125 9H7.5"/><path d="M10.125 3h9.75C20.496 3 21 3.504 21 4.125v9.75c0 .621-.504 1.125-1.125 1.125h-9.75A1.125 1.125 0 0 1 9 13.875v-9.75C9 3.504 9.504 3 10.125 3Z"/>',
-    warning: '<path d="M12 9v3.75m9.303 3.376c.866 1.5-.217 3.374-1.948 3.374H4.645c-1.73 0-2.813-1.874-1.948-3.374L10.052 3.38c.866-1.5 3.03-1.5 3.896 0l7.355 12.746ZM12 15.75h.008v.008H12v-.008Z"/>',
-    device: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.25 20.25h7.5M12 16.5v3.75"/>',
-    chevron: '<path d="m9 18 6-6-6-6"/>',
-    home: '<path d="M2.25 12 11.2 3.05a1.13 1.13 0 0 1 1.6 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-5.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"/>',
-    users: '<path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.34 9.34 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.03-.265-1.998-.73-2.84M15 19.128v.106A12.3 12.3 0 0 1 8.624 21C6.33 21 4.18 20.37 2.34 19.273l-.001-.14a6.375 6.375 0 0 1 11.93-3.238M12 6.75a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/>',
-    server: '<path d="M21.75 17.25v-.228a4.5 4.5 0 0 0-.12-1.03l-2.15-9.432a2.25 2.25 0 0 0-2.194-1.75H6.714A2.25 2.25 0 0 0 4.52 6.56l-2.15 9.432a4.5 4.5 0 0 0-.12 1.03v.228m19.5 0a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25m19.5 0v-.844c0-1.124-.91-2.034-2.034-2.034H4.284c-1.124 0-2.034.91-2.034 2.034v.844M6.75 17.25h.008v.008H6.75v-.008Zm3 0h.008v.008H9.75v-.008Z"/>',
-    search: '<path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.197 5.197a7.5 7.5 0 0 0 10.606 10.606Z"/>',
-    arrow: '<path d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>'
-  };
   function hero(name, size = "") {
-    const path = heroPaths[name] || heroPaths.cube;
+    const petalNames = {
+      home: "dashboard-square-01",
+      users: "user-group",
+      server: "server",
+      servers: "server",
+      plus: "add-01",
+      credit: "credit-card",
+      support: "message-01",
+      shield: "shield-01",
+      settings: "settings-01",
+      refresh: "circle-arrow-reload-01",
+      play: "play",
+      stop: "stop",
+      check: "tick-02",
+      cube: "package",
+      paper: "sent",
+      x: "cancel-01",
+      document: "invoice-01",
+      copy: "copy-01",
+      warning: "alert-circle",
+      fingerprint: "finger-print-scan",
+      device: "laptop",
+      chevron: "arrow-right-01",
+      search: "search-01",
+      arrow: "arrow-up-right-01",
+      sun: "sun-03",
+      moon: "moon-01"
+    };
     const classes = ["ic", size, "hero-icon"].filter(Boolean).join(" ");
-    return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+    const iconName = petalNames[name] || name || "package";
+    return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${iconName}"></use></svg>`;
+  }
+
+  // src/frontend/petal/components/sparklines.ts
+  function smooth(points) {
+    if (!points || points.length < 2) return "";
+    const first = points[0];
+    if (!first) return "";
+    let d = `M${first[0]} ${first[1]}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i - 1] || points[i];
+      const b = points[i];
+      const c = points[i + 1];
+      const e = points[i + 2] || c;
+      d += `C${b[0] + (c[0] - a[0]) / 6} ${b[1] + (c[1] - a[1]) / 6} ${c[0] - (e[0] - b[0]) / 6} ${c[1] - (e[1] - b[1]) / 6} ${c[0]} ${c[1]}`;
+    }
+    return d;
+  }
+  function spark(vals, color = "var(--accent)", fill = true) {
+    if (!vals || vals.length < 2) return "";
+    const W = 120;
+    const H = 36;
+    const mx = Math.max(...vals);
+    const mn = Math.min(...vals);
+    const n = vals.length;
+    const points = vals.map((v, i) => [
+      i / (n - 1) * W,
+      H - 4 - (v - mn) / (mx - mn || 1) * (H - 10)
+    ]);
+    const d = smooth(points);
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${fill === false ? "" : `<path d="${d}L${W} ${H}L0 ${H}Z" fill="${color}" opacity=".12"/>`}<path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>`;
   }
 
   // src/frontend/core/utils/dom.ts
@@ -392,6 +449,70 @@
     return host;
   }
 
+  // src/frontend/petal/components/modals.ts
+  var BASE_MODAL_Z = 900;
+  var PRIORITY_MODAL_Z = 1200;
+  var openModalStack = [];
+  function isPriorityModal(el2) {
+    return el2.id === "modalStepUp" || el2.classList.contains("stepup") || el2.getAttribute("data-priority") === "high";
+  }
+  function updateModalStacking(modal, isOpen) {
+    if (isOpen) {
+      if (!openModalStack.includes(modal)) {
+        openModalStack.push(modal);
+      }
+    } else {
+      const idx = openModalStack.indexOf(modal);
+      if (idx !== -1) {
+        openModalStack.splice(idx, 1);
+      }
+      modal.style.removeProperty("z-index");
+      const ov = modal.querySelector(".ov");
+      const bx = modal.querySelector(".bx");
+      if (ov) ov.style.removeProperty("z-index");
+      if (bx) bx.style.removeProperty("z-index");
+      return;
+    }
+    let standardCount = 0;
+    let priorityCount = 0;
+    openModalStack.forEach((el2) => {
+      const isPri = isPriorityModal(el2);
+      const z = isPri ? PRIORITY_MODAL_Z + priorityCount * 20 : BASE_MODAL_Z + standardCount * 20;
+      if (isPri) priorityCount++;
+      else standardCount++;
+      el2.style.zIndex = String(z);
+      const ov = el2.querySelector(".ov");
+      const bx = el2.querySelector(".bx");
+      if (ov) ov.style.zIndex = String(z);
+      if (bx) bx.style.zIndex = String(z + 1);
+    });
+  }
+  var stackerInitialized = false;
+  function initModalStacker() {
+    if (stackerInitialized || typeof window === "undefined") return;
+    stackerInitialized = true;
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "attributes") {
+          const target = mutation.target;
+          if (target.classList?.contains("mdl")) {
+            const isVisible = !target.hidden && target.style.display !== "none";
+            updateModalStacking(target, isVisible);
+          }
+        }
+      }
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      subtree: true,
+      attributeFilter: ["hidden", "style", "class"]
+    });
+    document.querySelectorAll(".mdl").forEach((el2) => {
+      const isVisible = !el2.hidden && el2.style.display !== "none";
+      if (isVisible) updateModalStacking(el2, true);
+    });
+  }
+
   // src/frontend/petal/components/empty-state.ts
   function renderEmptyState(options) {
     const iconHtml = hero(options.icon || "cube", "l");
@@ -411,6 +532,11 @@
   }
 
   // src/frontend/petal/components/cmd.ts
+  function spaNavigate(path) {
+    if (window.location.pathname === path) return;
+    window.history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
   var CommandPaletteController = class {
     cmdList = [];
     activeIndex = 0;
@@ -432,7 +558,7 @@
         inp.value = "";
         inp.focus();
       }
-      this.search("");
+      this.renderDefaultNavigation();
     }
     close() {
       const modal = document.getElementById(this.modalId);
@@ -442,11 +568,46 @@
       const modal = document.getElementById(this.modalId);
       return Boolean(modal && !modal.hidden);
     }
+    getDefaultNavItems() {
+      const isAdmin = window.location.pathname.startsWith("/admin");
+      if (isAdmin) {
+        return [
+          { category: "Navigate", title: "Operations Overview", icon: "dashboard-square-01", kbd: "G O", action: () => spaNavigate("/admin") },
+          { category: "Navigate", title: "Customer Accounts", icon: "shield-user", kbd: "G A", action: () => spaNavigate("/admin/accounts") },
+          { category: "Navigate", title: "Managed Instances", icon: "server", kbd: "G S", action: () => spaNavigate("/admin/services") },
+          { category: "Navigate", title: "Support Helpdesk", icon: "message-01", kbd: "G T", action: () => spaNavigate("/admin/tickets") },
+          { category: "Navigate", title: "Security Audit Trail", icon: "history", action: () => spaNavigate("/admin/audit") },
+          { category: "Navigate", title: "Staff Directory", icon: "user-group", action: () => spaNavigate("/admin/staff") },
+          { category: "Switch", title: "Back to Client App", icon: "arrow-right-01", action: () => spaNavigate("/app") }
+        ];
+      }
+      return [
+        { category: "Navigate", title: "Dashboard", icon: "dashboard-square-01", kbd: "G D", action: () => spaNavigate("/app") },
+        { category: "Navigate", title: "Servers & Instances", icon: "server", kbd: "G S", action: () => spaNavigate("/app/services") },
+        { category: "Navigate", title: "Deploy Instance", icon: "rocket-01", kbd: "G R", action: () => spaNavigate("/app/deploy") },
+        { category: "Navigate", title: "Domains & DNS", icon: "globe-02", action: () => spaNavigate("/app/domains") },
+        { category: "Navigate", title: "Invoices & Billing", icon: "invoice-01", action: () => spaNavigate("/app/billing") },
+        { category: "Navigate", title: "Support Tickets", icon: "message-01", action: () => spaNavigate("/app/support") },
+        { category: "Navigate", title: "Security & Team", icon: "shield-user", action: () => spaNavigate("/app/settings") },
+        { category: "Navigate", title: "Audit Trail", icon: "history", action: () => spaNavigate("/app/activity") }
+      ];
+    }
+    renderDefaultNavigation() {
+      const resBox = document.getElementById(this.resultsId);
+      if (!resBox) return;
+      this.cmdList = this.getDefaultNavItems();
+      this.activeIndex = 0;
+      this.renderItems(resBox);
+    }
     async search(query) {
       const resBox = document.getElementById(this.resultsId);
       if (!resBox) return;
+      const q = (query || "").trim();
+      if (!q) {
+        this.renderDefaultNavigation();
+        return;
+      }
       try {
-        const q = (query || "").trim();
         const res = await api(`/api/v1/search?q=${encodeURIComponent(q)}`);
         this.cmdList = [];
         const data = res.results || res;
@@ -455,10 +616,8 @@
             (p) => this.cmdList.push({
               category: "Navigation",
               title: p.title,
-              icon: "servers",
-              action: () => {
-                window.location.href = p.path;
-              }
+              icon: "server",
+              action: () => spaNavigate(p.path)
             })
           );
         }
@@ -467,10 +626,8 @@
             (p) => this.cmdList.push({
               category: "Admin Control",
               title: p.title,
-              icon: "shield",
-              action: () => {
-                window.location.href = p.path;
-              }
+              icon: "shield-user",
+              action: () => spaNavigate(p.path)
             })
           );
         }
@@ -480,10 +637,8 @@
               category: "Services",
               title: s.title,
               subtitle: s.subtitle,
-              icon: "servers",
-              action: () => {
-                window.location.href = `/app/services/${encodeURIComponent(s.id)}`;
-              }
+              icon: "server",
+              action: () => spaNavigate(`/app/services/${encodeURIComponent(s.id)}`)
             })
           );
         }
@@ -493,10 +648,10 @@
               category: "Tickets",
               title: t.title,
               subtitle: t.subtitle,
-              icon: "support",
+              icon: "message-01",
               action: () => {
                 const url = window.location.pathname.startsWith("/admin") ? `/admin/tickets` : `/app/support`;
-                window.location.href = url;
+                spaNavigate(url);
               }
             })
           );
@@ -507,50 +662,54 @@
               category: "Billing",
               title: inv.title,
               subtitle: inv.subtitle,
-              icon: "credit",
-              action: () => {
-                window.location.href = "/app/billing";
-              }
+              icon: "invoice-01",
+              action: () => spaNavigate("/app/billing")
             })
           );
         }
         if (!this.cmdList.length) {
           resBox.innerHTML = `
-          <div style="padding:24px;text-align:center;color:var(--ink3);font-size:13px">
-            No matching resources found for "${esc(q)}"
+          <div class="es" data-c="Empty state" style="padding:28px 16px">
+            <span class="tile neu md"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"/></svg></span>
+            <p style="margin:8px 0 0;color:var(--ink2);font-weight:600">No results found for "${esc(q)}"</p>
           </div>
         `;
           return;
         }
         this.activeIndex = 0;
-        let html = "";
-        let lastCat = "";
-        this.cmdList.slice(0, 15).forEach((item, i) => {
-          if (item.category !== lastCat) {
-            html += `<div class="hd">${esc(item.category)}</div>`;
-            lastCat = item.category;
-          }
-          html += `
-          <button type="button" class="it ${i === 0 ? "act" : ""}" data-cmd-idx="${i}">
-            ${hero(item.icon || "cube", "s")}
-            <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
-              <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</span>
-              ${item.subtitle ? `<span style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.subtitle)}</span>` : ""}
-            </span>
-          </button>
-        `;
-        });
-        resBox.innerHTML = html;
+        this.renderItems(resBox);
       } catch {
-        resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad)">Search request failed.</div>';
+        resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad);font-weight:600">Search request failed.</div>';
       }
     }
+    renderItems(container) {
+      let html = "";
+      let lastCat = "";
+      this.cmdList.slice(0, 20).forEach((item, i) => {
+        if (item.category !== lastCat) {
+          html += `<div class="dh">${esc(item.category)}</div>`;
+          lastCat = item.category;
+        }
+        const icon = item.icon || "server";
+        html += `
+        <button type="button" class="li ${i === this.activeIndex ? "on" : ""}" data-cmd-idx="${i}" style="padding:11px 12px;cursor:pointer">
+          <span class="tile neu sm"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${icon}"/></svg></span>
+          <span class="tx">
+            <b>${esc(item.title)}</b>
+            ${item.subtitle ? `<small>${esc(item.subtitle)}</small>` : ""}
+          </span>
+          ${item.kbd ? `<span class="kbd">${esc(item.kbd)}</span>` : ""}
+        </button>
+      `;
+      });
+      container.innerHTML = html;
+    }
     moveSelection(dir) {
-      const items = document.querySelectorAll(`#${this.resultsId} .it`);
+      const items = document.querySelectorAll(`#${this.resultsId} .li`);
       if (!items.length) return;
       this.activeIndex = (this.activeIndex + dir + items.length) % items.length;
       items.forEach((btn, i) => {
-        btn.classList.toggle("act", i === this.activeIndex);
+        btn.classList.toggle("on", i === this.activeIndex);
         if (i === this.activeIndex) btn.scrollIntoView({ block: "nearest" });
       });
     }
@@ -602,7 +761,7 @@
           this.execute(Number(cmdItem.dataset.cmdIdx));
           return;
         }
-        if (target.id === this.modalId) {
+        if (target.id === this.modalId || target.matches(`#${this.modalId} .ov`)) {
           this.close();
         }
       };
@@ -618,20 +777,27 @@
   };
 
   // src/frontend/petal/components/rich-text-editor.ts
-  var tool = (command, icon, label) => `<button type="button" class="btn sq s ghost" data-rcmd="${esc(command)}" aria-label="${esc(label)}" title="${esc(label)}"><svg class="ic s" aria-hidden="true"><use href="#i-${esc(icon)}"/></svg></button>`;
   function petalRichTextEditor(id, label, placeholder) {
-    return `<div class="rte" data-rte="${esc(id)}">
-    <div class="rtb" data-rtb role="toolbar" aria-label="${esc(label)} formatting">
-      ${tool("bold", "text-bold", "Bold")}
-      ${tool("italic", "text-italic", "Italic")}
-      <i aria-hidden="true"></i>
-      ${tool("insertUnorderedList", "left-to-right-list-bullet", "Bulleted list")}
-      ${tool("formatBlock:blockquote", "quote", "Quote")}
-      ${tool("formatBlock:pre", "source-code", "Code block")}
-      <i aria-hidden="true"></i>
-      ${tool("createLink", "link-02", "Add link")}
+    const action = (command, icon, title) => `<button type="button" data-rcmd="${command}" aria-label="${title}" title="${title}">
+        <svg class="ic s" aria-hidden="true" width="16" height="16"><use href="/assets/petal-icons.svg#i-${icon}"/></svg>
+      </button>`;
+    return `<div class="rte-shell" data-c="Markdown editor">
+    <div class="edtb" data-c="Rich text toolbar" role="toolbar" aria-label="${esc(label)} formatting">
+      ${action("heading", "heading", "Heading")}
+      ${action("bold", "bold", "Bold")}
+      ${action("italic", "italic", "Italic")}
+      ${action("strike", "strikethrough", "Strikethrough")}
+      <span class="rte-sep" aria-hidden="true"></span>
+      ${action("link", "link-01", "Link")}
+      ${action("quote", "quote", "Quote")}
+      ${action("bullet", "left-to-right-list-bullet", "Bulleted list")}
+      ${action("ordered", "check-list", "Numbered list")}
+      ${action("code", "code", "Inline code")}
+      ${action("codeblock", "code", "Code block")}
     </div>
-    <div id="${esc(id)}" class="rta" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(label)}" data-placeholder="${esc(placeholder)}" spellcheck="true"><p><br></p></div>
+    <div class="inp">
+      <textarea id="${esc(id)}" placeholder="${esc(placeholder)}" aria-label="${esc(label)}"></textarea>
+    </div>
   </div>`;
   }
   function safeHref(value) {
@@ -679,13 +845,21 @@ ${node.textContent || ""}
     return inlineMarkdown(node).trim();
   }
   function editorMarkdown(id) {
-    const editor = document.getElementById(id);
-    if (!editor) return "";
-    return Array.from(editor.childNodes).map(blockMarkdown).filter(Boolean).join("\n\n").trim();
+    const el2 = document.getElementById(id);
+    if (!el2) return "";
+    if (el2 instanceof HTMLTextAreaElement || el2 instanceof HTMLInputElement) {
+      return el2.value.trim();
+    }
+    return Array.from(el2.childNodes).map(blockMarkdown).filter(Boolean).join("\n\n").trim();
   }
   function resetEditor(id) {
-    const editor = document.getElementById(id);
-    if (editor) editor.innerHTML = "<p><br></p>";
+    const el2 = document.getElementById(id);
+    if (!el2) return;
+    if (el2 instanceof HTMLTextAreaElement || el2 instanceof HTMLInputElement) {
+      el2.value = "";
+      return;
+    }
+    el2.innerHTML = "<p><br></p>";
   }
   function installRichTextEditors(root = document) {
     const onMouseDown = (event) => {
@@ -695,22 +869,48 @@ ${node.textContent || ""}
     const onClick = (event) => {
       const button = event.target.closest("[data-rcmd]");
       if (!button || !root.contains(button)) return;
-      const editor = button.closest("[data-rte]")?.querySelector(".rta");
-      if (!editor) return;
-      editor.focus();
-      const command = button.dataset.rcmd || "";
-      if (command === "createLink") {
-        const requested = window.prompt("Paste an https:// link");
-        const href = requested ? safeHref(requested.trim()) : null;
-        if (href) document.execCommand("createLink", false, href);
-        return;
+      const container = button.closest(".rte-shell");
+      const textarea = container?.querySelector("textarea");
+      if (!textarea) return;
+      const cmd = button.dataset.rcmd;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const sel = text.slice(start, end);
+      const selectedOr = (fallback) => sel || fallback;
+      const prefixLines = (prefix, fallback) => selectedOr(fallback).split("\n").map((line, index) => `${prefix(index)}${line}`).join("\n");
+      let replacement = sel;
+      if (cmd === "bold") {
+        replacement = `**${selectedOr("bold text")}**`;
+      } else if (cmd === "italic") {
+        replacement = `*${selectedOr("italic text")}*`;
+      } else if (cmd === "strike") {
+        replacement = `~~${selectedOr("strikethrough text")}~~`;
+      } else if (cmd === "code") {
+        replacement = `\`${selectedOr("code")}\``;
+      } else if (cmd === "codeblock") {
+        replacement = `\`\`\`
+${selectedOr("code")}
+\`\`\``;
+      } else if (cmd === "heading") {
+        replacement = prefixLines(() => "## ", "Heading");
+      } else if (cmd === "quote") {
+        replacement = prefixLines(() => "> ", "Quote");
+      } else if (cmd === "bullet") {
+        replacement = prefixLines(() => "- ", "List item");
+      } else if (cmd === "ordered") {
+        replacement = prefixLines((index) => `${index + 1}. `, "List item");
+      } else if (cmd === "link") {
+        const url = window.prompt("Enter link URL (https://...):", "https://");
+        const safe = url ? safeHref(url.trim()) : null;
+        if (safe) replacement = `[${selectedOr("link text")}](${safe})`;
+        else return;
       }
-      if (command.includes(":")) {
-        const [name, value] = command.split(":", 2);
-        if (name) document.execCommand(name, false, value || "");
-      } else {
-        document.execCommand(command, false);
-      }
+      textarea.value = text.slice(0, start) + replacement + text.slice(end);
+      textarea.focus();
+      const newPos = start + replacement.length;
+      textarea.setSelectionRange(newPos, newPos);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
     };
     root.addEventListener("mousedown", onMouseDown);
     root.addEventListener("click", onClick);
@@ -746,7 +946,7 @@ ${node.textContent || ""}
     const draw = () => {
       button.textContent = select.options[select.selectedIndex]?.text || "";
       button.disabled = select.disabled;
-      drop.innerHTML = `<div class="menu" role="listbox">${Array.from(select.options).map((option, index) => `<button type="button" role="option" data-petal-option="${index}" aria-selected="${option.selected}">${esc(option.text)}<svg class="ic s ck" aria-hidden="true"><use href="#i-tick-02"/></svg></button>`).join("")}</div>`;
+      drop.innerHTML = `<div class="menu" role="listbox">${Array.from(select.options).map((option, index) => `<button type="button" role="option" data-petal-option="${index}" aria-selected="${option.selected}">${esc(option.text)}<svg class="ic s ck" aria-hidden="true"><use href="/assets/petal-icons.svg#i-tick-02"/></svg></button>`).join("")}</div>`;
     };
     draw();
     select.__petalObserver = new MutationObserver(draw);
@@ -815,10 +1015,10 @@ ${node.textContent || ""}
 
   // src/frontend/petal/components/tabs.ts
   function initTabs(container) {
-    const el = typeof container === "string" ? document.querySelector(container) : container;
-    if (!el) return () => {
+    const el2 = typeof container === "string" ? document.querySelector(container) : container;
+    if (!el2) return () => {
     };
-    const buttons = () => Array.from(el.querySelectorAll('[role="tab"]'));
+    const buttons = () => Array.from(el2.querySelectorAll('[role="tab"]')).filter((button) => !button.hidden);
     function activate(btn, focus = false) {
       buttons().forEach((b) => {
         const panel2 = document.getElementById(b.getAttribute("aria-controls") || "");
@@ -834,12 +1034,12 @@ ${node.textContent || ""}
     }
     const handleClick = (e) => {
       const btn = e.target.closest('[role="tab"]');
-      if (btn && el.contains(btn)) activate(btn);
+      if (btn && el2.contains(btn)) activate(btn);
     };
     const handleKeydown = (e) => {
       const ke = e;
       const current = ke.target.closest('[role="tab"]');
-      if (!current || !el.contains(current)) return;
+      if (!current || !el2.contains(current)) return;
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(ke.key)) return;
       const tabs = buttons();
       const idx = tabs.indexOf(current);
@@ -848,11 +1048,11 @@ ${node.textContent || ""}
       const nextBtn = tabs[next];
       if (nextBtn) activate(nextBtn, true);
     };
-    el.addEventListener("click", handleClick);
-    el.addEventListener("keydown", handleKeydown);
+    el2.addEventListener("click", handleClick);
+    el2.addEventListener("keydown", handleKeydown);
     return () => {
-      el.removeEventListener("click", handleClick);
-      el.removeEventListener("keydown", handleKeydown);
+      el2.removeEventListener("click", handleClick);
+      el2.removeEventListener("keydown", handleKeydown);
     };
   }
 
@@ -953,6 +1153,7 @@ ${node.textContent || ""}
       this.cmd = new CommandPaletteController("cmd", "cmd-in", "cmd-res");
     }
     init() {
+      initModalStacker();
       this.initTheme();
       this.installHeroicons();
       this.installResponsiveComposition();
@@ -960,31 +1161,36 @@ ${node.textContent || ""}
       this.cmd.bindKeyboard();
     }
     initTheme() {
-      const theme = localStorage.getItem("fortless_theme");
+      const theme = localStorage.getItem("fortless_theme") || localStorage.getItem("theme");
       if (theme) document.documentElement.dataset.theme = theme;
+      window.addEventListener("storage", (e) => {
+        if ((e.key === "fortless_theme" || e.key === "theme") && e.newValue) {
+          document.documentElement.dataset.theme = e.newValue;
+        }
+      });
     }
     toggleTheme() {
-      const current = document.documentElement.dataset.theme;
-      const next = current === "dark" ? "light" : "dark";
+      const isDark = document.documentElement.dataset.theme === "dark" || !document.documentElement.dataset.theme && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const next = isDark ? "light" : "dark";
       document.documentElement.dataset.theme = next;
       localStorage.setItem("fortless_theme", next);
+      localStorage.setItem("theme", next);
     }
     installHeroicons() {
       const targets = [
-        ["#nav-dashboard .ic, #tab-dashboard .ic", "home"],
-        ["#nav-servers .ic, #tab-servers .ic", "servers"],
-        ["#nav-deploy .ic, #tab-deploy .ic", "plus"],
-        ["#nav-billing .ic, #tab-billing .ic", "credit"],
-        ["#nav-tickets .ic, #tab-tickets .ic", "support"],
-        ["#nav-audit .ic", "shield"],
-        ["#nav-settings .ic, #tab-settings .ic", "settings"],
-        ["#refreshServersBtn svg, #refreshInvoicesBtn svg, #refreshAuditBtn svg", "refresh"],
-        [".app-top-actions > a.btn svg", "plus"],
-        ["#doDeployBtn svg", "cube"]
+        ["#nav-dashboard .ic:not(:has(use)), #tab-dashboard .ic:not(:has(use))", "home"],
+        ["#nav-servers .ic:not(:has(use)), #tab-servers .ic:not(:has(use))", "servers"],
+        ["#nav-deploy .ic:not(:has(use)), #tab-deploy .ic:not(:has(use))", "plus"],
+        ["#nav-billing .ic:not(:has(use)), #tab-billing .ic:not(:has(use))", "credit"],
+        ["#nav-tickets .ic:not(:has(use)), #tab-tickets .ic:not(:has(use))", "support"],
+        ["#nav-audit .ic:not(:has(use))", "shield"],
+        ["#nav-settings .ic:not(:has(use)), #tab-settings .ic:not(:has(use))", "settings"]
       ];
       targets.forEach(([selector, icon]) => {
         document.querySelectorAll(selector).forEach((node) => {
-          node.outerHTML = hero(icon, node.classList.contains("s") ? "s" : "");
+          if (!node.querySelector("use")) {
+            node.outerHTML = hero(icon, node.classList.contains("s") ? "s" : "");
+          }
         });
       });
     }
@@ -1041,30 +1247,36 @@ ${node.textContent || ""}
       const profWorkspace = document.getElementById("profWorkspace");
       const profEmail = document.getElementById("profEmail");
       const profRole = document.getElementById("profRole");
+      const initials = label.slice(0, 2).toUpperCase();
       if (userName) userName.textContent = label;
       if (userRole) userRole.textContent = data.membership.role;
-      if (userAvatar) userAvatar.textContent = label.slice(0, 2).toUpperCase();
+      if (userAvatar) userAvatar.textContent = initials;
+      const topUserAvatar = document.getElementById("topUserAvatar");
+      if (topUserAvatar) topUserAvatar.textContent = initials;
       if (profName) profName.textContent = data.user.name || "\u2014";
       if (profWorkspace) profWorkspace.textContent = data.account.name;
       if (profEmail) profEmail.textContent = data.user.email;
-      if (profRole) profRole.innerHTML = `<span class="badge accent">${esc(data.membership.role)}</span>`;
+      if (profRole) profRole.innerHTML = `<span class="pill acc">${esc(data.membership.role)}</span>`;
     }
     async loadCapabilities() {
       const data = await api("/api/v1/platform/capabilities");
       capabilitiesStore.set(data);
       const ready = data.payments.enabled && data.provisioning.enabled;
-      const status = document.querySelector(".app-status span:last-child");
-      if (status) status.textContent = ready ? "Commerce available" : "Preview mode";
+      const status = document.getElementById("platformStatus");
+      if (status) {
+        status.innerHTML = `<span class="live" style="margin-right:4px;background:${ready ? "var(--good)" : "var(--warn)"}"></span><span>${ready ? "Commerce available" : "Commerce configuration required"}</span>`;
+      }
       const button = document.getElementById("doDeployBtn");
       if (button) {
-        button.disabled = !ready;
+        button.disabled = !ready || button.dataset.checkoutReady !== "true";
         const span = button.querySelector("span");
-        if (span) span.textContent = ready ? "Continue to secure checkout" : "Ordering unavailable";
+        if (span && !ready) span.textContent = "Ordering unavailable";
       }
-      const notice = document.querySelector("#doDeployBtn + p");
+      const notice = document.getElementById("deployCheckoutHint");
       if (notice) {
-        notice.textContent = ready ? "You will continue to the configured hosted payment provider." : "Payment and infrastructure integrations are disabled until sandbox verification is complete.";
+        if (!ready) notice.textContent = "Payment and infrastructure integrations are disabled until sandbox verification is complete.";
       }
+      window.dispatchEvent(new Event("fortless:capabilities"));
     }
     async loadNotifications() {
       try {
@@ -1081,17 +1293,20 @@ ${node.textContent || ""}
         const list = document.getElementById("notifList");
         if (list) {
           if (!data.notifications.length) {
-            list.innerHTML = '<div class="state-message">No notifications.</div>';
+            list.innerHTML = `
+            <div class="es" data-c="Empty state" style="padding:28px 16px">
+              <span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-notification-01"/></svg></span>
+              <h4>No notifications</h4>
+              <p>You are all caught up.</p>
+            </div>
+          `;
           } else {
             list.innerHTML = data.notifications.map(
               (n) => `
-            <div class="card s2" style="padding:10px;border-radius:12px;opacity:${n.readAt ? "0.7" : "1"}">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <b style="font-size:13px">${esc(n.title)}</b>
-                <small class="faint" style="font-size:11px">${formatDate(n.createdAt)}</small>
-              </div>
-              <p style="font-size:12px;color:var(--ink2);margin:0 0 6px">${esc(n.message)}</p>
-              ${n.linkUrl ? `<a href="${esc(n.linkUrl)}" data-app-route="${n.linkUrl.includes("services") ? "service-detail" : "dashboard"}" style="font-size:11px;color:var(--accent);font-weight:600">View details \u2192</a>` : ""}
+            <div class="li h" style="padding:12px 14px;opacity:${n.readAt ? "0.65" : "1"}">
+              <span class="tile ${n.tone || "neu"} sm"><svg class="ic" aria-hidden="true"><use href="#i-${n.icon || "notification-01"}"/></svg></span>
+              <span class="tx"><b>${esc(n.title)}</b><small>${esc(n.message)} \xB7 ${formatDate(n.createdAt)}</small></span>
+              ${n.linkUrl ? `<a href="${esc(n.linkUrl)}" data-close-notif class="ib s" aria-label="Open"><svg class="ic s" aria-hidden="true"><use href="#i-arrow-right-01"/></svg></a>` : ""}
             </div>
           `
             ).join("");
@@ -1101,6 +1316,56 @@ ${node.textContent || ""}
       }
     }
   };
+
+  // src/frontend/client/pages/services/status.ts
+  var RUNTIME = {
+    RUNNING: { label: "RUNNING", tone: "good" },
+    STOPPED: { label: "OFFLINE", tone: "info" },
+    OFFLINE: { label: "OFFLINE", tone: "info" },
+    INSTALLING: { label: "INSTALLING", tone: "warn" },
+    ERROR: { label: "ERROR", tone: "bad" }
+  };
+  var CONTRACT = { TERMINATED: "bad", SUSPENDED: "warn", PENDING: "warn", PROVISIONING: "warn", FAILED: "bad" };
+  function serviceState(s) {
+    const contract = String(s.contract_status ?? s.contractStatus ?? "ACTIVE").toUpperCase();
+    if (contract !== "ACTIVE") return { label: contract, tone: CONTRACT[contract] ?? "warn", running: false, controllable: false };
+    const runtime = String(s.runtime_state ?? s.runtimeState ?? "UNKNOWN").toUpperCase();
+    const r = RUNTIME[runtime] ?? { label: runtime, tone: "info" };
+    return { label: r.label, tone: r.tone, running: runtime === "RUNNING", controllable: true };
+  }
+  function liveState(state) {
+    const s = state.toLowerCase();
+    if (s === "running") return RUNTIME["RUNNING"];
+    if (s === "offline") return RUNTIME["OFFLINE"];
+    return { label: state.toUpperCase(), tone: "warn" };
+  }
+
+  // src/frontend/client/pages/services/filters.ts
+  var KEY = "fortless.services.filters";
+  var DEFAULTS = { state: "ALL", type: "ALL", q: "", showTerminated: false };
+  function loadFilters() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(KEY) || "{}");
+      return {
+        state: ["ALL", "RUNNING", "OTHER"].includes(String(raw.state)) ? String(raw.state) : DEFAULTS.state,
+        type: typeof raw.type === "string" ? raw.type.slice(0, 200) : DEFAULTS.type,
+        q: typeof raw.q === "string" ? raw.q.slice(0, 100) : DEFAULTS.q,
+        showTerminated: raw.showTerminated === true
+      };
+    } catch {
+      return { ...DEFAULTS };
+    }
+  }
+  function saveFilters(patch) {
+    const next = { ...loadFilters(), ...patch };
+    try {
+      localStorage.setItem(KEY, JSON.stringify(next));
+    } catch {
+    }
+    return next;
+  }
+  var isTerminated = (svc) => String(svc.contract_status ?? svc.contractStatus ?? "").toUpperCase() === "TERMINATED";
+  var visibleServices = (services) => loadFilters().showTerminated ? services : services.filter((s) => !isTerminated(s));
 
   // src/frontend/core/utils/formatting.ts
   function money(minorUnits, currency = "EUR") {
@@ -1116,24 +1381,20 @@ ${node.textContent || ""}
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i] || "B"}`;
   }
-  function compactId(value) {
-    const text = String(value || "\u2014");
-    return text.length > 22 ? `${text.slice(0, 10)}\u2026${text.slice(-6)}` : text;
-  }
 
   // src/frontend/client/pages/home/index.ts
   function tile(iconName, tone, size = "sm") {
     const cls = ["tile", tone, size].filter(Boolean).join(" ");
-    return `<span class="${cls}">${hero(iconName)}</span>`;
+    return `<span class="${cls}"><svg class="ic" aria-hidden="true"><use href="#i-${iconName}"/></svg></span>`;
   }
   function pill(text, tone, dot = false) {
     return `<span class="pill ${tone}${dot ? " d" : ""}">${esc(text)}</span>`;
   }
   function metricCard(label, value, iconName, tone) {
-    return `<div class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div>${tile(iconName, tone, "")}</div>`;
+    return `<div class="card mt" data-c="Metric tile"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-${iconName}"/></svg></span></div>`;
   }
   function emptyState(iconName, title, message, action = "") {
-    return `<div class="es">${tile(iconName, "neu", "lg")}<h4>${esc(title)}</h4><p>${esc(message)}</p>${action}</div>`;
+    return `<div class="es" data-c="Empty state">${tile(iconName, "neu", "lg")}<h4>${esc(title)}</h4><p>${esc(message)}</p>${action}</div>`;
   }
   function skeleton(n = 5) {
     return `<div class="sk" role="status" aria-label="Loading">${Array(n).fill("<i></i>").join("")}</div>`;
@@ -1142,7 +1403,6 @@ ${node.textContent || ""}
     const action = `<a class="btn xs" href="${actionHref}" data-app-route>${esc(actionLabel)}</a>`;
     return `<section class="card"><div class="ch"><div class="tx"><h3>${esc(title)}</h3><p>${esc(sub)}</p></div>${action}</div><div class="col">${body}</div></section>`;
   }
-  var RT_TONE = { RUNNING: "good", INSTALLING: "warn", ERROR: "bad" };
   var TIX_TONE = {
     OPEN: "info",
     WAITING_STAFF: "warn",
@@ -1163,7 +1423,7 @@ ${node.textContent || ""}
       api("/api/v1/invoices"),
       api("/api/v1/audit")
     ]);
-    const services = serviceResult.status === "fulfilled" ? serviceResult.value.services : [];
+    const services = visibleServices(serviceResult.status === "fulfilled" ? serviceResult.value.services : []);
     const tickets = ticketResult.status === "fulfilled" ? ticketResult.value.tickets : [];
     const invoices = invoiceResult.status === "fulfilled" ? invoiceResult.value.invoices : [];
     const logs = auditResult.status === "fulfilled" ? auditResult.value.logs : [];
@@ -1176,9 +1436,9 @@ ${node.textContent || ""}
     const failCount = [serviceResult, ticketResult, invoiceResult, auditResult].filter(
       (r) => r.status === "rejected"
     ).length;
-    const running = services.filter((s) => s.runtime_state === "RUNNING").length;
-    const installing = services.filter((s) => s.runtime_state === "INSTALLING").length;
-    const stopped = services.filter((s) => !["RUNNING", "INSTALLING"].includes(s.runtime_state || "")).length;
+    const running = services.filter((s) => serviceState(s).running).length;
+    const installing = services.filter((s) => serviceState(s).label === "INSTALLING").length;
+    const stopped = services.filter((s) => !serviceState(s).running && serviceState(s).label !== "INSTALLING").length;
     const totalSvcs = services.length;
     const fleetBar = totalSvcs > 0 ? `<div style="display:flex;height:12px;border-radius:12px;overflow:hidden;gap:3px;margin:4px 0 12px">
         ${running > 0 ? `<b style="flex:${running};background:var(--good);border-radius:12px"></b>` : ""}
@@ -1196,9 +1456,12 @@ ${node.textContent || ""}
       '<a class="btn s tint" href="/app/deploy" data-app-route="deploy">View catalog</a>'
     );
     const servicesBody = services.slice(0, 3).map((s) => {
-      const rt = s.runtime_state || "UNKNOWN";
-      const tone = RT_TONE[rt] || "info";
-      return `<a class="li" href="/app/services/${esc(s.id)}" data-app-route="service-detail">${tile("server", tone)}<span class="tx"><b>${esc(s.plan_name || "Hosting service")}</b><small>${esc(s.node_name || s.node_id || "No node assigned")}</small></span>${pill(rt, tone)}</a>`;
+      const st = serviceState(s);
+      const rt = st.label;
+      const tone = st.tone;
+      const tag = isTerminated(s) ? "div" : "a";
+      const attrs = isTerminated(s) ? 'class="li h"' : `class="li" href="/app/services/${esc(s.id)}" data-app-route="service-detail"`;
+      return `<${tag} ${attrs}>${tile("server", tone)}<span class="tx"><b>${esc(s.plan_name || "Hosting service")}</b><small>${esc(s.node_name || s.node_id || "No node assigned")}</small></span>${pill(rt, tone)}</${tag}>`;
     }).join("") || emptyState("server", "No services yet", "Ordering stays unavailable until providers are verified.");
     const supportBody = tickets.slice(0, 3).map((t) => {
       const tone = TIX_TONE[t.status] || "";
@@ -1221,27 +1484,27 @@ ${node.textContent || ""}
         <h2>Your workspace, at a glance.</h2>
         <p>Services, billing, support and security activity from your account.</p>
       </div>
-      <div class="act">
-        <button class="btn" data-modal="ticket">${hero("support", "s")}Open ticket</button>
-        <a class="btn pri" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}Deploy service</a>
+      <div class="row act" style="gap:8px">
+        <a class="btn" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" aria-hidden="true"><use href="#i-message-01"/></svg>Open ticket</a>
+        <a class="btn pri" href="/app/deploy" data-app-route="deploy"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>Deploy service</a>
       </div>
     </div>
 
-    <div class="grid g4 k2" style="margin-bottom:12px">
+    <div class="g g4 k2" style="margin-bottom:12px">
       ${metricCard("Active services", services.filter((s) => s.contract_status === "ACTIVE").length, "server", "good")}
-      ${metricCard("Total services", services.length, "cube", "")}
-      ${metricCard("Open tickets", openTickets.length, "support", openTickets.length ? "warn" : "")}
-      ${metricCard("Outstanding", money(outstandingTotal, currency), "credit", outstandingTotal ? "warn" : "")}
+      ${metricCard("Total services", services.length, "package", "")}
+      ${metricCard("Open tickets", openTickets.length, "message-01", openTickets.length ? "warn" : "")}
+      ${metricCard("Outstanding", money(outstandingTotal, currency), "credit-card", outstandingTotal ? "warn" : "")}
     </div>
 
     <div style="margin-bottom:12px">
-      <section class="card">
+      <section class="card" data-c="Fleet bar">
         <div class="ch"><div class="tx"><h3>Fleet</h3><p>Runtime state across your services</p></div></div>
         ${fleetBar}
       </section>
     </div>
 
-    <div class="grid g2">
+    <div class="g g2">
       ${panel("My services", "Provider-observed contract and runtime state.", servicesBody, "/app/services", "View all")}
       ${panel("Support", "Recent account conversations.", supportBody, "/app/support", "View support")}
       ${panel("Billing", "Latest issued account records.", billingBody, "/app/billing", "View billing")}
@@ -1258,37 +1521,45 @@ ${node.textContent || ""}
 
   // src/frontend/client/pages/dashboard/index.ts
   var serviceInventory = [];
-  var RT = { RUNNING: "good", INSTALLING: "warn", ERROR: "bad" };
-  function metricCard2(label, value) {
-    return `<div class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b></div></div>`;
+  function metricCard2(label, value, icon, tone = "", sub = "") {
+    return `<div class="card mt" data-c="Metric tile"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-${icon}"/></svg></span></div>`;
   }
   function renderServiceInventory() {
     const host = document.getElementById("serversContainer");
     if (!host) return;
     const query = document.getElementById("serviceSearch")?.value.trim().toLowerCase() || "";
     const type = document.getElementById("serviceTypeFilter")?.value || "ALL";
-    const state = document.querySelector('input[name="serviceState"]:checked')?.value || "ALL";
+    const state = document.querySelector('#serviceStateSeg button[aria-selected="true"]')?.getAttribute("data-v") || "ALL";
+    const showTerminated = document.getElementById("serviceShowTerminated")?.getAttribute("aria-checked") === "true";
+    saveFilters({ state, type, q: document.getElementById("serviceSearch")?.value.trim() ?? "", showTerminated });
     const filtered = serviceInventory.filter((svc) => {
-      const rt = svc.runtime_state || "UNKNOWN";
+      if (isTerminated(svc) && !showTerminated) return false;
+      const st = serviceState(svc);
       const matchQ = !query || [svc.plan_name, svc.identifier, svc.id, svc.node_name].some((v) => String(v || "").toLowerCase().includes(query));
       const matchT = type === "ALL" || svc.plan_name === type;
-      const matchS = state === "ALL" || (state === "RUNNING" ? rt === "RUNNING" : rt !== "RUNNING");
+      const matchS = state === "ALL" || (state === "RUNNING" ? st.running : !st.running);
       return matchQ && matchT && matchS;
     });
     const count = document.getElementById("serviceResultCount");
-    if (count) count.textContent = `${filtered.length} of ${serviceInventory.length}`;
+    if (count) count.textContent = `${filtered.length} of ${serviceInventory.length} services`;
     if (!filtered.length) {
-      host.innerHTML = `<div class="es">${hero("server", "xl")}<h4>${esc(serviceInventory.length ? "No matching services" : "No services yet")}</h4><p>${esc(serviceInventory.length ? "Try a different name, product or runtime filter." : "Ordering stays unavailable until payment and infrastructure providers are configured and verified.")}</p>${serviceInventory.length ? "" : `<a class="btn s tint" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}View catalog</a>`}</div>`;
+      host.innerHTML = serviceInventory.length ? `<div class="es" data-c="Empty state"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-search-01"/></svg></span><h4>No matching services</h4><p>Try a different name, product or runtime filter.</p></div>` : `<div class="es" data-c="Empty state"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span><h4>No services yet</h4><p>Ordering stays unavailable until payment and infrastructure providers are configured and verified.</p><a class="btn s tint" href="/app/deploy" data-app-route="deploy"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>View catalog</a></div>`;
       return;
     }
     const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
     host.innerHTML = filtered.map((svc) => {
-      const rt = svc.runtime_state || "UNKNOWN";
-      const tone = RT[rt] || "info";
-      const running = rt === "RUNNING";
-      const mem = `${(Number(svc.memory_limit_mb || 0) / 1024).toFixed(Number(svc.memory_limit_mb) ? 1 : 0)} GB`;
-      const powers = providerReady ? `<button class="btn xs sec" data-power="RESTART" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn xs badt" data-power="STOP" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn xs goodt" data-power="START" data-service="${esc(svc.id)}" ${running ? "disabled" : ""}>${hero("play", "xs")}Start</button>` : "";
-      return `<div class="li"><span class="tile ${tone} sm">${hero("server")}</span><span class="tx"><b>${esc(svc.plan_name || "Hosting service")}</b><small>${esc(svc.node_name || svc.node_id || "\u2014")} \xB7 ${esc(mem)} RAM \xB7 ${esc(String(svc.cpu_limit_pct || 0))}% CPU</small></span><span class="row" style="gap:6px;flex-shrink:0">${powers}<span class="pill ${tone} d">${esc(rt)}</span><a href="/app/services/${esc(svc.id)}" class="btn xs sec" data-app-route="service-detail">${hero("chevron", "xs")}Manage</a></span></div>`;
+      const st = serviceState(svc);
+      const rt = st.label;
+      const tone = st.tone;
+      const running = st.running;
+      const memMb = Number(svc.memory_limit_mb || 0);
+      const mem = `${(memMb / 1024).toFixed(memMb % 1024 === 0 ? 0 : 1)} GB`;
+      const diskMb = Number(svc.disk_limit_mb || 0);
+      const disk = diskMb >= 1024 ? `${(diskMb / 1024).toFixed(diskMb % 1024 === 0 ? 0 : 1)} GB disk` : `${diskMb} MB disk`;
+      const canControl = st.controllable && (!svc.shared_by || svc.shared_preset !== "viewer");
+      const powers = !canControl ? "" : providerReady ? `<button class="btn xs" data-power="RESTART" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}><svg class="ic xs" aria-hidden="true"><use href="#i-refresh"/></svg>Restart</button><button class="btn xs bad" data-power="STOP" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}><svg class="ic xs" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button><button class="btn xs good" data-power="START" data-service="${esc(svc.id)}" ${running ? "disabled" : ""}><svg class="ic xs" aria-hidden="true"><use href="#i-play"/></svg>Start</button>` : `<span class="pill warn">Provider controls unavailable</span>`;
+      const searchTokens = `${esc(svc.plan_name || "")} ${esc(svc.identifier || "")} ${esc(svc.id || "")} ${esc(svc.node_name || "")}`.toLowerCase();
+      return `<article class="li h" data-c="Service row" data-s="${running ? "RUNNING" : "OTHER"}" data-t="${searchTokens}" data-p="${esc(svc.plan_name || "")}" style="flex-wrap:wrap;padding:14px 16px"><span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span><div class="tx" style="min-width:160px"><div class="row" style="gap:8px"><b style="white-space:normal">${esc(svc.plan_name || "Hosting service")}</b><span class="pill ${tone} d">${esc(rt)}</span>${svc.shared_by ? `<span class="pill info">Shared by ${esc(svc.shared_by)}</span>` : ""}</div><small style="white-space:normal">${esc(svc.node_name || svc.node_id || "\u2014")} \xB7 ${esc(mem)} RAM \xB7 ${esc(String(svc.cpu_limit_pct || 0))}% CPU \xB7 ${esc(disk)}</small></div>${svc.identifier ? `<code class="hide-n">${esc(svc.identifier)}</code>` : ""}<div class="row" style="gap:6px">${powers}${isTerminated(svc) ? "" : `<a href="/app/services/${esc(svc.id)}" class="btn xs tint" data-app-route="service-detail"><svg class="ic xs" aria-hidden="true"><use href="#i-arrow-right-01"/></svg>Manage</a>`}</div></article>`;
     }).join("");
   }
   function filterServices() {
@@ -1301,52 +1572,66 @@ ${node.textContent || ""}
     try {
       const { services } = await api("/api/v1/services");
       serviceInventory = services;
-      const running = services.filter((s) => s.runtime_state === "RUNNING").length;
-      const memory = services.reduce((sum, s) => sum + Number(s.memory_limit_mb || 0), 0);
-      const cpu = services.reduce((sum, s) => sum + Number(s.cpu_limit_pct || 0), 0);
+      const saved = loadFilters();
+      const counted = services.filter((s) => !isTerminated(s));
+      const running = counted.filter((s) => serviceState(s).running).length;
+      const memory = counted.reduce((sum, s) => sum + Number(s.memory_limit_mb || 0), 0);
+      const cpu = counted.reduce((sum, s) => sum + Number(s.cpu_limit_pct || 0), 0);
       const typeOpts = Array.from(new Set(services.map((s) => String(s.plan_name || "Hosting service")))).sort().map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
       host.innerHTML = `
-      <div class="hd">
+      <div class="hd" data-c="Header">
         <div class="tx">
-          <span class="pill acc">Services</span>
-          <h2>Your services.</h2>
+          <h2>Servers &amp; Instances</h2>
           <p>Provider-observed runtime records for this account.</p>
         </div>
-        <div class="act">
-          <a class="btn pri" href="/app/deploy" data-app-route="deploy">${hero("plus", "s")}Deploy service</a>
-        </div>
+        <div class="row" style="gap:8px"><button class="btn" id="refreshServicesBtn"><svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh</button></div>
       </div>
 
-      <div class="grid g4 k2" style="margin-bottom:12px">
-        ${metricCard2("Running", running)}
-        ${metricCard2("Total services", services.length)}
-        ${metricCard2("Allocated RAM", `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`)}
-        ${metricCard2("Allocated CPU", `${cpu}%`)}
+      <div class="g g4 k2" style="margin-bottom:12px">
+        ${metricCard2("Running", running, "play", "good")}
+        ${metricCard2("Total", counted.length, "server", "")}
+        ${metricCard2("Allocated RAM", `${(memory / 1024).toFixed(memory ? 1 : 0)} GB`, "database", "info")}
+        ${metricCard2("Allocated CPU", `${cpu}%`, "cpu", "violet")}
       </div>
 
-      <div class="card" style="padding:20px">
-        <div class="ch" style="margin-bottom:14px">
-          <div class="row" style="gap:10px;flex-wrap:wrap;flex:1">
-            <label class="sch" style="flex:1;min-width:180px">
-              ${hero("search", "s")}
-              <input id="serviceSearch" type="search" placeholder="Search name or identifier" aria-label="Search services">
-            </label>
-            <div class="inp sel s"><select id="serviceTypeFilter" aria-label="Filter by product"><option value="ALL">All products</option>${typeOpts}</select></div>
-            <div class="seg s" role="radiogroup" aria-label="Filter service state">
-              <label><input type="radio" name="serviceState" value="ALL" checked><span>All</span></label>
-              <label><input type="radio" name="serviceState" value="RUNNING"><span>Running</span></label>
-              <label><input type="radio" name="serviceState" value="OTHER"><span>Other</span></label>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            <small id="serviceResultCount" class="muted"></small>
-            <button class="ib s" id="refreshServicesBtn" aria-label="Refresh services">${hero("refresh", "s")}</button>
-          </div>
+      <div class="row" style="margin-bottom:12px">
+        <label class="sch" data-c="Search field">
+          <svg class="ic s" aria-hidden="true"><use href="#i-search-01"/></svg>
+          <input id="serviceSearch" placeholder="Search services" aria-label="Search services" value="${esc(saved.q)}">
+        </label>
+        <div class="inp hide-n" style="min-height:44px;background:var(--s1);border-radius:999px;padding:0 14px">
+          <select id="serviceTypeFilter" aria-label="Product"><option value="ALL">All products</option>${typeOpts}</select>
+          <svg class="ic s" aria-hidden="true"><use href="#i-arrow-down-01"/></svg>
         </div>
-        <div id="serversContainer"></div>
-      </div>`;
+        <div class="seg" role="tablist" id="serviceStateSeg">
+          ${["ALL", "RUNNING", "OTHER"].map((v) => `<button role="tab" aria-selected="${saved.state === v}" data-v="${v}" type="button">${v === "ALL" ? "All" : v === "RUNNING" ? "Running" : "Other"}</button>`).join("")}
+        </div>
+        <label class="row nw" style="gap:8px;font-weight:650;font-size:13px;cursor:pointer"><button type="button" class="sw s" role="switch" id="serviceShowTerminated" aria-checked="${saved.showTerminated}" aria-label="Show closed services"></button>Show closed</label>
+        <span class="faint" style="font-weight:650;font-size:13px" id="serviceResultCount"></span>
+      </div>
+
+      <div id="serversContainer" class="col" style="gap:8px" data-flt></div>`;
+      const typeSelect = document.getElementById("serviceTypeFilter");
+      if (typeSelect && [...typeSelect.options].some((o) => o.value === saved.type)) typeSelect.value = saved.type;
       renderServiceInventory();
-      document.getElementById("refreshServicesBtn")?.addEventListener("click", renderServices);
+      document.getElementById("serviceShowTerminated")?.addEventListener("click", (e) => {
+        const sw = e.currentTarget;
+        sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true"));
+        renderServiceInventory();
+      });
+      document.getElementById("serviceSearch")?.addEventListener("input", () => renderServiceInventory());
+      document.getElementById("serviceTypeFilter")?.addEventListener("change", () => renderServiceInventory());
+      document.getElementById("serviceStateSeg")?.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-v]");
+        if (!btn) return;
+        document.querySelectorAll("#serviceStateSeg button").forEach((b) => b.setAttribute("aria-selected", "false"));
+        btn.setAttribute("aria-selected", "true");
+        renderServiceInventory();
+      });
+      document.getElementById("refreshServicesBtn")?.addEventListener("click", () => {
+        toast("Refreshed services list", "info");
+        renderServices();
+      });
     } catch (error) {
       host.innerHTML = `<div class="alert bad">${hero("warning", "s")}<div><b>Failed to load services</b><span>${esc(error.message)}</span></div></div>`;
     }
@@ -1354,17 +1639,1918 @@ ${node.textContent || ""}
   async function powerService(id, action, button) {
     button.disabled = true;
     try {
-      const data = await api(`/api/v1/services/${encodeURIComponent(id)}/power`, {
+      await api(`/api/v1/services/${encodeURIComponent(id)}/power`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action })
       });
-      toast(`Runtime state: ${data.runtimeState}`, "good");
+      toast(`${action.charAt(0)}${action.slice(1).toLowerCase()} sent`, "good");
       await renderServices();
     } catch (error) {
       toast(error.message, "bad");
       button.disabled = false;
     }
+  }
+
+  // src/frontend/client/pages/services/console.ts
+  var MAX_LINES = 1e3;
+  var MAX_HISTORY = 50;
+  var MAX_RETRIES = 8;
+  var SGR = /\u001b\[([0-9;]*)m/g;
+  var OTHER_ESC = /\u001b\[[0-9;?]*[ -/]*[@-ln-~]/g;
+  var COLORS = {
+    30: "var(--ink3)",
+    31: "var(--bad)",
+    32: "var(--good)",
+    33: "var(--warn)",
+    34: "var(--info)",
+    35: "var(--violet)",
+    36: "var(--info)",
+    37: "var(--ink)"
+  };
+  function renderLine(line) {
+    const frag = document.createElement("div");
+    frag.style.minHeight = "1.55em";
+    const clean = line.replace(OTHER_ESC, "");
+    let color = "";
+    let bold = false;
+    let last = 0;
+    const push = (text) => {
+      if (!text) return;
+      if (!color && !bold) {
+        frag.appendChild(document.createTextNode(text));
+        return;
+      }
+      const span = document.createElement("span");
+      if (color) span.style.color = color;
+      if (bold) span.style.fontWeight = "700";
+      span.textContent = text;
+      frag.appendChild(span);
+    };
+    for (const m of clean.matchAll(SGR)) {
+      push(clean.slice(last, m.index));
+      last = (m.index ?? 0) + m[0].length;
+      const codes = (m[1] || "0").split(";").map((c) => parseInt(c || "0", 10));
+      for (const code of codes) {
+        if (code === 0) {
+          color = "";
+          bold = false;
+        } else if (code === 1) bold = true;
+        else if (code === 22) bold = false;
+        else if (code === 39) color = "";
+        else if (COLORS[code]) color = COLORS[code];
+        else if (code >= 90 && code <= 97) color = COLORS[code - 60];
+      }
+    }
+    push(clean.slice(last));
+    return frag;
+  }
+  function initServiceConsole(serviceId, hooks = {}) {
+    const out = document.getElementById("dtlConsoleOut");
+    const host = document.getElementById("dtlPaneConsole") ?? document.body;
+    const input = document.getElementById("dtlConsoleInput");
+    const state = document.getElementById("dtlConsoleState");
+    let ws = null;
+    let active = false;
+    let retries = 0;
+    let retryTimer;
+    const history2 = [];
+    let historyPos = 0;
+    const setState = (text) => {
+      if (state) state.textContent = text;
+    };
+    const append = (line) => {
+      if (!out) return;
+      const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 24;
+      out.appendChild(renderLine(line));
+      while (out.childElementCount > MAX_LINES && out.firstChild) out.removeChild(out.firstChild);
+      if (atBottom) out.scrollTop = out.scrollHeight;
+    };
+    const fetchCreds = () => api.get(`/api/v1/services/${encodeURIComponent(serviceId)}/console`);
+    function scheduleRetry() {
+      if (!active || !document.body.contains(host)) return;
+      if (retries >= MAX_RETRIES) {
+        setState("Connection lost");
+        return;
+      }
+      const delay = Math.min(3e4, 1e3 * 2 ** retries);
+      retries += 1;
+      setState(`Reconnecting in ${Math.round(delay / 1e3)}s\u2026`);
+      retryTimer = window.setTimeout(() => {
+        void connect();
+      }, delay);
+    }
+    async function connect() {
+      if (!active || ws && ws.readyState <= WebSocket.OPEN) return;
+      setState("Connecting\u2026");
+      let creds;
+      try {
+        creds = await fetchCreds();
+      } catch (e) {
+        const code = e?.code;
+        if (code && code !== "PROVIDER_ERROR") {
+          setState(e?.message || "Unavailable");
+          return;
+        }
+        scheduleRetry();
+        return;
+      }
+      if (!active) return;
+      const socket = new WebSocket(creds.socket);
+      ws = socket;
+      const send = (event, args) => socket.send(JSON.stringify({ event, args }));
+      let authFailed = false;
+      socket.onopen = () => send("auth", [creds.token]);
+      socket.onmessage = async (msg) => {
+        if (!document.body.contains(host)) {
+          active = false;
+          socket.close();
+          return;
+        }
+        let data;
+        try {
+          data = JSON.parse(String(msg.data));
+        } catch {
+          return;
+        }
+        const a = data.args ?? [];
+        switch (data.event) {
+          case "auth success":
+            retries = 0;
+            setState("Connected");
+            send("send logs", [null]);
+            break;
+          case "console output":
+          case "install output":
+          case "daemon message":
+            append(String(a[0] ?? ""));
+            break;
+          case "status":
+            setState(`Connected \xB7 ${String(a[0] ?? "")}`);
+            hooks.onStatus?.(String(a[0] ?? ""));
+            break;
+          case "stats":
+            try {
+              hooks.onStats?.(JSON.parse(String(a[0] ?? "{}")));
+            } catch {
+            }
+            break;
+          case "token expiring":
+          case "token expired":
+            try {
+              send("auth", [(await fetchCreds()).token]);
+            } catch {
+              setState("Session expired");
+            }
+            break;
+          case "jwt error":
+            authFailed = true;
+            setState("Authentication failed");
+            socket.close();
+            break;
+        }
+      };
+      socket.onclose = () => {
+        if (ws === socket) ws = null;
+        if (active && !authFailed) scheduleRetry();
+        else if (!active) setState("Disconnected");
+      };
+    }
+    input?.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        if (!history2.length) return;
+        e.preventDefault();
+        historyPos = Math.max(0, Math.min(history2.length, historyPos + (e.key === "ArrowUp" ? -1 : 1)));
+        input.value = history2[historyPos] ?? "";
+        return;
+      }
+      if (e.key !== "Enter" || !input.value.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ event: "send command", args: [input.value] }));
+      if (history2[history2.length - 1] !== input.value) history2.push(input.value);
+      if (history2.length > MAX_HISTORY) history2.shift();
+      historyPos = history2.length;
+      input.value = "";
+    });
+    return {
+      connect: () => {
+        active = true;
+        retries = 0;
+        void connect();
+      },
+      disconnect: () => {
+        active = false;
+        window.clearTimeout(retryTimer);
+        ws?.close();
+      }
+    };
+  }
+
+  // src/frontend/client/pages/services/dialog.ts
+  function open(build) {
+    return new Promise((resolve) => {
+      const modal = document.createElement("div");
+      modal.className = "mdl";
+      modal.setAttribute("role", "dialog");
+      modal.setAttribute("aria-modal", "true");
+      modal.innerHTML = '<div class="ov"></div><div class="bx" style="max-width:440px"></div>';
+      const box = modal.querySelector(".bx");
+      const previous = document.activeElement;
+      let finished = false;
+      const done = (v) => {
+        if (finished) return;
+        finished = true;
+        document.removeEventListener("keydown", onKey, true);
+        modal.remove();
+        previous?.focus?.();
+        resolve(v);
+      };
+      const onKey = (e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          done(null);
+        }
+      };
+      document.addEventListener("keydown", onKey, true);
+      modal.querySelector(".ov").addEventListener("click", () => done(null));
+      build(box, done);
+      document.body.appendChild(modal);
+      modal.hidden = false;
+      (box.querySelector("input, button.pri, button.bad") ?? box).focus();
+    });
+  }
+  var header = (o) => `<h3 style="margin:0">${esc(o.title)}</h3>${o.message ? `<p class="muted" style="font-weight:560;margin:0">${esc(o.message)}</p>` : ""}`;
+  var footer = (o) => `<div class="row" style="justify-content:flex-end;gap:8px"><button class="btn s" type="button" data-cancel>Cancel</button><button class="btn s ${o.danger ? "bad" : "pri"}" type="submit">${esc(o.confirmLabel ?? "Confirm")}</button></div>`;
+  async function confirmDialog(o) {
+    const res = await open((box, done) => {
+      box.innerHTML = `<form class="col" style="gap:14px">${header(o)}${footer(o)}</form>`;
+      box.querySelector("form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        done(true);
+      });
+      box.querySelector("[data-cancel]").addEventListener("click", () => done(null));
+    });
+    return res === true;
+  }
+  async function promptDialog(o) {
+    return open((box, done) => {
+      box.innerHTML = `<form class="col" style="gap:14px">${header(o)}
+      <div class="fld">${o.label ? `<label for="dlgInput">${esc(o.label)}</label>` : ""}<div class="inp"><input id="dlgInput" autocomplete="off" spellcheck="false" ${o.inputMode ? `inputmode="${esc(o.inputMode)}"` : ""} maxlength="${o.maxLength ?? 1024}" placeholder="${esc(o.placeholder ?? "")}"></div></div>
+      ${footer(o)}</form>`;
+      const input = box.querySelector("#dlgInput");
+      input.value = o.value ?? "";
+      box.querySelector("form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = input.value.trim();
+        done(v || null);
+      });
+      box.querySelector("[data-cancel]").addEventListener("click", () => done(null));
+      window.setTimeout(() => input.select(), 0);
+    });
+  }
+  async function formDialog(o) {
+    return open((box, done) => {
+      const field = (f) => {
+        const id = `dlg_${f.key}`;
+        if (f.type === "checkbox") return `<label class="row nw" style="gap:8px"><input type="checkbox" id="${id}" ${f.value === "true" ? "checked" : ""}> ${esc(f.label)}</label>`;
+        const control2 = f.type === "select" ? `<div class="inp sel"><select id="${id}">${(f.options ?? []).map(([v, l]) => `<option value="${esc(v)}" ${v === f.value ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></div>` : `<div class="inp"><input id="${id}" autocomplete="off" ${f.type === "number" ? `type="number" min="${f.min ?? 0}" max="${f.max ?? 99999}"` : ""} value="${esc(f.value ?? "")}" placeholder="${esc(f.placeholder ?? "")}"></div>`;
+        return `<div class="fld"><label for="${id}">${esc(f.label)}</label>${control2}</div>`;
+      };
+      box.innerHTML = `<form class="col" style="gap:14px">${header(o)}${o.fields.map(field).join("")}${footer(o)}</form>`;
+      box.querySelector("form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const out = {};
+        for (const f of o.fields) {
+          const el2 = box.querySelector(`#dlg_${f.key}`);
+          out[f.key] = f.type === "checkbox" ? el2.checked : el2.value;
+        }
+        done(out);
+      });
+      box.querySelector("[data-cancel]").addEventListener("click", () => done(null));
+    });
+  }
+
+  // src/frontend/client/pages/services/files.ts
+  var TEXT_EXT = /\.(txt|log|json|ya?ml|properties|conf|cfg|ini|toml|xml|md|js|mjs|cjs|ts|py|sh|bash|java|lua|cs|csv|env|html?|css|mcmeta|secret|sk|skript|lang|nbt\.txt)$/i;
+  var ARCHIVE_EXT = /\.(zip|tar|tar\.gz|tgz)$/i;
+  var MAX_EDIT = 1024 * 1024;
+  var EDITOR_SRC = "/assets/editor-ui.js?v=1";
+  var editorScript = null;
+  function loadEditor() {
+    editorScript ??= new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = EDITOR_SRC;
+      s.onload = () => resolve(window.FortlessEditor);
+      s.onerror = () => {
+        editorScript = null;
+        reject(new Error("Could not load the editor."));
+      };
+      document.head.appendChild(s);
+    });
+    return editorScript;
+  }
+  var el = (tag, cls = "", html = "") => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html) e.innerHTML = html;
+    return e;
+  };
+  var parentOf = (p) => p.slice(0, p.lastIndexOf("/")) || "/";
+  var join = (d, n) => (d === "/" ? "" : d) + "/" + n;
+  function initServiceFiles(serviceId) {
+    const host = document.getElementById("dtlFilesBody");
+    if (!host) return { open() {
+    } };
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}/files`;
+    const fail3 = (e) => toast(e?.message || "Request failed", "bad");
+    host.innerHTML = `<div class="fm" id="fm">
+    <div class="fm-side" id="fmSide">
+      <div class="row" style="justify-content:space-between;gap:8px">
+        <div class="btngroup">
+          <button class="btn s sq sec" type="button" data-fm="newfile" data-tip="New file" data-pos="bottom" aria-label="New file">${hero("plus", "s")}</button>
+          <button class="btn s sq sec" type="button" data-fm="newdir" data-tip="New folder" data-pos="bottom" aria-label="New folder">${hero("folder-01", "s")}</button>
+          <label class="btn s sq sec" style="cursor:pointer" data-tip="Upload" data-pos="bottom" aria-label="Upload">${hero("arrow", "s")}<input type="file" id="fmUpload" multiple hidden></label>
+ <button class="btn s sq sec" type="button" data-fm="pull" data-tip="Download from URL" data-pos="bottom" aria-label="Download from URL">${hero("link-square-02", "s")}</button>
+          <button class="btn s sq sec" type="button" data-fm="refresh" data-tip="Refresh" data-pos="bottom" aria-label="Refresh">${hero("refresh", "s")}</button>
+        </div>
+      </div>
+      <div class="bbar" id="fmBulk" hidden><b id="fmBulkN">0 selected</b><span style="flex:1"></span><button class="btn s sec" type="button" data-fm="bulk-archive">Archive</button><button class="btn s sec" type="button" data-fm="bulk-delete">Delete</button></div>
+      <div class="fm-tree"><div class="tree" id="fmTree" role="tree" aria-label="Server files" aria-multiselectable="true"></div></div>
+    </div>
+    <div class="rh" id="fmHandle" role="separator" aria-orientation="vertical" aria-label="Resize file tree"><i></i></div>
+    <div class="fm-main">
+      <div class="fm-tabs" id="fmTabs" role="tablist"></div>
+      <div class="fm-bar" id="fmBar" hidden><div class="crumbs" id="fmPath"></div><button class="btn s pri" type="button" data-fm="save">Save</button></div>
+      <div class="es fm-empty" id="fmEmpty"><span class="tile neu lg">${hero("document")}</span><h4>No file open</h4></div>
+      <div class="fm-ed" id="fmEd" hidden></div>
+    </div>
+  </div>`;
+    const tree = document.getElementById("fmTree");
+    const tabsEl = document.getElementById("fmTabs");
+    const bar = document.getElementById("fmBar");
+    const pathEl = document.getElementById("fmPath");
+    const bulkBar = document.getElementById("fmBulk");
+    const side = document.getElementById("fmSide");
+    const empty2 = document.getElementById("fmEmpty");
+    const edEl = document.getElementById("fmEd");
+    let loaded = false;
+    let selectedDir = "/";
+    let active = null;
+    const tabs = [];
+    const dirty = /* @__PURE__ */ new Set();
+    const isNew = /* @__PURE__ */ new Set();
+    let editor = null;
+    let menu = null;
+    const kidsOf = (dir) => dir === "/" ? tree : tree.querySelector(`.tn[data-path="${CSS.escape(dir)}"] > .kids`);
+    function nodeFor(dir, e) {
+      const path = join(dir, e.name);
+      const more = `<button class="ib xs more" type="button" data-more aria-label="Actions for ${"item"}" tabindex="-1">${hero("settings", "xs")}</button>`;
+      let node;
+      if (e.isFile) {
+        node = el("div", "leaf", `${hero("document", "s")}<span class="nm"></span>${more}`);
+        node.setAttribute("role", "treeitem");
+        node.tabIndex = -1;
+      } else {
+        node = el("div", "tn");
+        node.setAttribute("role", "treeitem");
+        node.setAttribute("aria-expanded", "false");
+        node.tabIndex = -1;
+        node.appendChild(el("div", "tr0", `${hero("arrow-right-01", "xs chv")}${hero("folder-01", "s")}<span class="nm"></span>${more}`));
+        node.appendChild(el("div", "kids")).setAttribute("role", "group");
+      }
+      node.dataset["path"] = path;
+      node.dataset["name"] = e.name;
+      node.dataset["file"] = e.isFile ? "1" : "";
+      node.dataset["size"] = String(e.size);
+      node.dataset["mime"] = e.mime;
+      node.querySelector(".nm").textContent = e.name;
+      node.querySelector(".nm").title = e.isFile ? `${e.name} \xB7 ${formatBytes(e.size)}` : e.name;
+      node.querySelector("[data-more]").setAttribute("aria-label", `Actions for ${e.name}`);
+      return node;
+    }
+    async function loadDir(dir) {
+      const kids = kidsOf(dir);
+      if (!kids) return;
+      const res = await api.get(`${base}?dir=${encodeURIComponent(dir)}`);
+      kids.replaceChildren(...res.entries.map((e) => nodeFor(dir, e)));
+      if (!res.entries.length && dir !== "/") kids.appendChild(el("div", "leaf")).textContent = "Empty";
+      if (active) markActive();
+    }
+    const markActive = () => {
+      tree.querySelectorAll(".leaf.on").forEach((n) => n.classList.remove("on"));
+      if (active) tree.querySelector(`.leaf[data-path="${CSS.escape(active)}"]`)?.classList.add("on");
+    };
+    async function toggle(node, force) {
+      const open2 = force ?? !node.classList.contains("open");
+      node.classList.toggle("open", open2);
+      node.setAttribute("aria-expanded", String(open2));
+      if (open2 && !node.dataset["loaded"]) {
+        node.dataset["loaded"] = "1";
+        try {
+          await loadDir(node.dataset["path"]);
+        } catch (e) {
+          node.dataset["loaded"] = "";
+          fail3(e);
+        }
+      }
+    }
+    async function refreshDir(dir) {
+      const node = dir === "/" ? null : tree.querySelector(`.tn[data-path="${CSS.escape(dir)}"]`);
+      if (node && !node.dataset["loaded"]) return;
+      try {
+        await loadDir(dir);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    function askName(dir, initial, icon) {
+      return new Promise((resolve) => {
+        const kids = kidsOf(dir);
+        if (!kids) return resolve(null);
+        if (dir !== "/") {
+          const n = tree.querySelector(`.tn[data-path="${CSS.escape(dir)}"]`);
+          if (n && !n.classList.contains("open")) void toggle(n, true);
+        }
+        const row = el("div", "leaf", hero(icon, "s"));
+        const input = document.createElement("input");
+        input.className = "mono";
+        input.style.cssText = "flex:1;min-width:0;background:var(--s1);border:1px solid var(--accent);border-radius:8px;height:26px;padding:0 8px;font-size:13px;outline:0";
+        input.value = initial;
+        row.appendChild(input);
+        kids.insertBefore(row, kids.firstChild);
+        let done = false;
+        const finish = (v) => {
+          if (done) return;
+          done = true;
+          row.remove();
+          resolve(v);
+        };
+        input.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") finish(input.value.trim() || null);
+          else if (ev.key === "Escape") finish(null);
+        });
+        input.addEventListener("blur", () => finish(null));
+        input.focus();
+        input.select();
+      });
+    }
+    const nameTaken = (dir, name) => Array.from(kidsOf(dir)?.children ?? []).some((c) => c.dataset["name"] === name);
+    function renderTabs() {
+      tabsEl.replaceChildren(...tabs.map((p) => {
+        const t = el("button", `fm-tab${p === active ? " on" : ""}`);
+        t.setAttribute("type", "button");
+        t.setAttribute("role", "tab");
+        t.dataset["tab"] = p;
+        const name = el("span");
+        name.textContent = p.split("/").pop() || p;
+        name.title = p;
+        t.appendChild(name);
+        if (dirty.has(p)) t.appendChild(el("span", "dot"));
+        const x = el("span", "x", hero("x", "xs"));
+        x.dataset["close"] = p;
+        t.appendChild(x);
+        return t;
+      }));
+      const has = active !== null;
+      bar.hidden = !has;
+      edEl.hidden = !has;
+      empty2.hidden = has;
+      pathEl.replaceChildren(...(active ?? "").split("/").filter(Boolean).flatMap((seg, i, all) => {
+        const part = el(i === all.length - 1 ? "span" : "a", i === all.length - 1 ? "cur" : "");
+        part.textContent = seg;
+        return i === 0 ? [part] : [el("span", "", hero("arrow-right-01", "xs")), part];
+      }));
+    }
+    async function ensureEditor() {
+      if (editor) return editor;
+      const api2 = await loadEditor();
+      edEl.hidden = false;
+      editor = api2.mountEditor(edEl, {
+        onDirty(p, d) {
+          if (d) dirty.add(p);
+          else dirty.delete(p);
+          renderTabs();
+        },
+        onSave(p) {
+          void save(p);
+        }
+      });
+      return editor;
+    }
+    async function openFile(path, content) {
+      try {
+        if (!tabs.includes(path)) {
+          if (content === void 0) content = (await api.get(`${base}/content?path=${encodeURIComponent(path)}`)).content;
+          const ed = await ensureEditor();
+          tabs.push(path);
+          active = path;
+          renderTabs();
+          ed.open(path, content);
+        } else {
+          const ed = await ensureEditor();
+          active = path;
+          renderTabs();
+          ed.show(path);
+        }
+        markActive();
+        editor?.focus();
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function save(path) {
+      const content = editor?.value(path);
+      if (content === void 0) return;
+      try {
+        await api(`${base}/content`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, content }) });
+        isNew.delete(path);
+        editor?.markSaved(path);
+        toast("Saved", "good");
+        if (isNew.size === 0) await refreshDir(parentOf(path));
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function closeTab(path) {
+      if (dirty.has(path) && !await confirmDialog({ title: `Close ${path.split("/").pop()}?`, message: "It has unsaved changes.", confirmLabel: "Close without saving", danger: true })) return;
+      const i = tabs.indexOf(path);
+      tabs.splice(i, 1);
+      dirty.delete(path);
+      isNew.delete(path);
+      editor?.close(path);
+      active = tabs[Math.min(i, tabs.length - 1)] ?? null;
+      renderTabs();
+      if (active) {
+        editor?.show(active);
+        markActive();
+      }
+    }
+    async function newFile(dir) {
+      const name = await askName(dir, "", "document");
+      if (!name) return;
+      if (/[\/\\]/.test(name) || nameTaken(dir, name)) return toast("Invalid or existing name", "bad");
+      const path = join(dir, name);
+      isNew.add(path);
+      await openFile(path, "");
+      dirty.add(path);
+      renderTabs();
+    }
+    async function newDir(dir) {
+      const name = await askName(dir, "", "folder-01");
+      if (!name) return;
+      if (/[\/\\]/.test(name) || nameTaken(dir, name)) return toast("Invalid or existing name", "bad");
+      try {
+        await api.post(`${base}/folder`, { dir, name });
+        await refreshDir(dir);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function rename(node) {
+      const dir = parentOf(node.dataset["path"]);
+      const from = node.dataset["name"];
+      const nm = node.querySelector(".nm");
+      nm.style.visibility = "hidden";
+      const input = document.createElement("input");
+      input.className = "mono";
+      input.value = from;
+      input.style.cssText = "position:absolute;background:var(--s1);border:1px solid var(--accent);border-radius:8px;height:26px;padding:0 8px;font-size:13px;outline:0;width:180px";
+      nm.parentElement.insertBefore(input, nm);
+      const to = await new Promise((resolve) => {
+        let done = false;
+        const fin = (v) => {
+          if (done) return;
+          done = true;
+          input.remove();
+          nm.style.visibility = "";
+          resolve(v);
+        };
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") fin(input.value.trim() || null);
+          else if (e.key === "Escape") fin(null);
+        });
+        input.addEventListener("blur", () => fin(null));
+        input.focus();
+        input.select();
+      });
+      if (!to || to === from) return;
+      if (/[\/\\]/.test(to) || nameTaken(dir, to)) return toast("Invalid or existing name", "bad");
+      try {
+        await api.post(`${base}/rename`, { dir, from, to });
+        await refreshDir(dir);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function remove(node) {
+      const name = node.dataset["name"];
+      if (!await confirmDialog({ title: `Delete ${name}?`, message: "This cannot be undone.", confirmLabel: "Delete", danger: true })) return;
+      const dir = parentOf(node.dataset["path"]);
+      try {
+        await api.post(`${base}/delete`, { dir, names: [name] });
+        tabs.filter((p) => p === node.dataset["path"] || p.startsWith(node.dataset["path"] + "/")).forEach((p) => {
+          dirty.delete(p);
+          void closeTab(p);
+        });
+        await refreshDir(dir);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function download(path) {
+      try {
+        window.location.assign((await api.get(`${base}/download-url?path=${encodeURIComponent(path)}`)).url);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function upload(dir, files) {
+      try {
+        const { url } = await api.get(`${base}/upload-url?dir=${encodeURIComponent(dir)}`);
+        const form = new FormData();
+        for (const f of Array.from(files)) form.append("files", f, f.name);
+        const res = await fetch(`${url}&directory=${encodeURIComponent(dir)}`, { method: "POST", body: form });
+        if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+        toast(`${files.length} file(s) uploaded`, "good");
+        await refreshDir(dir);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function afterArchive(dir, pending, done) {
+      if (!pending) {
+        toast(done, "good");
+        await refreshDir(dir);
+        return;
+      }
+      toast("Still working on the server. The folder refreshes shortly.", "info");
+      for (const wait of [8e3, 2e4, 45e3]) {
+        await new Promise((r) => window.setTimeout(r, wait));
+        await refreshDir(dir);
+      }
+    }
+    async function move(node) {
+      const from = parentOf(node.dataset["path"]);
+      const dest = await promptDialog({ title: `Move ${node.dataset["name"]}`, label: "Destination folder", value: from, placeholder: "/plugins", confirmLabel: "Move" });
+      if (!dest || dest === from) return;
+      try {
+        await api.post(`${base}/move`, { dir: from, name: node.dataset["name"], destDir: dest });
+        await refreshDir(from);
+        await refreshDir(dest);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function chmod(node) {
+      const mode = await promptDialog({ title: `Permissions for ${node.dataset["name"]}`, label: "Mode (octal)", value: node.dataset["file"] === "1" ? "644" : "755", placeholder: "644", inputMode: "numeric", maxLength: 4, confirmLabel: "Apply" });
+      if (!mode) return;
+      try {
+        await api.post(`${base}/chmod`, { dir: parentOf(node.dataset["path"]), names: [node.dataset["name"]], mode });
+        toast("Permissions updated", "good");
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function pull(dir) {
+      const url = await promptDialog({ title: "Download a file to the server", label: "File address (https)", placeholder: "https://example.com/file.jar", confirmLabel: "Download" });
+      if (!url) return;
+      toast("Downloading\u2026", "info");
+      try {
+        const r = await api.post(`${base}/pull`, { dir, url });
+        await afterArchive(dir, r.pending, "Downloaded");
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function archive(node) {
+      const dir = parentOf(node.dataset["path"]);
+      toast("Archiving\u2026", "info");
+      try {
+        const r = await api.post(`${base}/archive`, { dir, names: [node.dataset["name"]] });
+        await afterArchive(dir, r.pending, r.archive ? `Created ${r.archive}` : "");
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function unarchive(node) {
+      const dir = parentOf(node.dataset["path"]);
+      toast("Extracting\u2026", "info");
+      try {
+        const r = await api.post(`${base}/unarchive`, { dir, file: node.dataset["name"] });
+        await afterArchive(dir, r.pending, "Extracted");
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function copy2(node) {
+      try {
+        await api.post(`${base}/copy`, { path: node.dataset["path"] });
+        await refreshDir(parentOf(node.dataset["path"]));
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    const selected = /* @__PURE__ */ new Map();
+    const selEl = (n) => n.classList.contains("tn") ? n.querySelector(".tr0") : n;
+    function renderBulk() {
+      bulkBar.hidden = selected.size === 0;
+      document.getElementById("fmBulkN").textContent = `${selected.size} selected`;
+    }
+    function clearSelection() {
+      selected.forEach((n) => selEl(n).classList.remove("sel"));
+      selected.clear();
+      renderBulk();
+    }
+    function toggleSelect(node) {
+      const path = node.dataset["path"];
+      const first = selected.keys().next().value;
+      if (first !== void 0 && parentOf(first) !== parentOf(path)) clearSelection();
+      if (selected.has(path)) {
+        selected.delete(path);
+        selEl(node).classList.remove("sel");
+      } else {
+        selected.set(path, node);
+        selEl(node).classList.add("sel");
+      }
+      renderBulk();
+    }
+    async function bulkArchive() {
+      const names = [...selected.values()].map((n) => n.dataset["name"]);
+      const dir = parentOf([...selected.keys()][0]);
+      toast("Archiving\u2026", "info");
+      try {
+        const r = await api.post(`${base}/archive`, { dir, names });
+        clearSelection();
+        await afterArchive(dir, r.pending, r.archive ? `Created ${r.archive}` : "");
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    async function bulkDelete() {
+      const names = [...selected.values()].map((n) => n.dataset["name"]);
+      const paths = [...selected.keys()];
+      const dir = parentOf(paths[0]);
+      if (!await confirmDialog({ title: `Delete ${names.length} item(s)?`, message: "This cannot be undone.", confirmLabel: "Delete", danger: true })) return;
+      try {
+        await api.post(`${base}/delete`, { dir, names });
+        tabs.filter((p) => paths.some((d) => p === d || p.startsWith(d + "/"))).forEach((p) => {
+          dirty.delete(p);
+          void closeTab(p);
+        });
+        clearSelection();
+        await refreshDir(dir);
+      } catch (e) {
+        fail3(e);
+      }
+    }
+    const handle = document.getElementById("fmHandle");
+    const fm = document.getElementById("fm");
+    try {
+      const w = Number(localStorage.getItem("fmSideWidth"));
+      if (w >= 200) side.style.width = `${w}px`;
+    } catch {
+    }
+    handle.addEventListener("pointerdown", (ev) => {
+      handle.setPointerCapture(ev.pointerId);
+      const move2 = (e) => {
+        const box = fm.getBoundingClientRect();
+        side.style.width = `${Math.max(200, Math.min(box.width * 0.6, e.clientX - box.left))}px`;
+      };
+      const up = () => {
+        handle.removeEventListener("pointermove", move2);
+        handle.removeEventListener("pointerup", up);
+        try {
+          localStorage.setItem("fmSideWidth", String(Math.round(side.getBoundingClientRect().width)));
+        } catch {
+        }
+      };
+      handle.addEventListener("pointermove", move2);
+      handle.addEventListener("pointerup", up);
+    });
+    function closeMenu() {
+      menu?.remove();
+      menu = null;
+    }
+    function openMenu(node, x, y) {
+      closeMenu();
+      const isFile = node.dataset["file"] === "1";
+      const name = node.dataset["name"];
+      const path = node.dataset["path"];
+      const items = [];
+      if (isFile) {
+        items.push(["document", "Open", () => void openFile(path)]);
+        items.push(["arrow", "Download", () => void download(path)]);
+        if (ARCHIVE_EXT.test(name)) items.push(["archive-01", "Unarchive", () => void unarchive(node)]);
+      } else {
+        items.push(["plus", "New file", () => void newFile(path)]);
+        items.push(["folder-01", "New folder", () => void newDir(path)]);
+        items.push(["arrow", "Download file here", () => void pull(path)]);
+      }
+      items.push("-", ["settings", "Rename", () => void rename(node)], ["folder-01", "Move", () => void move(node)], ["copy", "Copy", () => void copy2(node)], ["shield", "Permissions", () => void chmod(node)]);
+      items.push(["archive-01", "Archive", () => void archive(node)]);
+      items.push("-", ["x", "Delete", () => void remove(node), true]);
+      const m = el("div", "menu");
+      for (const it of items) {
+        if (it === "-") {
+          m.appendChild(el("div", "sep"));
+          continue;
+        }
+        const b = el("button", it[3] ? "bad" : "", hero(it[0], "s"));
+        b.setAttribute("type", "button");
+        b.appendChild(document.createTextNode(it[1]));
+        b.addEventListener("click", () => {
+          closeMenu();
+          it[2]();
+        });
+        m.appendChild(b);
+      }
+      menu = el("div", "pop");
+      menu.appendChild(m);
+      document.body.appendChild(menu);
+      const w = menu.offsetWidth, h = menu.offsetHeight;
+      menu.style.left = Math.max(8, Math.min(x, innerWidth - w - 8)) + "px";
+      menu.style.top = Math.max(8, Math.min(y, innerHeight - h - 8)) + "px";
+    }
+    document.addEventListener("click", (e) => {
+      if (menu && !e.target.closest(".pop")) closeMenu();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeMenu();
+    });
+    const targetDir = () => selectedDir;
+    tree.addEventListener("click", (ev) => {
+      const t = ev.target;
+      const node = t.closest(".tn, .leaf");
+      if (!node || !node.dataset["path"]) return;
+      const rect = t.closest("[data-more]");
+      if (rect) {
+        const r = rect.getBoundingClientRect();
+        openMenu(node, r.left, r.bottom + 4);
+        ev.stopPropagation();
+        return;
+      }
+      if (ev.ctrlKey || ev.metaKey) {
+        toggleSelect(node);
+        return;
+      }
+      if (selected.size) clearSelection();
+      if (node.dataset["file"] === "1") {
+        selectedDir = parentOf(node.dataset["path"]);
+        const size = Number(node.dataset["size"]);
+        const editable = size <= MAX_EDIT && (TEXT_EXT.test(node.dataset["name"]) || (node.dataset["mime"] || "").startsWith("text/"));
+        if (editable) void openFile(node.dataset["path"]);
+        else toast("Not editable here. Use the menu to download it.", "info");
+      } else if (t.closest(".tr0")) {
+        selectedDir = node.dataset["path"];
+        void toggle(node);
+      }
+    });
+    tree.addEventListener("contextmenu", (ev) => {
+      const node = ev.target.closest(".tn, .leaf");
+      if (!node?.dataset["path"]) return;
+      ev.preventDefault();
+      openMenu(node, ev.clientX, ev.clientY);
+    });
+    tabsEl.addEventListener("click", (ev) => {
+      const t = ev.target;
+      const close = t.closest("[data-close]");
+      if (close) {
+        void closeTab(close.dataset["close"]);
+        return;
+      }
+      const tab = t.closest("[data-tab]");
+      if (tab) {
+        active = tab.dataset["tab"];
+        renderTabs();
+        editor?.show(active);
+        markActive();
+        editor?.focus();
+      }
+    });
+    host.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-fm]");
+      if (!b) return;
+      switch (b.dataset["fm"]) {
+        case "newfile":
+          void newFile(targetDir());
+          break;
+        case "newdir":
+          void newDir(targetDir());
+          break;
+        case "pull":
+          void pull(targetDir());
+          break;
+        case "save":
+          if (active) void save(active);
+          break;
+        case "bulk-archive":
+          void bulkArchive();
+          break;
+        case "bulk-delete":
+          void bulkDelete();
+          break;
+        case "refresh":
+          void loadDir("/").then(() => {
+            selectedDir = "/";
+          }).catch(fail3);
+          break;
+      }
+    });
+    host.addEventListener("change", (ev) => {
+      const input = ev.target;
+      if (input.id === "fmUpload" && input.files?.length) void upload(targetDir(), input.files).finally(() => {
+        input.value = "";
+      });
+    });
+    tree.addEventListener("dragover", (e) => {
+      if (e.dataTransfer?.types.includes("Files")) {
+        e.preventDefault();
+        tree.classList.add("drop-on");
+      }
+    });
+    tree.addEventListener("dragleave", () => tree.classList.remove("drop-on"));
+    tree.addEventListener("drop", (e) => {
+      e.preventDefault();
+      tree.classList.remove("drop-on");
+      if (!e.dataTransfer?.files.length) return;
+      const folder = e.target.closest(".tn");
+      void upload(folder?.dataset["path"] ?? targetDir(), e.dataTransfer.files);
+    });
+    renderTabs();
+    return {
+      open() {
+        if (loaded) return;
+        loaded = true;
+        void loadDir("/").catch((e) => {
+          loaded = false;
+          tree.replaceChildren(el("div", "alert bad", `<div><b>Could not load files</b></div>`));
+          fail3(e);
+        });
+      }
+    };
+  }
+
+  // src/frontend/client/pages/services/activity.ts
+  var CATEGORIES = [["all", "All"], ["power", "Power"], ["files", "Files"], ["backups", "Backups"], ["network", "Network"], ["settings", "Settings"], ["game", "Game"], ["databases", "Databases"], ["schedules", "Schedules"], ["billing", "Billing"], ["lifecycle", "Lifecycle"], ["panel", "Panel"]];
+  var RANGES = [["1", "24h"], ["7", "7d"], ["30", "30d"], ["all", "All time"]];
+  var actor = (t) => t === "USER" ? "You" : t === "STAFF" ? "Fortless staff" : t === "PSP_WEBHOOK" ? "Payment provider" : "System";
+  function describe(action, raw) {
+    let m = {};
+    try {
+      m = JSON.parse(raw) || {};
+    } catch {
+    }
+    const names = Array.isArray(m["names"]) ? m["names"].join(", ") : "";
+    switch (action) {
+      case "order.paid":
+        return { label: "Payment verified", detail: "", icon: "credit-card", tone: "good" };
+      case "service.created":
+        return { label: "Service created", detail: "", icon: "settings-01", tone: "info" };
+      case "service.provisioned":
+        return { label: "Provisioning completed", detail: "", icon: "rocket-01", tone: "violet" };
+      case "service.provision_failed":
+        return { label: "Provisioning failed", detail: "", icon: "alert-02", tone: "bad" };
+      case "service.suspend":
+        return { label: "Suspended", detail: String(m["reason"] || ""), icon: "stop", tone: "warn" };
+      case "service.unsuspend":
+        return { label: "Unsuspended", detail: "", icon: "play", tone: "good" };
+      case "service.terminate":
+        return { label: "Terminated", detail: "", icon: "x", tone: "bad" };
+      case "service.owner_assigned":
+        return { label: "Linked to your panel account", detail: "", icon: "shield", tone: "info" };
+      case "service.provider_missing":
+        return { label: "Server missing on the panel", detail: "", icon: "alert-02", tone: "bad" };
+      case "service.power": {
+        const a = String(m["action"] || "").toLowerCase();
+        const label = a === "start" ? "Started" : a === "stop" ? "Stopped" : a === "restart" ? "Restarted" : a === "kill" ? "Killed" : "Power action";
+        const bad = a === "stop" || a === "kill";
+        return { label, detail: "", icon: bad ? "stop" : a === "restart" ? "refresh" : "play", tone: bad ? "bad" : "good" };
+      }
+      case "service.file.write":
+        return { label: "File saved", detail: String(m["path"] || ""), icon: "document", tone: "info" };
+      case "service.file.mkdir":
+        return { label: "Folder created", detail: String(m["path"] || ""), icon: "folder-01", tone: "info" };
+      case "service.file.delete":
+        return { label: "Deleted", detail: `${m["dir"] || ""}: ${names}`, icon: "x", tone: "bad" };
+      case "service.file.rename":
+        return { label: "Renamed", detail: `${m["from"] || ""} to ${m["to"] || ""}`, icon: "settings-01", tone: "info" };
+      case "service.file.archive":
+        return { label: "Archived", detail: String(m["archive"] || names), icon: "archive-01", tone: "info" };
+      case "service.file.unarchive":
+        return { label: "Extracted", detail: String(m["file"] || ""), icon: "archive-01", tone: "info" };
+      case "service.file.move":
+        return { label: "Moved", detail: `${m["name"] || ""} to ${m["to"] || ""}`, icon: "folder-01", tone: "info" };
+      case "service.file.chmod":
+        return { label: "Permissions changed", detail: `${names} \xB7 ${m["mode"] || ""}`, icon: "shield", tone: "info" };
+      case "service.file.pull":
+        return { label: "Downloaded to server", detail: String(m["host"] || ""), icon: "arrow", tone: "info" };
+      case "service.file.copy":
+        return { label: "Copied", detail: String(m["path"] || ""), icon: "copy", tone: "info" };
+      case "service.backup.create":
+        return { label: "Backup created", detail: String(m["name"] || ""), icon: "archive-01", tone: "good" };
+      case "service.backup.delete":
+        return { label: "Backup deleted", detail: "", icon: "x", tone: "bad" };
+      case "service.backup.lock":
+        return { label: "Backup lock changed", detail: "", icon: "shield", tone: "info" };
+      case "service.backup.restore":
+        return { label: "Backup restored", detail: m["truncate"] ? "Files were wiped first" : "", icon: "refresh", tone: "warn" };
+      case "service.network.assign":
+        return { label: "Port added", detail: "", icon: "plus", tone: "good" };
+      case "service.network.notes":
+        return { label: "Port notes changed", detail: "", icon: "settings-01", tone: "info" };
+      case "service.network.primary":
+        return { label: "Primary port changed", detail: "", icon: "settings-01", tone: "info" };
+      case "service.network.remove":
+        return { label: "Port removed", detail: "", icon: "x", tone: "bad" };
+      case "service.startup.variable":
+        return { label: "Startup variable changed", detail: String(m["key"] || ""), icon: "settings-01", tone: "info" };
+      case "service.startup.image":
+        return { label: "Docker image changed", detail: String(m["image"] || ""), icon: "settings-01", tone: "warn" };
+      case "service.mod.install":
+        return { label: "Mod or plugin installed", detail: String(m["file"] || ""), icon: "plus", tone: "good" };
+      case "service.game.icon":
+        return { label: "Server icon changed", detail: "", icon: "settings-01", tone: "info" };
+      case "service.database.create":
+        return { label: "Database created", detail: String(m["name"] || ""), icon: "database", tone: "good" };
+      case "service.database.rotate":
+        return { label: "Database password rotated", detail: "", icon: "shield", tone: "warn" };
+      case "service.database.delete":
+        return { label: "Database deleted", detail: "", icon: "x", tone: "bad" };
+      case "service.schedule.create":
+        return { label: "Schedule created", detail: String(m["name"] || ""), icon: "plus", tone: "good" };
+      case "service.schedule.update":
+        return { label: "Schedule updated", detail: String(m["name"] || ""), icon: "settings-01", tone: "info" };
+      case "service.schedule.delete":
+        return { label: "Schedule deleted", detail: "", icon: "x", tone: "bad" };
+      case "service.schedule.execute":
+        return { label: "Schedule run manually", detail: "", icon: "play", tone: "info" };
+      case "service.schedule.task_add":
+        return { label: "Schedule task added", detail: String(m["action"] || ""), icon: "plus", tone: "info" };
+      case "service.schedule.task_update":
+        return { label: "Schedule task changed", detail: String(m["action"] || ""), icon: "settings-01", tone: "info" };
+      case "service.schedule.task_delete":
+        return { label: "Schedule task removed", detail: "", icon: "x", tone: "warn" };
+      case "service.settings.rename":
+        return { label: "Server renamed", detail: "", icon: "settings-01", tone: "info" };
+      case "service.settings.reinstall":
+        return { label: "Reinstall started", detail: "", icon: "refresh", tone: "warn" };
+      default:
+        return { label: action.replace(/[._]/g, " "), detail: "", icon: "shield", tone: "neu" };
+    }
+  }
+  function initServiceActivity(serviceId) {
+    const host = document.getElementById("dtlActivityBody");
+    if (!host) return { open() {
+    } };
+    const state = { category: "all", range: "30", q: "", page: 1 };
+    let loaded = false;
+    let timer;
+    const seg = (name, items, value) => `<div class="seg" role="tablist" data-seg="${name}">${items.map(([v, l]) => `<button type="button" role="tab" aria-selected="${v === value}" data-v="${v}">${l}</button>`).join("")}</div>`;
+    host.innerHTML = `<div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <div class="inp s pill" style="flex:1;min-width:180px">${hero("search", "s")}<input id="actQ" placeholder="Search activity" aria-label="Search activity"></div>
+      ${seg("range", RANGES, state.range)}
+    </div>
+    <div style="margin-bottom:14px;overflow-x:auto">${seg("category", CATEGORIES, state.category)}</div>
+    <div id="actList"></div>
+    <div class="row" style="justify-content:space-between;margin-top:14px"><span class="faint" id="actInfo" style="font-size:12.5px"></span><div class="pager" id="actPager"></div></div>`;
+    const list = document.getElementById("actList");
+    const info = document.getElementById("actInfo");
+    const pager = document.getElementById("actPager");
+    function renderPager(page, pages) {
+      const nums = /* @__PURE__ */ new Set([1, pages, page - 1, page, page + 1]);
+      const seq = [...nums].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+      const btn = (label, p, extra = "") => `<button type="button" data-pg="${p}" ${extra}>${label}</button>`;
+      let html = btn(hero("arrow-left-01", "s"), page - 1, page === 1 ? 'disabled aria-label="Previous"' : 'aria-label="Previous"');
+      let prev = 0;
+      for (const n of seq) {
+        if (n - prev > 1) html += '<button type="button" disabled>\u2026</button>';
+        html += btn(String(n), n, n === page ? 'aria-current="true"' : "");
+        prev = n;
+      }
+      html += btn(hero("arrow-right-01", "s"), page + 1, page === pages ? 'disabled aria-label="Next"' : 'aria-label="Next"');
+      pager.innerHTML = pages > 1 ? html : "";
+    }
+    const humanize = (event) => event.replace(/^server:/, "").replace(/[.:_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+    async function loadPanel() {
+      try {
+        const res = await api.get(`/api/v1/services/${encodeURIComponent(serviceId)}/panel-activity?page=${state.page}`);
+        state.page = res.page;
+        list.innerHTML = res.events.length ? `<div class="tl2">${res.events.map((e) => `<div class="ev"><span class="tile neu">${hero("shield")}</span><div style="min-width:0"><b>${esc(humanize(e.event))}</b><small style="display:block">${esc(e.actor ?? "System")}${e.api ? " \xB7 API" : ""}</small></div><small>${esc(formatDate(e.timestamp))}</small></div>`).join("")}</div>` : `<div class="es"><span class="tile neu lg">${hero("shield")}</span><h4>No panel activity</h4></div>`;
+        info.textContent = res.total ? `${res.total} events` : "";
+        renderPager(res.page, res.pages);
+      } catch (e) {
+        list.innerHTML = `<div class="alert bad"><div><b>Could not load panel activity</b><span>${esc(e?.message || "")}</span></div></div>`;
+      }
+    }
+    async function load() {
+      if (state.category === "panel") return loadPanel();
+      const qs = new URLSearchParams({ category: state.category, range: state.range, q: state.q, page: String(state.page) });
+      try {
+        const res = await api.get(`/api/v1/services/${encodeURIComponent(serviceId)}/activity?${qs}`);
+        state.page = res.page;
+        const pages = Math.max(1, Math.ceil(res.total / res.pageSize));
+        list.innerHTML = res.events.length ? `<div class="tl2">${res.events.map((ev) => {
+          const d = describe(ev.action, ev.metadata);
+          return `<div class="ev"><span class="tile ${d.tone}">${hero(d.icon)}</span><div style="min-width:0"><b>${esc(d.label)}</b><small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(actor(ev.actorType))}${d.detail ? " \xB7 " + esc(d.detail) : ""}</small></div><small>${esc(formatDate(ev.createdAt))}</small></div>`;
+        }).join("")}</div>` : `<div class="es"><span class="tile neu lg">${hero("shield")}</span><h4>No activity</h4></div>`;
+        info.textContent = res.total ? `${(res.page - 1) * res.pageSize + 1}-${(res.page - 1) * res.pageSize + res.events.length} of ${res.total}` : "";
+        renderPager(res.page, pages);
+      } catch (e) {
+        list.innerHTML = `<div class="alert bad"><div><b>Could not load activity</b><span>${esc(e?.message || "")}</span></div></div>`;
+      }
+    }
+    host.addEventListener("click", (ev) => {
+      const t = ev.target;
+      const segBtn = t.closest("[data-seg] [data-v]");
+      if (segBtn) {
+        const name = segBtn.closest("[data-seg]").dataset["seg"];
+        state[name] = segBtn.dataset["v"];
+        state.page = 1;
+        segBtn.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b === segBtn)));
+        void load();
+        return;
+      }
+      const pg = t.closest("[data-pg]");
+      if (pg && !pg.disabled) {
+        state.page = Number(pg.dataset["pg"]);
+        void load();
+      }
+    });
+    host.addEventListener("input", (ev) => {
+      if (ev.target.id !== "actQ") return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        state.q = ev.target.value.trim();
+        state.page = 1;
+        void load();
+      }, 300);
+    });
+    return { open() {
+      if (!loaded) {
+        loaded = true;
+        void load();
+      }
+    } };
+  }
+
+  // src/frontend/client/pages/services/game.ts
+  var fail = (e) => toast(e?.message || "Request failed", "bad");
+  var json = (url, method, body) => api(url, {
+    method,
+    headers: body === void 0 ? {} : { "Content-Type": "application/json" },
+    body: body === void 0 ? void 0 : JSON.stringify(body)
+  });
+  var javaLabel = (image) => image ? image.match(/java_(\d+)/)?.[1] ? `Java ${image.match(/java_(\d+)/)[1]}` : image : "unknown";
+  function control(f, value) {
+    const id = `gm_${f.key}`;
+    if (f.type === "bool") return `<button type="button" class="sw" role="switch" id="${id}" data-key="${esc(f.key)}" aria-checked="${value === "true"}" aria-label="${esc(f.label)}"></button>`;
+    if (f.type === "enum") return `<div class="inp sel"><select id="${id}" data-key="${esc(f.key)}">${f.options.map((o) => `<option value="${esc(o.value)}" ${o.value === value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></div>`;
+    if (f.type === "int") return `<div class="inp"><input id="${id}" data-key="${esc(f.key)}" type="number" ${f.min !== void 0 ? `min="${f.min}"` : ""} ${f.max !== void 0 ? `max="${f.max}"` : ""} value="${esc(value)}"></div>`;
+    return `<div class="inp"><input id="${id}" data-key="${esc(f.key)}" maxlength="${f.maxLength ?? 200}" value="${esc(value)}"></div>`;
+  }
+  function initGame(serviceId) {
+    const host = document.getElementById("dtlGameBody");
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}`;
+    let loaded = false;
+    let info = null;
+    let source = 0;
+    let eulaPrompted = false;
+    const initial = /* @__PURE__ */ new Map();
+    const valueOf = (f) => info?.values?.[f.key] ?? f.default ?? (f.type === "bool" ? "false" : "");
+    async function render(h) {
+      info = await api.get(`${base}/game`);
+      if (!info.profile) {
+        h.innerHTML = `<div class="es"><span class="tile neu lg">${hero("server")}</span><h4>No game tools for this server</h4></div>`;
+        return;
+      }
+      const p = info.profile;
+      const groups = /* @__PURE__ */ new Map();
+      for (const f of p.schema) groups.set(f.group ?? "Settings", [...groups.get(f.group ?? "Settings") ?? [], f]);
+      initial.clear();
+      const j = info.java;
+      const settingsHtml = [...groups].map(([group, fields]) => {
+        const controls = fields.map((field) => {
+          const value = valueOf(field);
+          initial.set(field.key, value);
+          return `<div class="fld"><div class="row" style="justify-content:space-between;gap:10px"><label for="gm_${esc(field.key)}">${esc(field.label)}</label>${field.type === "bool" ? control(field, value) : ""}</div>${field.type === "bool" ? "" : control(field, value)}${field.description ? `<small class="faint">${esc(field.description)}</small>` : ""}</div>`;
+        }).join("");
+        return `<div><div class="faint" style="font-weight:700;font-size:12.5px;margin-bottom:8px">${esc(group)}</div><div class="g g2" style="gap:12px">${controls}</div></div>`;
+      }).join("");
+      h.innerHTML = `<div class="col" style="gap:18px">
+      ${info.eula === "required" ? `<div class="alert warn"><div><b>Minecraft needs your approval before it can start</b><span>Accept the Minecraft EULA and Fortless will restart this server automatically.</span></div><button class="btn s pri" type="button" data-gm="eula">Review and accept</button></div>` : ""}
+      ${j && j.recommended && j.matches === false ? `<div class="alert warn"><div><b>${esc(javaLabel(j.recommended))} is recommended for ${esc(j.gameVersion ?? "this version")}</b><span>This server runs ${esc(javaLabel(j.current))}.</span></div>${j.available.includes(j.recommended) ? `<button class="btn s pri" type="button" data-gm="java" data-image="${esc(j.recommended)}">Switch</button>` : ""}</div>` : ""}
+      <div class="ch"><div class="tx"><h3>Configuration</h3><p>Game settings and installation tools for this service.</p></div></div>
+      ${p.configFile ? `<section class="card"><div class="ch"><div class="tx"><h3>Server settings</h3>${p.configExists ? "" : "<p>Start the server once to create the settings file. Saving now creates it.</p>"}</div><button class="btn s pri" type="button" data-gm="save">Save</button></div>
+        <div class="col" style="gap:18px">${settingsHtml}</div></section>` : ""}
+      ${p.icon ? `<section class="card"><div class="ch"><div class="tx"><h3>Server icon</h3><p>Any image works. It is resized to 64 by 64.</p></div></div>
+        <label class="btn s sec" style="cursor:pointer;width:max-content">${hero("arrow", "xs")}Choose image<input type="file" id="gmIcon" accept="image/*" hidden></label></section>` : ""}
+      ${p.sources.length ? `<section class="card"><div class="ch"><div class="tx"><h3>Install</h3><p>Search and manage server-side mods and plugins.</p></div></div>
+        <div class="seg" role="tablist" id="gmSources">${p.sources.map((s) => `<button type="button" role="tab" aria-selected="${s.index === source}" data-src="${s.index}">${esc(s.label)}</button>`).join("")}</div>
+        <div class="row" style="gap:10px;margin:14px 0"><div class="inp s pill" style="flex:1">${hero("search", "s")}<input id="gmQuery" placeholder="Search" aria-label="Search"></div></div>
+        <div id="gmResults"></div>
+        <div class="faint" style="font-weight:700;font-size:12.5px;margin:18px 0 8px">Installed</div><div id="gmInstalled"></div></section>` : ""}
+    </div>`;
+      if (p.sources.length) {
+        void search();
+        void installed();
+      }
+      if (info.eula === "required" && !eulaPrompted) {
+        eulaPrompted = true;
+        window.setTimeout(() => void acceptEula(), 0);
+      }
+    }
+    async function acceptEula() {
+      if (!host || !await confirmDialog({
+        title: "Accept the Minecraft EULA?",
+        message: "Minecraft cannot start until you accept Mojang\u2019s End User License Agreement. If you approve, Fortless will update eula.txt and restart the server now.",
+        confirmLabel: "Accept and restart"
+      })) return;
+      try {
+        await json(`${base}/game/eula/accept`, "POST");
+        toast("EULA accepted. The server is restarting.", "good");
+        await render(host);
+      } catch (e) {
+        fail(e);
+      }
+    }
+    async function search() {
+      const el2 = document.getElementById("gmResults");
+      if (!el2) return;
+      const q = document.getElementById("gmQuery")?.value.trim() ?? "";
+      el2.innerHTML = '<div class="sk" role="status" aria-label="Searching"><i></i><i></i></div>';
+      try {
+        const res = await api.get(`${base}/game/mods/search?source=${source}&q=${encodeURIComponent(q)}&page=0`);
+        el2.innerHTML = res.hits.length ? `<div class="col">${res.hits.map((h) => `<div class="li h" style="padding:10px 14px" data-project="${esc(h.projectId)}">
+        ${h.iconUrl ? `<img src="${esc(h.iconUrl)}" alt="" width="40" height="40" style="border-radius:10px;flex:none" referrerpolicy="no-referrer">` : `<span class="tile neu sm">${hero("package")}</span>`}
+        <span class="tx"><b>${esc(h.title)}</b><small style="white-space:normal">${esc(h.description)}</small></span>
+        <button class="btn s sec" type="button" data-gm="install">${hero("plus", "xs")}Install</button></div>`).join("")}</div>${res.gameVersion ? `<small class="faint">Showing releases for ${esc(res.gameVersion)}</small>` : ""}` : `<div class="es"><span class="tile neu lg">${hero("search")}</span><h4>No results</h4></div>`;
+      } catch (e) {
+        el2.innerHTML = `<div class="alert bad"><div><b>${esc(e?.message || "Search failed")}</b></div></div>`;
+      }
+    }
+    async function installed() {
+      const el2 = document.getElementById("gmInstalled");
+      if (!el2) return;
+      try {
+        const res = await api.get(`${base}/game/mods/installed?source=${source}`);
+        el2.innerHTML = res.files.length ? `<div class="col" style="gap:4px">${res.files.map((f) => `<div class="li h" style="padding:8px 12px" data-file="${esc(f.name)}" data-dir="${esc(res.dir)}"><span class="tile neu sm">${hero("document")}</span><span class="tx"><b>${esc(f.name)}</b><small>${esc(formatBytes(f.size))}</small></span><button class="btn s sq ghost" type="button" data-gm="remove" aria-label="Remove ${esc(f.name)}">${hero("x", "s")}</button></div>`).join("")}</div>` : `<div class="faint">Nothing installed yet.</div>`;
+      } catch {
+        el2.textContent = "";
+      }
+    }
+    function toPng64(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = 64;
+          c.height = 64;
+          const ctx = c.getContext("2d");
+          const side = Math.min(img.width, img.height);
+          ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 64, 64);
+          URL.revokeObjectURL(url);
+          resolve(c.toDataURL("image/png").split(",")[1]);
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("That file is not an image."));
+        };
+        img.src = url;
+      });
+    }
+    host?.addEventListener("click", async (ev) => {
+      const t = ev.target;
+      const sw = t.closest('.sw[role="switch"]');
+      if (sw) {
+        sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true"));
+        return;
+      }
+      const src = t.closest("[data-src]");
+      if (src && host) {
+        source = Number(src.dataset["src"]);
+        host.querySelectorAll("#gmSources button").forEach((b) => b.setAttribute("aria-selected", String(b === src)));
+        void search();
+        void installed();
+        return;
+      }
+      const btn = t.closest("[data-gm]");
+      if (!btn || !host) return;
+      try {
+        switch (btn.dataset["gm"]) {
+          case "eula":
+            await acceptEula();
+            return;
+          case "save": {
+            const values = {};
+            host.querySelectorAll("[data-key]").forEach((el2) => {
+              const key = el2.dataset["key"];
+              const v = el2.matches(".sw") ? el2.getAttribute("aria-checked") ?? "false" : el2.value;
+              if (v !== initial.get(key)) values[key] = v;
+            });
+            if (!Object.keys(values).length) {
+              toast("Nothing changed", "info");
+              return;
+            }
+            await json(`${base}/game/config`, "PUT", { values });
+            toast("Saved. Restart the server to apply.", "good");
+            await render(host);
+            return;
+          }
+          case "java":
+            await json(`${base}/startup/image`, "PUT", { image: btn.dataset["image"] });
+            toast("Java version changed. Restart the server to apply it.", "good");
+            await render(host);
+            return;
+          case "install": {
+            const id = btn.closest("[data-project]")?.dataset["project"];
+            btn.setAttribute("disabled", "");
+            try {
+              const r = await api.post(`${base}/game/mods/install`, { source, projectId: id });
+              toast(`Installed ${r.file}. Restart the server to load it.`, "good");
+              await installed();
+            } finally {
+              btn.removeAttribute("disabled");
+            }
+            return;
+          }
+          case "remove": {
+            const row = btn.closest("[data-file]");
+            if (!await confirmDialog({ title: `Remove ${row.dataset["file"]}?`, confirmLabel: "Remove", danger: true })) return;
+            await json(`${base}/files/delete`, "POST", { dir: row.dataset["dir"], names: [row.dataset["file"]] });
+            await installed();
+            return;
+          }
+        }
+      } catch (e) {
+        fail(e);
+      }
+    });
+    let timer;
+    host?.addEventListener("input", (ev) => {
+      if (ev.target.id !== "gmQuery") return;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void search(), 350);
+    });
+    host?.addEventListener("change", async (ev) => {
+      const input = ev.target;
+      if (input.id !== "gmIcon" || !input.files?.[0]) return;
+      try {
+        await json(`${base}/game/icon`, "POST", { png: await toPng64(input.files[0]) });
+        toast("Icon updated. Restart the server to see it.", "good");
+      } catch (e) {
+        fail(e);
+      }
+      input.value = "";
+    });
+    return {
+      open() {
+        if (host && !loaded) {
+          loaded = true;
+          void render(host).catch((e) => {
+            loaded = false;
+            fail(e);
+          });
+        }
+      },
+      async checkEula() {
+        if (!host || eulaPrompted) return;
+        try {
+          const state = await api.get(`${base}/game`);
+          if (state.eula !== "required" || eulaPrompted) return;
+          eulaPrompted = true;
+          await acceptEula();
+        } catch {
+        }
+      }
+    };
+  }
+
+  // src/frontend/client/pages/services/live-usage.ts
+  var HISTORY = 40;
+  var duration = (ms) => {
+    const s = Math.floor(ms / 1e3);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${s % 60}s`;
+    const h = Math.floor(m / 60);
+    return h < 48 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`;
+  };
+  var rate = (bytesPerSecond) => `${formatBytes(Math.max(0, bytesPerSecond))}/s`;
+  var TILES = [
+    { id: "cpu", label: "CPU", icon: "cpu", tone: "info", chart: "var(--info)" },
+    { id: "mem", label: "Memory", icon: "database", tone: "violet", chart: "var(--violet)" },
+    { id: "net", label: "Network", icon: "link-square-02", tone: "good" },
+    { id: "disk", label: "Disk", icon: "archive-01", tone: "warn" },
+    { id: "up", label: "Uptime", icon: "play", tone: "neu" }
+  ];
+  function mountLiveTiles(host) {
+    host.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px">${TILES.map((t) => `<div class="card mt" style="min-width:0"><div style="min-width:0"><span class="l">${t.label}</span><b class="v" data-v="${t.id}">\u2014</b><small data-s="${t.id}"></small>${t.chart ? `<div data-c="${t.id}" style="height:36px"></div>` : ""}</div><span class="tile ${t.tone}">${hero(t.icon)}</span></div>`).join("")}</div>`;
+    const text = (sel, v) => {
+      const el2 = host.querySelector(sel);
+      if (el2 && el2.textContent !== v) el2.textContent = v;
+    };
+    const cpu = [];
+    const mem = [];
+    let last = null;
+    return (st) => {
+      if (!document.body.contains(host)) return;
+      const now = Date.now();
+      const rx = Number(st.network?.rx_bytes ?? 0);
+      const tx = Number(st.network?.tx_bytes ?? 0);
+      const dt = last ? (now - last.t) / 1e3 : 0;
+      const down = last && dt > 0 ? (rx - last.rx) / dt : 0;
+      const up = last && dt > 0 ? (tx - last.tx) / dt : 0;
+      last = { t: now, rx, tx };
+      cpu.push(Number(st.cpu_absolute ?? 0));
+      if (cpu.length > HISTORY) cpu.shift();
+      mem.push(Number(st.memory_bytes ?? 0));
+      if (mem.length > HISTORY) mem.shift();
+      const limit = Number(st.memory_limit_bytes ?? 0);
+      text('[data-v="cpu"]', `${Number(st.cpu_absolute ?? 0).toFixed(1)}%`);
+      text('[data-s="cpu"]', st.state ? String(st.state) : "");
+      text('[data-v="mem"]', formatBytes(Number(st.memory_bytes ?? 0)));
+      text('[data-s="mem"]', limit ? `of ${formatBytes(limit)}` : "");
+      text('[data-v="net"]', `${rate(down)} down`);
+      text('[data-s="net"]', `${rate(up)} up`);
+      text('[data-v="disk"]', formatBytes(Number(st.disk_bytes ?? 0)));
+      text('[data-v="up"]', st.uptime ? duration(Number(st.uptime)) : "\u2014");
+      const c1 = host.querySelector('[data-c="cpu"]');
+      if (c1) c1.innerHTML = spark(cpu, "var(--info)");
+      const c2 = host.querySelector('[data-c="mem"]');
+      if (c2) c2.innerHTML = spark(mem, "var(--violet)");
+    };
+  }
+
+  // src/frontend/core/router/tab-url.ts
+  function bindTabUrls(o) {
+    const slugToKey = new Map(Object.entries(o.slugs).map(([k, s]) => [s, k]));
+    let restoring = false;
+    const choose = (key) => {
+      restoring = true;
+      try {
+        o.select(key);
+      } finally {
+        restoring = false;
+      }
+    };
+    const initialKey = o.initial ? slugToKey.get(o.initial) : void 0;
+    if (initialKey) choose(initialKey);
+    const activeKey = initialKey ?? o.fallbackKey;
+    const slug = o.slugs[activeKey];
+    if (slug && window.location.pathname !== `${o.base}/${slug}`) window.history.replaceState(null, "", `${o.base}/${slug}`);
+    o.tabs.addEventListener("click", (e) => {
+      if (restoring) return;
+      const btn = e.target.closest('[role="tab"]');
+      const key = btn ? o.keyOf(btn) : void 0;
+      const s = key ? o.slugs[key] : void 0;
+      if (s && window.location.pathname !== `${o.base}/${s}`) window.history.pushState(null, "", `${o.base}/${s}`);
+    });
+    const onTab = (e) => {
+      if (!document.body.contains(o.tabs)) {
+        window.removeEventListener("fortless:tab", onTab);
+        return;
+      }
+      const wanted = String(e.detail?.tab ?? "");
+      const key = slugToKey.get(wanted) ?? o.fallbackKey;
+      choose(key);
+      if (!slugToKey.has(wanted) && o.slugs[key]) window.history.replaceState(null, "", `${o.base}/${o.slugs[key]}`);
+    };
+    window.addEventListener("fortless:tab", onTab);
+  }
+
+  // src/frontend/client/pages/services/panel-tabs.ts
+  var fail2 = (e) => toast(e?.message || "Request failed", "bad");
+  var copy = (v, label) => `<span class="cpf"><code>${esc(v)}</code><button class="ib xs" type="button" data-copy="${esc(v)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy", "xs")}</button></span>`;
+  var sendJson = (url, method, body) => api(url, { method, headers: { "Content-Type": "application/json" }, body: body === void 0 ? void 0 : JSON.stringify(body) });
+  var empty = (title) => `<div class="es"><span class="tile neu lg">${hero("shield")}</span><h4>${esc(title)}</h4></div>`;
+  var iconBtn = (attr, icon, tip) => `<button class="btn s sq ghost" type="button" ${attr} data-tip="${esc(tip)}" data-pos="bottom" aria-label="${esc(tip)}">${hero(icon, "s")}</button>`;
+  function lazy(host, load) {
+    let loaded = false;
+    return { open() {
+      if (host && !loaded) {
+        loaded = true;
+        void load(host).catch((e) => {
+          loaded = false;
+          fail2(e);
+        });
+      }
+    } };
+  }
+  function initBackups(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}/backups`;
+    const host = document.getElementById("dtlBackupsBody");
+    async function render(h) {
+      h.innerHTML = '<div class="sk" role="status" aria-label="Loading backups"><i></i><i></i></div>';
+      const res = await api.get(base);
+      h.innerHTML = `<section class="card server-tool-create">
+        <div class="ch"><div class="tx"><h3>Create backup</h3><p>Capture the current server files before a risky change.</p></div><span class="pill ${res.limit !== null && res.backups.length >= res.limit ? "warn" : "info"}">${res.limit === null ? `${res.backups.length} stored` : `${res.backups.length} of ${res.limit}`}</span></div>
+        <div class="server-tool-form">
+          <div class="fld"><label for="bkName">Backup name</label><div class="inp"><input id="bkName" placeholder="Automatic name when left empty" maxlength="191"></div></div>
+          <div class="fld"><label for="bkIgnore">Ignored files</label><div class="inp"><input id="bkIgnore" placeholder="Optional paths, one per line" maxlength="4096"></div></div>
+          <button class="btn pri" type="button" data-bk="create">${hero("plus", "xs")}Create backup</button>
+        </div>
+      </section>
+      ${res.backups.length ? `<div class="col server-tool-list">${res.backups.map((b) => {
+        const pending = !b.completedAt;
+        const tone = pending ? "warn" : b.successful ? "good" : "bad";
+        const status = pending ? "In progress" : b.successful ? "Completed" : "Failed";
+        return `<section class="card server-tool-card" data-uuid="${esc(b.uuid)}">
+          <div class="ch"><span class="tile ${tone}">${hero("archive-01")}</span><div class="tx"><h3>${esc(b.name)}</h3><p>${esc(formatDate(b.createdAt))}</p></div><span class="pill ${tone} d">${status}</span>${b.locked ? '<span class="pill info">Locked</span>' : ""}</div>
+          <div class="server-tool-facts"><div><small>Size</small><b>${esc(formatBytes(b.bytes))}</b></div><div><small>Backup ID</small><code>${esc(b.uuid.slice(0, 12))}</code></div><div><small>Protection</small><b>${b.locked ? "Deletion locked" : "Unlocked"}</b></div></div>
+          <div class="server-tool-actions">
+            ${b.successful && !pending ? `<button class="btn s" type="button" data-bk="download">${hero("arrow", "xs")}Download</button>` : ""}
+            <button class="btn s" type="button" data-bk="lock">${hero("shield", "xs")}${b.locked ? "Unlock" : "Lock"}</button>
+            ${b.successful && !pending ? `<button class="btn s" type="button" data-bk="restore">${hero("refresh", "xs")}Restore</button>` : ""}
+            <button class="btn s bad" type="button" data-bk="delete">${hero("x", "xs")}Delete</button>
+          </div>
+        </section>`;
+      }).join("")}</div>` : empty("No backups")}`;
+    }
+    const t = lazy(host, render);
+    host?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-bk]");
+      if (!btn || !host) return;
+      const uuid = btn.closest("[data-uuid]")?.dataset["uuid"];
+      try {
+        switch (btn.dataset["bk"]) {
+          case "create":
+            await sendJson(base, "POST", { name: document.getElementById("bkName").value.trim(), ignored: document.getElementById("bkIgnore").value.trim() });
+            toast("Backup started", "good");
+            break;
+          case "download":
+            window.location.assign((await api.get(`${base}/${uuid}/download-url`)).url);
+            return;
+          case "lock":
+            await sendJson(`${base}/${uuid}/lock`, "POST");
+            break;
+          case "restore": {
+            if (!await confirmDialog({ title: "Restore this backup? The server must be offline.", confirmLabel: "Confirm", danger: true })) return;
+            const truncate = await confirmDialog({ title: "Delete current files first?", message: "Confirm to wipe the server files before restoring. Cancel keeps the existing files and restores over them.", confirmLabel: "Wipe first", danger: true });
+            await sendJson(`${base}/${uuid}/restore`, "POST", { truncate });
+            toast("Restore started", "good");
+            return;
+          }
+          case "delete":
+            if (!await confirmDialog({ title: "Delete this backup? This cannot be undone.", confirmLabel: "Confirm", danger: true })) return;
+            await sendJson(`${base}/${uuid}`, "DELETE");
+            break;
+        }
+        await render(host);
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    return t;
+  }
+  function initNetwork(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}/network`;
+    const host = document.getElementById("dtlNetworkBody");
+    async function render(h) {
+      const res = await api.get(base);
+      h.innerHTML = `<div class="server-tool-heading"><div><h3>Network allocations</h3><p>Addresses and ports assigned by the infrastructure provider.</p></div><button class="btn s" type="button" data-net="assign">${hero("plus", "xs")}Add port</button></div>
+      ${res.allocations.length ? `<div class="col server-tool-list">${res.allocations.map((a) => `<section class="card server-tool-card" data-id="${a.id}">
+        <div class="ch"><span class="tile ${a.primary ? "good" : "neu"}">${hero("server")}</span><div class="tx"><h3>${esc(a.alias || a.ip)}:${a.port}</h3><p>Allocation #${a.id}</p></div>${a.primary ? '<span class="pill good d">Primary</span>' : '<span class="pill">Additional</span>'}</div>
+        <div class="server-tool-form network-tool-form">
+          <div class="fld"><span class="lbl">Connection address</span>${copy(`${a.alias || a.ip}:${a.port}`, "address")}</div>
+          <div class="fld"><label for="netNotes_${a.id}">Notes</label><div class="inp"><input id="netNotes_${a.id}" data-notes value="${esc(a.notes)}" maxlength="191" placeholder="What uses this port?"></div></div>
+        </div>
+        ${a.primary ? "" : `<div class="server-tool-actions"><button class="btn s" type="button" data-net="primary">${hero("check", "xs")}Make primary</button><button class="btn s bad" type="button" data-net="remove">${hero("x", "xs")}Remove port</button></div>`}
+      </section>`).join("")}</div>` : empty("No ports")}`;
+    }
+    const t = lazy(host, render);
+    host?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-net]");
+      if (!btn || !host) return;
+      const id = btn.closest("[data-id]")?.dataset["id"];
+      try {
+        switch (btn.dataset["net"]) {
+          case "assign":
+            await sendJson(base, "POST");
+            break;
+          case "primary":
+            await sendJson(`${base}/${id}/primary`, "POST");
+            break;
+          case "remove":
+            if (!await confirmDialog({ title: "Remove this port?", confirmLabel: "Confirm", danger: true })) return;
+            await sendJson(`${base}/${id}`, "DELETE");
+            break;
+        }
+        await render(host);
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    host?.addEventListener("change", async (ev) => {
+      const input = ev.target;
+      if (!input.matches("[data-notes]")) return;
+      const id = input.closest("[data-id]")?.dataset["id"];
+      try {
+        await sendJson(`${base}/${id}`, "PATCH", { notes: input.value });
+        toast("Saved", "good");
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    return t;
+  }
+  function initStartup(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}`;
+    const host = document.getElementById("dtlStartupBody");
+    async function render(h) {
+      const [st, se] = await Promise.all([
+        api.get(`${base}/startup`),
+        api.get(`${base}/settings`)
+      ]);
+      const images = Object.entries(st.images);
+      h.innerHTML = `<div class="col" style="gap:18px">
+      <div class="fld"><label>Startup command</label><pre class="mono" style="margin:0;padding:12px 14px;border-radius:14px;background:var(--s2);white-space:pre-wrap;word-break:break-all;font-size:12.5px">${esc(st.command)}</pre></div>
+      ${images.length > 1 ? `<div class="fld"><label for="stImage">Docker image</label><div class="inp sel"><select id="stImage">${images.map(([label, img]) => `<option value="${esc(img)}" ${img === se.image ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></div></div>` : ""}
+      ${st.variables.map((v) => `<div class="fld"><label for="v_${esc(v.key)}">${esc(v.name)} <small class="faint">${esc(v.key)}</small></label>
+        <div class="inp"><input id="v_${esc(v.key)}" data-var="${esc(v.key)}" value="${esc(v.value)}" ${v.editable ? "" : "disabled"} maxlength="4096"></div>
+        ${v.description ? `<small class="faint">${esc(v.description)}</small>` : ""}</div>`).join("")}
+    </div>`;
+    }
+    const t = lazy(host, render);
+    host?.addEventListener("change", async (ev) => {
+      const el2 = ev.target;
+      try {
+        if (el2.id === "stImage") {
+          await sendJson(`${base}/startup/image`, "PUT", { image: el2.value });
+          toast("Docker image changed. Restart the server to apply it.", "good");
+        } else if (el2.dataset["var"]) {
+          await sendJson(`${base}/startup/variable`, "PUT", { key: el2.dataset["var"], value: el2.value });
+          toast("Saved", "good");
+        }
+      } catch (e) {
+        fail2(e);
+        if (host) await render(host).catch(() => void 0);
+      }
+    });
+    return t;
+  }
+  function initSettings(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}/settings`;
+    const host = document.getElementById("dtlSettingsBody");
+    async function render(h) {
+      const s = await api.get(base);
+      h.innerHTML = `<div class="g g2" style="align-items:start">
+      <section class="card"><div class="ch"><div class="tx"><h3>Details</h3></div></div>
+        <div class="col" style="gap:12px">
+          <div class="fld"><label for="setName">Server name</label><div class="inp"><input id="setName" maxlength="191" value="${esc(s.name)}"></div></div>
+          <div class="fld"><label for="setDesc">Description</label><div class="inp"><input id="setDesc" maxlength="191" value="${esc(s.description)}"></div></div>
+          <div><button class="btn s pri" type="button" data-set="rename">Save</button></div>
+        </div></section>
+      <section class="card"><div class="ch"><div class="tx"><h3>SFTP</h3></div></div>
+        <dl class="kv"><dt>Host</dt><dd>${copy(s.sftp.host, "SFTP host")}</dd><dt>Port</dt><dd>${copy(String(s.sftp.port), "SFTP port")}</dd>${s.sftp.username ? `<dt>Username</dt><dd>${copy(s.sftp.username, "SFTP username")}</dd>` : ""}</dl></section>
+      <section class="card"><div class="ch"><div class="tx"><h3>Debug information</h3></div></div>
+        <dl class="kv"><dt>Node</dt><dd>${esc(s.node || "\u2014")}</dd><dt>Server ID</dt><dd>${copy(s.identifier, "server ID")}</dd><dt>UUID</dt><dd>${copy(s.uuid, "UUID")}</dd></dl></section>
+      <section class="card"><div class="ch"><div class="tx"><h3>Reinstall</h3><p>Runs the install script again. Files may be overwritten.</p></div></div>
+        <button class="btn s badt" type="button" data-set="reinstall">${hero("refresh", "xs")}Reinstall server</button></section>
+    </div>`;
+    }
+    const t = lazy(host, render);
+    host?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-set]");
+      if (!btn) return;
+      try {
+        if (btn.dataset["set"] === "rename") {
+          await sendJson(`${base}/rename`, "POST", { name: document.getElementById("setName").value, description: document.getElementById("setDesc").value });
+          toast("Saved", "good");
+        } else if (btn.dataset["set"] === "reinstall") {
+          if (!await confirmDialog({ title: "Reinstall this server? The server will be stopped and the install script will run again.", confirmLabel: "Confirm", danger: true })) return;
+          await sendJson(`${base}/reinstall`, "POST");
+          toast("Reinstall started", "good");
+        }
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    return t;
+  }
+  var PRESETS = [["viewer", "View only"], ["operator", "Operator"], ["admin", "Full access"]];
+  var presetSelect = (id, value, attr = "") => `<div class="inp sel s"><select ${id ? `id="${id}"` : ""} ${attr}>${PRESETS.map(([v, l]) => `<option value="${v}" ${v === value ? "selected" : ""}>${l}</option>`).join("")}</select></div>`;
+  function initUsers(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}`;
+    const host = document.getElementById("dtlUsersBody");
+    async function render(h) {
+      const res = await api.get(`${base}/members`);
+      h.innerHTML = `<div class="row" style="gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div class="inp s pill" style="flex:1;min-width:200px">${hero("mail-01", "s")}<input id="usrEmail" type="email" placeholder="Email address" autocomplete="off" aria-label="Email address"></div>
+        ${presetSelect("usrPreset", "operator")}
+        <button class="btn s pri" type="button" data-usr="invite">${hero("plus", "xs")}Invite</button>
+      </div>
+      ${res.invitations.length ? `<div class="faint" style="font-weight:700;font-size:12.5px;margin:6px 0">Pending</div><div class="col" style="margin-bottom:14px">${res.invitations.map((i) => `<div class="li h" style="padding:10px 14px" data-iid="${esc(i.id)}">
+        <span class="tile warn sm">${hero("mail-01")}</span><span class="tx"><b>${esc(i.email)}</b><small>${esc(PRESETS.find(([v]) => v === i.preset)?.[1] ?? i.preset)} \xB7 expires ${esc(formatDate(i.expiresAt))}</small></span>
+        ${iconBtn('data-usr="revoke"', "x", "Revoke")}</div>`).join("")}</div>` : ""}
+      ${res.members.length ? `<div class="col">${res.members.map((m) => `<div class="li h" style="padding:10px 14px" data-mid="${esc(m.id)}">
+        <span class="tile info sm">${hero("users")}</span><span class="tx"><b>${esc(m.name)}</b><small>${esc(m.email)}</small></span>
+        ${presetSelect("", m.preset, "data-usr-preset")}${iconBtn('data-usr="remove"', "x", "Remove access")}</div>`).join("")}</div>` : res.invitations.length ? "" : empty("Not shared with anyone")}`;
+    }
+    const t = lazy(host, render);
+    host?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-usr]");
+      if (!btn || !host || btn.matches("select")) return;
+      try {
+        switch (btn.dataset["usr"]) {
+          case "invite": {
+            const email = document.getElementById("usrEmail").value.trim();
+            if (!email) return;
+            await sendJson(`${base}/members/invite`, "POST", { email, preset: document.getElementById("usrPreset").value });
+            toast("Invitation sent", "good");
+            break;
+          }
+          case "revoke":
+            await sendJson(`${base}/invitations/${btn.closest("[data-iid]")?.dataset["iid"]}`, "DELETE");
+            break;
+          case "remove":
+            if (!await confirmDialog({ title: "Remove this person's access?", confirmLabel: "Remove", danger: true })) return;
+            await sendJson(`${base}/members/${btn.closest("[data-mid]")?.dataset["mid"]}`, "DELETE");
+            break;
+        }
+        await render(host);
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    host?.addEventListener("change", async (ev) => {
+      const sel = ev.target;
+      if (!sel.matches("[data-usr-preset]")) return;
+      try {
+        await sendJson(`${base}/members/${sel.closest("[data-mid]")?.dataset["mid"]}`, "PATCH", { preset: sel.value });
+        toast("Access updated", "good");
+      } catch (e) {
+        fail2(e);
+        if (host) await render(host).catch(() => void 0);
+      }
+    });
+    return t;
+  }
+  function initDatabases(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}/databases`;
+    const host = document.getElementById("dtlDatabasesBody");
+    async function render(h) {
+      const res = await api.get(base);
+      h.innerHTML = `<section class="card server-tool-create">
+        <div class="ch"><div class="tx"><h3>Databases</h3><p>${res.databases.length} configured \xB7 credentials stay hidden until you need them.</p></div><button class="btn s pri" type="button" data-db="new" aria-expanded="false">${hero("plus", "xs")}New database</button></div>
+        <div class="server-tool-form" data-db-create hidden>
+          <div class="fld"><label for="dbName">Database name</label><div class="inp"><input id="dbName" placeholder="example_data" maxlength="48"></div></div>
+          <div class="fld"><label for="dbRemote">Allowed connections</label><div class="inp"><input id="dbRemote" placeholder="% allows any host" maxlength="191"></div><small class="hint">Use a specific address whenever possible.</small></div>
+          <button class="btn pri" type="button" data-db="create">${hero("plus", "xs")}Create database</button>
+        </div>
+      </section>
+      ${res.databases.length ? `<div class="col server-tool-list">${res.databases.map((d) => `<section class="card server-tool-card" data-did="${esc(d.id)}">
+        <div class="ch"><span class="tile violet">${hero("database")}</span><div class="tx"><h3>${esc(d.name)}</h3><p>${esc(d.username)} \xB7 connections from ${esc(d.connectionsFrom)}</p></div><button class="btn s sec" type="button" data-db="details" aria-expanded="false">${hero("database", "xs")}Show connection details</button></div>
+        <div class="server-tool-details" data-db-details hidden>
+          <div class="fld"><span class="lbl">Host</span>${copy(d.host, "host")}</div>
+          <div class="fld"><span class="lbl">Username</span>${copy(d.username, "username")}</div>
+          ${d.password ? `<div class="fld"><span class="lbl">Password</span>${copy(d.password, "password")}</div><div class="fld server-tool-wide"><span class="lbl">JDBC connection string</span>${copy(`jdbc:mysql://${d.host}/${d.name}?user=${d.username}&password=${d.password}`, "JDBC address")}</div>` : '<div class="alert warn server-tool-wide"><div><b>Password unavailable</b><span>Rotate the password to request a new credential from the panel.</span></div></div>'}
+          <div class="server-tool-actions server-tool-wide"><button class="btn s" type="button" data-db="rotate">${hero("refresh", "xs")}Rotate password</button><button class="btn s bad" type="button" data-db="delete">${hero("x", "xs")}Delete database</button></div>
+        </div>
+      </section>`).join("")}</div>` : empty("No databases")}`;
+    }
+    const t = lazy(host, render);
+    host?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-db]");
+      if (!btn || !host) return;
+      if (btn.dataset["db"] === "new") {
+        const form = host.querySelector("[data-db-create]");
+        if (!form) return;
+        const expanded = btn.getAttribute("aria-expanded") === "true";
+        btn.setAttribute("aria-expanded", String(!expanded));
+        btn.innerHTML = `${hero(expanded ? "plus" : "x", "xs")}${expanded ? "New database" : "Cancel"}`;
+        form.hidden = expanded;
+        if (!expanded) window.setTimeout(() => document.getElementById("dbName")?.focus(), 0);
+        return;
+      }
+      if (btn.dataset["db"] === "details") {
+        const details = btn.closest("[data-did]")?.querySelector("[data-db-details]");
+        if (!details) return;
+        const expanded = btn.getAttribute("aria-expanded") === "true";
+        btn.setAttribute("aria-expanded", String(!expanded));
+        btn.innerHTML = `${hero("database", "xs")}${expanded ? "Show" : "Hide"} connection details`;
+        details.hidden = expanded;
+        return;
+      }
+      const id = btn.closest("[data-did]")?.dataset["did"];
+      try {
+        switch (btn.dataset["db"]) {
+          case "create":
+            await sendJson(base, "POST", { name: document.getElementById("dbName").value.trim(), remote: document.getElementById("dbRemote").value.trim() });
+            break;
+          case "rotate":
+            if (!await confirmDialog({ title: "Rotate the password? Anything using the old one will stop working.", confirmLabel: "Confirm", danger: true })) return;
+            await sendJson(`${base}/${id}/rotate`, "POST");
+            toast("Password rotated", "good");
+            break;
+          case "delete":
+            if (!await confirmDialog({ title: "Delete this database and all its data?", confirmLabel: "Confirm", danger: true })) return;
+            await sendJson(`${base}/${id}`, "DELETE");
+            break;
+        }
+        await render(host);
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    return t;
+  }
+  function initSchedules(serviceId) {
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}/schedules`;
+    const host = document.getElementById("dtlSchedulesBody");
+    const cronInput = (k, label, v) => `<div class="fld" style="min-width:90px;flex:1"><label for="sc_${k}">${label}</label><div class="inp s"><input id="sc_${k}" data-cron="${k}" value="${esc(v)}" maxlength="64" class="mono"></div></div>`;
+    const form = (sc) => `<div class="card" data-form="${sc?.id ?? "new"}" style="margin-bottom:14px"><div class="col" style="gap:12px">
+      <div class="fld"><label for="sc_name">Name</label><div class="inp s"><input id="sc_name" maxlength="191" value="${esc(sc?.name ?? "")}"></div></div>
+      <div class="row" style="gap:10px;flex-wrap:wrap">${cronInput("minute", "Minute", sc?.cron.minute ?? "*/5")}${cronInput("hour", "Hour", sc?.cron.hour ?? "*")}${cronInput("dayOfMonth", "Day of month", sc?.cron.dayOfMonth ?? "*")}${cronInput("month", "Month", sc?.cron.month ?? "*")}${cronInput("dayOfWeek", "Day of week", sc?.cron.dayOfWeek ?? "*")}</div>
+      <label class="row nw" style="gap:8px"><input type="checkbox" id="sc_active" ${sc?.active === false ? "" : "checked"}> Active</label>
+      <label class="row nw" style="gap:8px"><input type="checkbox" id="sc_online" ${sc?.onlyWhenOnline ? "checked" : ""}> Only when the server is online</label>
+      <div class="row" style="gap:8px"><button class="btn s pri" type="button" data-sc="save">${sc ? "Save" : "Create schedule"}</button><button class="btn s sec" type="button" data-sc="cancel">Cancel</button></div>
+    </div></div>`;
+    async function render(h, editing) {
+      const res = await api.get(base);
+      h.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:14px"><button class="btn s sec" type="button" data-sc="new">${hero("plus", "xs")}New schedule</button></div>
+      ${editing === "new" ? form() : ""}
+      ${res.schedules.length ? `<div class="col" style="gap:12px">${res.schedules.map((sc) => editing === sc.id ? form(sc) : `<section class="card" data-sid="${sc.id}">
+        <div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div class="tx"><div class="row" style="gap:8px"><b>${esc(sc.name)}</b><span class="pill ${sc.active ? "good" : "neu"}">${sc.active ? "Active" : "Paused"}</span></div>
+            <small class="mono">${esc(`${sc.cron.minute} ${sc.cron.hour} ${sc.cron.dayOfMonth} ${sc.cron.month} ${sc.cron.dayOfWeek}`)}</small>
+            <small class="faint">${sc.nextRunAt ? `Next ${esc(formatDate(sc.nextRunAt))}` : ""}${sc.lastRunAt ? ` \xB7 Last ${esc(formatDate(sc.lastRunAt))}` : ""}</small></div>
+          <div class="btngroup">${iconBtn('data-sc="run"', "play", "Run now")}${iconBtn('data-sc="edit"', "settings", "Edit")}${iconBtn('data-sc="delete"', "x", "Delete")}</div>
+        </div>
+        <div class="col" style="gap:6px;margin-top:12px">${sc.tasks.map((t2) => `<div class="li h" style="padding:8px 12px" data-tid="${t2.id}"><span class="tx"><b>${esc(t2.action)}</b><small class="mono">${esc(t2.payload || "(no payload)")} \xB7 +${t2.offset}s${t2.continueOnFailure ? " \xB7 continue on failure" : ""}</small></span><div class="btngroup">${iconBtn(`data-sc="edittask" data-task='` + esc(JSON.stringify(t2)) + "'", "settings", "Edit task")}${iconBtn('data-sc="deltask"', "x", "Remove task")}</div></div>`).join("")}
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <div class="inp sel s"><select data-task-action><option value="command">Send command</option><option value="power">Power action</option><option value="backup">Create backup</option></select></div>
+            <div class="inp s pill" style="flex:1;min-width:140px"><input data-task-payload placeholder="Command, start/stop/restart/kill, or ignored files" maxlength="1000" aria-label="Task payload"></div>
+            <div class="inp s pill" style="width:110px"><input data-task-offset type="number" min="0" max="900" value="0" aria-label="Delay in seconds"></div>
+            <button class="btn s sec" type="button" data-sc="addtask">${hero("plus", "xs")}Add task</button>
+          </div></div>
+      </section>`).join("")}</div>` : editing ? "" : empty("No schedules")}`;
+    }
+    const t = lazy(host, (h) => render(h));
+    host?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-sc]");
+      if (!btn || !host) return;
+      const card = btn.closest("[data-sid]");
+      const sid = card?.dataset["sid"];
+      try {
+        switch (btn.dataset["sc"]) {
+          case "new":
+            await render(host, "new");
+            return;
+          case "cancel":
+            await render(host);
+            return;
+          case "edit":
+            await render(host, Number(sid));
+            return;
+          case "save": {
+            const f = btn.closest("[data-form]");
+            const body = { name: document.getElementById("sc_name").value, active: document.getElementById("sc_active").checked, onlyWhenOnline: document.getElementById("sc_online").checked };
+            f.querySelectorAll("[data-cron]").forEach((i) => {
+              body[i.dataset["cron"]] = i.value.trim();
+            });
+            await sendJson(f.dataset["form"] === "new" ? base : `${base}/${f.dataset["form"]}`, "POST", body);
+            toast("Saved", "good");
+            break;
+          }
+          case "run":
+            await sendJson(`${base}/${sid}/execute`, "POST");
+            toast("Schedule started", "good");
+            break;
+          case "delete":
+            if (!await confirmDialog({ title: "Delete this schedule and its tasks?", confirmLabel: "Confirm", danger: true })) return;
+            await sendJson(`${base}/${sid}`, "DELETE");
+            break;
+          case "edittask": {
+            const t2 = JSON.parse(btn.dataset["task"] || "{}");
+            const v = await formDialog({
+              title: "Edit task",
+              confirmLabel: "Save",
+              fields: [
+                { key: "action", label: "Action", type: "select", value: t2.action, options: [["command", "Send command"], ["power", "Power action"], ["backup", "Create backup"]] },
+                { key: "payload", label: "Payload", value: t2.payload },
+                { key: "offset", label: "Delay (seconds)", type: "number", value: String(t2.offset), min: 0, max: 900 },
+                { key: "continueOnFailure", label: "Continue if this task fails", type: "checkbox", value: String(t2.continueOnFailure) }
+              ]
+            });
+            if (!v) return;
+            await sendJson(`${base}/${sid}/tasks/${t2.id}`, "POST", { action: v["action"], payload: v["payload"], offset: Number(v["offset"] || 0), continueOnFailure: v["continueOnFailure"] === true });
+            break;
+          }
+          case "deltask":
+            await sendJson(`${base}/${sid}/tasks/${btn.closest("[data-tid]")?.dataset["tid"]}`, "DELETE");
+            break;
+          case "addtask": {
+            const c = card;
+            await sendJson(`${base}/${sid}/tasks`, "POST", { action: c.querySelector("[data-task-action]").value, payload: c.querySelector("[data-task-payload]").value, offset: Number(c.querySelector("[data-task-offset]").value || 0) });
+            break;
+          }
+        }
+        await render(host);
+      } catch (e) {
+        fail2(e);
+      }
+    });
+    return t;
   }
 
   // src/frontend/client/pages/services/index.ts
@@ -1375,108 +3561,254 @@ ${node.textContent || ""}
   function kv(pairs) {
     return `<dl class="kv">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
   }
-  async function renderServiceDetail(serviceId) {
+  function meter(label, icon, tone, valueText, pct, note) {
+    const w = Math.max(0, Math.min(100, pct));
+    return `<div class="col" style="gap:6px"><div class="row nw" style="justify-content:space-between"><div class="row nw"><span class="tile ${tone} sm">${hero(icon)}</span><b>${esc(label)}</b></div><b>${esc(valueText)}</b></div><div class="mtr ${tone === "violet" ? "" : tone}"><b style="width:${w}%"></b></div><small class="faint" style="font-weight:600">${esc(note)}</small></div>`;
+  }
+  function syncPowerButtons(state) {
+    const offline = state === "offline";
+    const pill2 = document.getElementById("dtlRuntimePill");
+    if (pill2?.dataset["locked"] === "1") return;
+    if (pill2) {
+      const live = liveState(state);
+      pill2.textContent = live.label;
+      pill2.className = `pill ${live.tone} d`;
+    }
+    document.querySelectorAll("[data-pwr]").forEach((el2) => {
+      el2.disabled = el2.dataset["pwr"] === "start" ? !offline : offline;
+    });
+  }
+  async function loadLiveUsage(serviceId, ramMb, cpuPct, diskMb) {
+    const box = document.getElementById("dtlLiveUsage");
+    if (!box) return;
+    try {
+      const res = await api(
+        `/api/v1/services/${encodeURIComponent(serviceId)}/usage`
+      );
+      if (!res.available || !res.usage) return;
+      const u = res.usage;
+      syncPowerButtons(u.state);
+      const memMb = u.memoryBytes / 1048576;
+      const diskUsedMb = u.diskBytes / 1048576;
+      box.innerHTML = `<div class="col" style="gap:18px">
+      ${meter("CPU", "cpu", "info", `${u.cpuPct.toFixed(1)}%`, cpuPct ? u.cpuPct / cpuPct * 100 : 0, `of ${cpuPct}% limit`)}
+      ${meter("Memory", "database", "violet", `${memMb.toFixed(0)} MB`, ramMb ? memMb / ramMb * 100 : 0, `of ${(ramMb / 1024).toFixed(1)} GB limit`)}
+      ${meter("Storage", "archive-01", "good", `${(diskUsedMb / 1024).toFixed(2)} GB`, diskMb ? diskUsedMb / diskMb * 100 : 0, `of ${(diskMb / 1024).toFixed(0)} GB limit`)}
+      <small class="faint" style="font-weight:600">${esc(u.state.charAt(0).toUpperCase() + u.state.slice(1))}</small>
+    </div>`;
+    } catch {
+    }
+  }
+  async function renderServiceDetail(serviceId, tab) {
     const host = document.getElementById("serviceDetailView");
     if (!serviceId || !host) return;
     host.innerHTML = `<div class="sk" role="status" aria-label="Loading service"><i></i><i></i><i></i></div>`;
     try {
       const { service } = await api(`/api/v1/services/${encodeURIComponent(serviceId)}`);
-      const runtime = service.observedState?.runtimeState || "UNKNOWN";
-      const tone = runtime === "RUNNING" ? "good" : runtime === "INSTALLING" ? "warn" : runtime === "ERROR" ? "bad" : "info";
-      const runningNow = runtime === "RUNNING";
+      const st = serviceState({ contractStatus: service.contractStatus, runtimeState: service.observedState?.runtimeState });
+      const runtime = st.label;
+      const tone = st.tone;
+      const runningNow = st.running;
       const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
       const ramMb = Number(service.desiredConfig?.memoryLimitMb || 0);
       const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
       const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
-      const powerBtns = providerReady ? `<button class="btn s sec" id="dtlRestartBtn" ${runningNow ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn s badt" id="dtlStopBtn" ${runningNow ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn s goodt" id="dtlStartBtn" ${runningNow ? "disabled" : ""}>${hero("play", "xs")}Start</button>` : `<span class="pill warn">Provider controls unavailable</span>`;
-      const auditHtml = service.auditTrail?.length ? `<div class="tl2">${service.auditTrail.map((ev) => {
-        const ispower = String(ev.action || "").includes("power");
-        return `<div class="tl2-row"><span class="tile ${ispower ? "info" : "acc"} sm">${hero(ispower ? "refresh" : "shield")}</span><span class="tx"><b>${esc(String(ev.action || "").replace(/\./g, " \xB7 "))}</b><small>${esc(formatDate(ev.createdAt))}${ev.metadata ? ` \xB7 ${esc(String(ev.metadata))}` : ""}</small></span></div>`;
-      }).join("")}</div>` : `<div class="es">${hero("shield", "xl")}<h4>No recorded activity</h4><p>Provider and account events for this service will appear here.</p></div>`;
+      const perms = new Set(service.access?.permissions ?? []);
+      const can = (perm) => providerReady && st.controllable && perms.has(perm);
+      const show = {
+        c: can("websocket.connect"),
+        f: can("file.read"),
+        m: can("file.read"),
+        d: can("database.read"),
+        h: can("schedule.read"),
+        b: can("backup.read"),
+        n: can("allocation.read"),
+        s: can("startup.read"),
+        g: can("settings.rename"),
+        u: providerReady && st.controllable && service.access?.kind === "ACCOUNT" && perms.has("control.start")
+      };
+      const canPower = can("control.start") || can("control.stop") || can("control.restart");
+      const powerBtns = !providerReady ? `<span class="pill warn">Provider controls unavailable</span>` : !canPower ? "" : `<button class="btn s sec" id="dtlRestartBtn" data-pwr="restart" ${runningNow ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn s badt" id="dtlStopBtn" data-pwr="stop" ${runningNow ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn s goodt" id="dtlStartBtn" data-pwr="start" ${runningNow ? "disabled" : ""}>${hero("play", "xs")}Start</button>`;
+      const advancedKeys = /* @__PURE__ */ new Set(["d", "h", "n", "s", "g", "u", "a"]);
+      const advancedSlugs = /* @__PURE__ */ new Set(["databases", "schedules", "network", "startup", "settings", "users", "allocation"]);
+      let serviceMode = advancedSlugs.has(tab || "") || localStorage.getItem(`fortless_service_mode_${serviceId}`) === "advanced" ? "advanced" : "easy";
+      const advancedTab = (key) => advancedKeys.has(key) ? ` data-service-level="advanced"${serviceMode === "easy" ? " hidden" : ""}` : "";
       host.innerHTML = `
-      <nav class="breadcrumb-bar" aria-label="Breadcrumb" style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px">
-        <a href="/app/services" data-app-route="services" style="color:var(--accent);font-weight:600">Services</a>
-        <span aria-hidden="true" class="muted">/</span>
-        <b>${esc(service.planName || service.id)}</b>
-      </nav>
+      <div class="row faint" style="font-weight:650;padding:2px 0 8px">
+        <a class="lk" href="/app/services" data-app-route="services" style="color:var(--ink3)">Services</a>
+        <svg class="ic xs" aria-hidden="true"><use href="#i-arrow-right-01"/></svg>
+        <span>${esc(service.planName || service.id)}</span>
+      </div>
 
       <div class="hd" style="margin-bottom:0">
         <div class="tx">
-          <div class="row" style="gap:8px;margin-bottom:6px">
-            <span class="pill ${tone} d">${esc(runtime)}</span>
-            <span class="pill ${service.contractStatus === "ACTIVE" ? "good" : "warn"}">${esc(service.contractStatus)}</span>
+          <div class="row" style="gap:8px;margin-bottom:8px">
+            <span class="pill ${tone} d" id="dtlRuntimePill" data-locked="${st.controllable ? "" : "1"}">${esc(runtime)}</span>
           </div>
           <h2>${esc(service.planName || "Service Detail")}</h2>
           <p>${esc(service.nodeName || "\u2014")} (${esc(service.regionName || "\u2014")}) \xB7 ${service.identifier ? `Provider ID ${esc(service.identifier)}` : "Provisioning"}</p>
         </div>
-        <div class="act" style="gap:8px">
+        <div class="row act" style="gap:8px">
+          <div class="seg" role="tablist" aria-label="Service view">
+            <button type="button" role="tab" data-service-mode="easy" aria-selected="${serviceMode === "easy"}" aria-checked="${serviceMode === "easy"}">Easy</button>
+            <button type="button" role="tab" data-service-mode="advanced" aria-selected="${serviceMode === "advanced"}" aria-checked="${serviceMode === "advanced"}">Advanced</button>
+          </div>
           ${powerBtns}
         </div>
       </div>
 
-      <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:20px 0 0">
-        <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true">Overview</button>
-        <button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1">Allocation</button>
-        <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1">Activity</button>
+      <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:24px 0 20px">
+        <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true" data-t="o">Overview</button>
+        ${[["c", "Console", "dtlPaneConsole"], ["f", "Files", "dtlPaneFiles"], ["m", "Game", "dtlPaneGame"], ["d", "Databases", "dtlPaneDatabases"], ["h", "Schedules", "dtlPaneSchedules"], ["b", "Backups", "dtlPaneBackups"], ["n", "Network", "dtlPaneNetwork"], ["s", "Startup", "dtlPaneStartup"], ["g", "Settings", "dtlPaneSettings"], ["u", "Users", "dtlPaneUsers"]].filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join("")}
+        <button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab("a")}>Allocation</button>
+        <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1" data-t="e">Activity</button>
       </div>
 
-      <div id="dtlPaneOverview" role="tabpanel" class="tp">
-        <div class="grid g2">
+      <div id="dtlPaneOverview" role="tabpanel" class="tp on">
+        <div class="g g2" style="align-items:start">
           <section class="card">
-            <h3 style="font:700 16px var(--font);margin-bottom:14px">Technical Specifications</h3>
-            ${kv([
+            <div class="ch"><div class="tx"><h3>Connection &amp; Datacenter</h3><p>Where this service lives.</p></div></div>
+            <div class="col" style="gap:12px">
+              ${service.nodeFqdn ? copyField(service.nodeFqdn, "node hostname") : ""}
+              ${kv([
         ["Service ID", copyField(service.id, "service ID")],
         ["Allocated RAM", esc(`${(ramMb / 1024).toFixed(1)} GB`)],
         ["CPU limit", esc(`${cpuPct}%`)],
         ["Allocated disk", esc(`${(diskMb / 1024).toFixed(0)} GB SSD`)],
-        ["Provider type", `<span class="pill">${esc(service.providerType)}</span>`]
-      ])}
-          </section>
-          <section class="card">
-            <h3 style="font:700 16px var(--font);margin-bottom:14px">Connection &amp; Datacenter</h3>
-            ${kv([
-        ["Node hostname", copyField(service.nodeFqdn, "node hostname")],
+        ["Provider type", `<span class="pill">${esc(service.providerType)}</span>`],
         ["Datacenter", esc(`${service.regionName || "\u2014"} (${service.regionCode || "\u2014"})`)],
-        ["Remote ID", copyField(service.externalId, "remote ID")],
-        ["Short identifier", copyField(service.identifier, "short identifier")],
+        ["Provider ID", copyField(service.identifier, "provider ID")],
         ["Created", esc(formatDate(service.createdAt))]
       ])}
+            </div>
+          </section>
+          <section class="card">
+            <div class="ch"><div class="tx"><h3>Live usage</h3></div></div>
+            <div id="dtlLiveUsage">
+              <div class="es" data-c="Empty state">
+                <span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-analytics-01"/></svg></span>
+                <h4>Telemetry is not connected</h4>
+              </div>
+            </div>
           </section>
         </div>
       </div>
 
+      ${show.c ? `<div id="dtlPaneConsole" role="tabpanel" class="tp" hidden>
+        <section class="card">
+          <div class="ch"><div class="tx"><h3>Console</h3><p id="dtlConsoleState">Not connected</p></div></div>
+          <pre id="dtlConsoleOut" class="mono" style="height:360px;overflow:auto;margin:0 0 12px;padding:14px 16px;background:var(--s1);border-radius:var(--r, 16px);font-size:12.5px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;word-break:break-all" tabindex="0" aria-live="off"></pre>
+          <div class="inp">
+            <svg class="ic s" aria-hidden="true"><use href="#i-arrow-right-01"/></svg>
+            <input id="dtlConsoleInput" type="text" autocomplete="off" spellcheck="false" placeholder="Type a command and press Enter" aria-label="Server command">
+          </div>
+        </section>
+      </div>` : ""}
+
+      ${show.f ? `<div id="dtlPaneFiles" role="tabpanel" class="tp" hidden>
+        <section class="card"><div id="dtlFilesBody"></div></section>
+      </div>` : ""}
+
+      ${[["m", "dtlPaneGame", "dtlGameBody"], ["d", "dtlPaneDatabases", "dtlDatabasesBody"], ["h", "dtlPaneSchedules", "dtlSchedulesBody"], ["b", "dtlPaneBackups", "dtlBackupsBody"], ["n", "dtlPaneNetwork", "dtlNetworkBody"], ["s", "dtlPaneStartup", "dtlStartupBody"], ["g", "dtlPaneSettings", "dtlSettingsBody"], ["u", "dtlPaneUsers", "dtlUsersBody"]].filter(([k]) => show[k]).map(([, p, b]) => `<div id="${p}" role="tabpanel" class="tp" hidden><section class="card"><div id="${b}"></div></section></div>`).join("")}
+
       <div id="dtlPaneAllocation" role="tabpanel" class="tp" hidden>
-        <div class="grid g3">
-          <section class="card">
-            <span class="muted" style="font-size:12px">Memory Allocation</span>
-            <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${(ramMb / 1024).toFixed(1)} GB`)}</b>
-            <small class="muted">Purchased limit, not live utilization.</small>
+        <div class="g g3 k2">
+          <section class="card" data-c="Meter card">
+            <div class="row nw"><span class="tile violet sm"><svg class="ic" aria-hidden="true"><use href="#i-database"/></svg></span><div><div class="faint" style="font-weight:700;font-size:12.5px">Memory</div><b style="font:800 24px var(--font);letter-spacing:-.04em">${esc(`${(ramMb / 1024).toFixed(1)} GB`)}</b></div></div>
+            <div class="mtr" style="margin:14px 0 8px"><b style="width:100%;opacity:.35"></b></div>
           </section>
-          <section class="card">
-            <span class="muted" style="font-size:12px">CPU Share Limit</span>
-            <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${cpuPct}%`)}</b>
-            <small class="muted">Configured CPU limit, not measured usage.</small>
+          <section class="card" data-c="Meter card">
+            <div class="row nw"><span class="tile info sm"><svg class="ic" aria-hidden="true"><use href="#i-cpu"/></svg></span><div><div class="faint" style="font-weight:700;font-size:12.5px">CPU share</div><b style="font:800 24px var(--font);letter-spacing:-.04em">${esc(`${cpuPct}%`)}</b></div></div>
+            <div class="mtr info" style="margin:14px 0 8px"><b style="width:100%;opacity:.35"></b></div>
           </section>
-          <section class="card">
-            <span class="muted" style="font-size:12px">Storage Allocation</span>
-            <b style="font:800 24px/1.2 var(--font);display:block;margin:8px 0">${esc(`${(diskMb / 1024).toFixed(0)} GB`)}</b>
-            <small class="muted">Purchased storage, not current disk use.</small>
+          <section class="card" data-c="Meter card">
+            <div class="row nw"><span class="tile good sm"><svg class="ic" aria-hidden="true"><use href="#i-archive-01"/></svg></span><div><div class="faint" style="font-weight:700;font-size:12.5px">Storage</div><b style="font:800 24px var(--font);letter-spacing:-.04em">${esc(`${(diskMb / 1024).toFixed(0)} GB`)}</b></div></div>
+            <div class="mtr good" style="margin:14px 0 8px"><b style="width:100%;opacity:.35"></b></div>
           </section>
         </div>
       </div>
 
       <div id="dtlPaneActivity" role="tabpanel" class="tp" hidden>
-        <section class="card" style="padding:20px">
-          <h3 style="font:700 16px var(--font);margin-bottom:14px">Service Audit Events</h3>
-          ${auditHtml}
-        </section>
+        <section class="card"><div id="dtlActivityBody"></div></section>
       </div>`;
+      const liveViaSocket = show.c && st.controllable;
+      if (!liveViaSocket && (service.externalId || service.identifier)) {
+        void loadLiveUsage(service.id, ramMb, cpuPct, diskMb);
+        const poll = window.setInterval(() => {
+          if (!document.getElementById("dtlLiveUsage")) {
+            window.clearInterval(poll);
+            return;
+          }
+          void loadLiveUsage(service.id, ramMb, cpuPct, diskMb);
+        }, 5e3);
+      }
       const tabsEl = document.getElementById("serviceDetailTabs");
       if (tabsEl) initTabs(tabsEl);
+      const applyServiceMode = (nextMode, persist = true) => {
+        serviceMode = nextMode;
+        if (persist) localStorage.setItem(`fortless_service_mode_${serviceId}`, serviceMode);
+        document.querySelectorAll("[data-service-mode]").forEach((item) => {
+          const isCur = item.dataset["serviceMode"] === serviceMode;
+          item.setAttribute("aria-selected", String(isCur));
+          item.setAttribute("aria-checked", String(isCur));
+        });
+        if (serviceMode === "easy" && tabsEl?.querySelector('[role="tab"][aria-selected="true"][data-service-level="advanced"]')) {
+          tabsEl.querySelector('[data-t="o"]')?.click();
+        }
+        tabsEl?.querySelectorAll('[data-service-level="advanced"]').forEach((item) => {
+          item.hidden = serviceMode === "easy";
+        });
+      };
+      document.querySelectorAll("[data-service-mode]").forEach((button) => {
+        button.addEventListener("click", () => {
+          applyServiceMode(button.dataset["serviceMode"] === "advanced" ? "advanced" : "easy");
+        });
+      });
+      const activityCtl = initServiceActivity(service.id);
+      tabsEl?.addEventListener("click", (e) => {
+        if (e.target.closest('[data-t="e"]')) activityCtl.open();
+      });
       if (providerReady) {
-        document.getElementById("dtlRestartBtn")?.addEventListener("click", (e) => powerService(service.id, "RESTART", e.currentTarget));
-        document.getElementById("dtlStopBtn")?.addEventListener("click", (e) => powerService(service.id, "STOP", e.currentTarget));
-        document.getElementById("dtlStartBtn")?.addEventListener("click", (e) => powerService(service.id, "START", e.currentTarget));
+        if (liveViaSocket) {
+          const liveHost = document.getElementById("dtlLiveUsage");
+          initServiceConsole(service.id, { onStatus: syncPowerButtons, onStats: liveHost ? mountLiveTiles(liveHost) : void 0 }).connect();
+        }
+        const gameCtl = show.m ? initGame(service.id) : null;
+        const openers = {
+          f: initServiceFiles(service.id).open,
+          m: gameCtl?.open ?? (() => void 0),
+          d: initDatabases(service.id).open,
+          h: initSchedules(service.id).open,
+          b: initBackups(service.id).open,
+          n: initNetwork(service.id).open,
+          s: initStartup(service.id).open,
+          g: initSettings(service.id).open,
+          u: initUsers(service.id).open
+        };
+        void gameCtl?.checkEula();
+        document.getElementById("serviceDetailTabs")?.addEventListener("click", (e) => {
+          const tab2 = e.target.closest("[data-t]");
+          if (!tab2) return;
+          openers[tab2.dataset["t"] ?? ""]?.();
+        });
+        const actions = { start: "START", stop: "STOP", restart: "RESTART" };
+        document.querySelectorAll("[data-pwr]").forEach((btn) => {
+          btn.addEventListener("click", (e) => powerService(service.id, actions[btn.dataset["pwr"]], e.currentTarget));
+        });
+      }
+      if (tabsEl) {
+        bindTabUrls({
+          tabs: tabsEl,
+          base: `/app/services/${encodeURIComponent(serviceId)}`,
+          initial: tab,
+          fallbackKey: "o",
+          slugs: { o: "overview", c: "console", f: "files", m: "game", d: "databases", h: "schedules", b: "backups", n: "network", s: "startup", g: "settings", u: "users", a: "allocation", e: "activity" },
+          keyOf: (b) => b.dataset["t"],
+          select: (key) => {
+            if (advancedKeys.has(key) && serviceMode !== "advanced") applyServiceMode("advanced", false);
+            tabsEl.querySelector(`[data-t="${key}"]`)?.click();
+          }
+        });
       }
     } catch (error) {
       host.innerHTML = `<div class="alert bad">${hero("warning", "s")}<div><b>Failed to load service</b><span>${esc(error.message)}</span></div></div>`;
@@ -1489,10 +3821,36 @@ ${node.textContent || ""}
     plans: [],
     regions: [],
     selectedPlanId: null,
-    selectedRegionId: "reg_fra_1",
+    selectedRegionId: null,
     activeCoupon: null
   };
   var deployStep = 0;
+  function checkoutReadiness() {
+    if (deployStep !== 2) return { ready: false, reason: "Complete all three steps to continue to secure checkout." };
+    if (!deployState.selectedPlanId) return { ready: false, reason: "Select a plan first." };
+    const region = deployState.regions.find((item) => item.id === deployState.selectedRegionId && !item.isSoldOut);
+    if (!region) return { ready: false, reason: "Select an available region." };
+    const name = document.getElementById("deployServerName")?.value.trim() ?? "";
+    if (name.length < 3) return { ready: false, reason: "Enter a service label with at least 3 characters." };
+    const capabilities = capabilitiesStore.get();
+    if (!capabilities?.payments?.enabled || !capabilities?.provisioning?.enabled) return { ready: false, reason: "Payment and infrastructure integrations are not available yet." };
+    return { ready: true, reason: "You will continue to the configured hosted payment provider." };
+  }
+  function updateDeployActions() {
+    const next = document.getElementById("deployNextBtn");
+    const checkout = document.getElementById("doDeployBtn");
+    const hint = document.getElementById("deployCheckoutHint");
+    const state = checkoutReadiness();
+    if (next) next.hidden = deployStep === 2;
+    if (checkout) {
+      checkout.hidden = deployStep !== 2;
+      checkout.disabled = !state.ready;
+      checkout.dataset.checkoutReady = String(state.ready);
+      const label = checkout.querySelector("span");
+      if (label) label.textContent = state.ready ? "Continue to secure checkout" : "Checkout unavailable";
+    }
+    if (hint) hint.textContent = state.reason;
+  }
   function showDeployStep(nextStep) {
     deployStep = Math.max(0, Math.min(2, nextStep));
     document.querySelectorAll("[data-deploy-pane]").forEach((pane) => {
@@ -1502,12 +3860,19 @@ ${node.textContent || ""}
       const index = Number(indicator.dataset.deployStepIndicator);
       indicator.className = `step${index < deployStep ? " done" : index === deployStep ? " cur" : ""}`;
       const marker = indicator.querySelector("i");
-      if (marker) marker.textContent = index < deployStep ? "\u2713" : String(index + 1);
+      if (marker) {
+        if (index < deployStep) {
+          marker.innerHTML = hero("check", "xs");
+        } else {
+          marker.textContent = String(index + 1);
+        }
+      }
     });
     const back = document.getElementById("deployBackBtn");
     const next = document.getElementById("deployNextBtn");
     if (back) back.disabled = deployStep === 0;
-    if (next) next.textContent = deployStep === 2 ? "Review order" : "Continue";
+    if (next) next.textContent = "Continue";
+    updateDeployActions();
   }
   function bindDeployWizard() {
     const wizard = document.getElementById("deployWizard");
@@ -1521,10 +3886,9 @@ ${node.textContent || ""}
       if (deployStep === 0 && !deployState.selectedPlanId) return toast("Select a plan first.", "warn");
       if (deployStep === 1 && !deployState.selectedRegionId) return toast("Select an available region.", "warn");
       if (deployStep < 2) return showDeployStep(deployStep + 1);
-      const name = document.getElementById("deployServerName")?.value.trim();
-      if (!name || name.length < 3) return toast("Enter a service label with at least 3 characters.", "warn");
-      document.querySelector(".summary-card")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
+    document.getElementById("deployServerName")?.addEventListener("input", updateDeployActions);
+    window.addEventListener("fortless:capabilities", updateDeployActions);
     showDeployStep(deployStep);
   }
   async function renderDeploy() {
@@ -1543,12 +3907,6 @@ ${node.textContent || ""}
       ]);
       deployState.plans = plansRes.plans || [];
       deployState.regions = regionsRes.regions || [];
-      if (!deployState.selectedPlanId && deployState.plans[0]) {
-        deployState.selectedPlanId = deployState.plans[0].planVersionId;
-      }
-      if (!deployState.selectedRegionId && deployState.regions[0]) {
-        deployState.selectedRegionId = deployState.regions[0].id;
-      }
       renderCatalog();
     } catch (error) {
       if (host) {
@@ -1565,7 +3923,7 @@ ${node.textContent || ""}
         const tone = plan.categorySlug === "game-servers" ? "acc" : "violet";
         return `<button type="button" class="sel" data-plan-id="${esc(plan.planVersionId)}" aria-pressed="${selected}"><span class="pill ${tone}">${esc(plan.categoryName)}</span><b>${esc(plan.planName)}</b><span class="p">${price ? money(price.priceMinorUnits, price.currency) : "Unavailable"} <small>/${esc((price?.interval || "").toLowerCase())}</small></span><small class="f">${esc(plan.productName)} \xB7 ${plan.resources.memoryMb / 1024} GB RAM \xB7 ${plan.resources.cpuPct}% CPU \xB7 ${plan.resources.diskMb / 1024} GB disk</small></button>`;
       }).join("");
-      host.innerHTML = planHtml ? `<div class="grid g2">${planHtml}</div>` : `<div class="alert warn">${hero("warning", "s")}<div><b>No published plans available</b></div></div>`;
+      host.innerHTML = planHtml ? `<div class="g g2">${planHtml}</div>` : `<div class="alert warn"><svg class="ic" aria-hidden="true"><use href="#i-alert-circle"/></svg><div><b>No published plans available</b></div></div>`;
     }
     const regHost = document.getElementById("regionSelector");
     if (regHost && deployState.regions.length) {
@@ -1576,24 +3934,30 @@ ${node.textContent || ""}
         const avail = reg.isSoldOut ? `<span class="pill bad" style="margin-left:auto">Sold out</span>` : `<span class="pill good" style="margin-left:auto">Available</span>`;
         return `<button type="button" class="sel" data-region-id="${esc(reg.id)}" aria-pressed="${selected}"${reg.isSoldOut ? " disabled" : ""}><span class="row nw"><b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${avail}</span><small class="f">${esc(statusText)}</small></button>`;
       }).join("");
-      regHost.innerHTML = `<div class="grid g2">${regHtml}</div>`;
+      regHost.innerHTML = `<div class="g g2">${regHtml}</div>`;
     }
     updateSummary();
   }
   function updateSummary() {
     const plan = deployState.plans.find((item) => item.planVersionId === deployState.selectedPlanId);
-    if (!plan) return;
-    const price = plan.prices[0];
-    const subtotal = price?.priceMinorUnits || 0;
-    const discount = deployState.activeCoupon ? deployState.activeCoupon.discountMinorUnits : 0;
-    const estimatedSubtotal = Math.max(0, subtotal - discount);
     const sumPlan = document.getElementById("sumPlan");
     const sumReg = document.getElementById("sumReg");
     const sumVat = document.getElementById("sumVat");
     const sumTotal = document.getElementById("sumTotal");
+    if (!plan) {
+      if (sumPlan) sumPlan.textContent = "Not selected";
+      if (sumReg) sumReg.textContent = "Not selected";
+      if (sumTotal) sumTotal.textContent = "\u2014";
+      updateDeployActions();
+      return;
+    }
+    const price = plan.prices[0];
+    const subtotal = price?.priceMinorUnits || 0;
+    const discount = deployState.activeCoupon ? deployState.activeCoupon.discountMinorUnits : 0;
+    const estimatedSubtotal = Math.max(0, subtotal - discount);
     if (sumPlan) sumPlan.textContent = plan.planName;
     const selReg = deployState.regions.find((r) => r.id === deployState.selectedRegionId);
-    if (sumReg) sumReg.textContent = selReg ? `${selReg.name} (${selReg.code})` : "Frankfurt (catalog)";
+    if (sumReg) sumReg.textContent = selReg ? `${selReg.name} (${selReg.code})` : "Not selected";
     const rowDisc = document.getElementById("rowDiscount");
     const discountLabel = document.getElementById("sumDiscountLabel");
     if (rowDisc) {
@@ -1611,16 +3975,21 @@ ${node.textContent || ""}
     }
     if (sumVat) sumVat.textContent = "Calculated by secure quote";
     if (sumTotal) sumTotal.textContent = money(estimatedSubtotal, price?.currency || "EUR");
+    updateDeployActions();
   }
   async function beginCheckout() {
     const button = document.getElementById("doDeployBtn");
     const capabilities = capabilitiesStore.get();
+    if (deployStep !== 2) return toast("Complete the configuration steps before checkout.", "warn");
     if (!capabilities?.payments?.enabled || !capabilities?.provisioning?.enabled) {
       return toast("Ordering is unavailable until payment and infrastructure providers are verified.", "warn");
     }
     if (!deployState.selectedPlanId) return toast("Select a plan first.", "warn");
+    const region = deployState.regions.find((item) => item.id === deployState.selectedRegionId && !item.isSoldOut);
+    if (!region) return toast("Select an available region.", "warn");
     const nameInput = document.getElementById("deployServerName");
-    const name = nameInput?.value.trim() || "fortless-instance";
+    const name = nameInput?.value.trim() ?? "";
+    if (name.length < 3) return toast("Enter a service label with at least 3 characters.", "warn");
     if (button) {
       button.disabled = true;
       const span = button.querySelector("span");
@@ -1651,9 +4020,7 @@ ${node.textContent || ""}
       toast(error.message, "bad");
     } finally {
       if (button) {
-        button.disabled = false;
-        const span = button.querySelector("span");
-        if (span) span.textContent = "Continue to secure checkout";
+        updateDeployActions();
       }
     }
   }
@@ -1694,42 +4061,26 @@ ${node.textContent || ""}
         return;
       }
       host.innerHTML = `
-      <div class="z-scroll"><table class="tbl">
-        <thead>
-          <tr>
-            <th>Domain Name</th>
-            <th>Status</th>
-            <th>Nameservers</th>
-            <th>Auto-Renew</th>
-            <th>Expires</th>
-            <th class="r">DNS Records</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${zones.map((z) => {
+      <div class="col" style="gap:8px">
+        ${zones.map((z) => {
         const ns = JSON.parse(z.nameservers || "[]");
+        const nsText = ns.length ? ns.join(" \xB7 ") : "ns1.fortless.net \xB7 ns2.fortless.net";
+        const exp = z.expires_at ? ` \xB7 Expires ${formatDate(z.expires_at)}` : "";
         return `
-              <tr class="mobile-record" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(" ")}`.toLowerCase())}">
-                <td data-label="Domain">
-                  <div class="row" style="gap:8px">
-                    <svg class="ic s" style="color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                    <b>${esc(z.domain_name)}</b>
-                  </div>
-                </td>
-                <td data-label="Status"><span class="badge good s">${esc(z.status)}</span></td>
-                <td data-label="Nameservers" class="muted mono" style="font-size:12px">${esc(ns.join(", "))}</td>
-                <td data-label="Auto-Renew">${z.auto_renew ? '<span class="badge s accent">Active</span>' : '<span class="badge s">Disabled</span>'}</td>
-                <td data-label="Expires" class="muted">${esc(formatDate(z.expires_at))}</td>
-                <td data-label="DNS Records" class="r">
-                  <button type="button" class="btn sec s manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}">
-                    Manage DNS
-                  </button>
-                </td>
-              </tr>
-            `;
+            <div class="li h" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(" ")}`.toLowerCase())}" style="padding:12px 14px;gap:12px;align-items:center">
+              <span class="tile good sm"><svg class="ic s" width="16" height="16"><use href="#i-globe-02"/></svg></span>
+              <span class="tx" style="min-width:140px">
+                <b>${esc(z.domain_name)}</b>
+                <small class="muted mono" style="font-size:12px">${esc(nsText)}${esc(exp)}</small>
+              </span>
+              <span class="pill good">${esc(z.status)}</span>
+              <button type="button" class="btn xs tint manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}" style="flex-shrink:0">
+                <svg class="ic xs" width="14" height="14"><use href="#i-arrow-right-01"/></svg>Manage DNS
+              </button>
+            </div>
+          `;
       }).join("")}
-        </tbody>
-      </table></div>
+      </div>
     `;
       filterZones();
       host.querySelectorAll(".manage-dns-btn").forEach((btn) => {
@@ -1773,7 +4124,7 @@ ${node.textContent || ""}
       host.innerHTML = `<div class="col" style="gap:6px;margin-top:8px">${res.results.map((item) => {
         const isAvail = item.available && item.status === "AVAILABLE";
         const tone = isAvail ? "good" : "bad";
-        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result \xB7 registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || "EUR")}<small class="muted">/yr</small></b>` : ""}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s sec register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ""}</span></div>`;
+        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-globe-02"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result \xB7 registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || "EUR")}<small class="muted">/yr</small></b>` : ""}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s tint register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ""}</span></div>`;
       }).join("")}</div>`;
       host.querySelectorAll(".register-domain-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
@@ -1825,12 +4176,12 @@ ${node.textContent || ""}
         return;
       }
       host.innerHTML = `
-      <table class="tbl">
+      <table class="tbl rsp" data-c="Data table">
         <thead>
           <tr>
             <th>Type</th>
             <th>Name</th>
-            <th>Content / Target</th>
+            <th>Target</th>
             <th>TTL</th>
             <th>Priority</th>
             <th class="r">Actions</th>
@@ -1839,15 +4190,15 @@ ${node.textContent || ""}
         <tbody>
           ${records.map(
         (r) => `
-            <tr class="mobile-record">
-              <td data-label="Type"><span class="badge accent s">${esc(r.record_type)}</span></td>
-              <td data-label="Name" class="mono"><b>${esc(r.name)}</b></td>
-              <td data-label="Content" class="mono muted" style="word-break:break-all">${esc(r.content)}</td>
-              <td data-label="TTL" class="num">${r.ttl}s</td>
-              <td data-label="Priority" class="num">${r.priority !== null ? r.priority : "\u2014"}</td>
-              <td data-label="Actions" class="r">
-                <button type="button" class="btn sec xs delete-dns-btn" data-record-id="${esc(r.id)}" style="color:var(--bad)">
-                  Delete
+            <tr class="h mobile-record">
+              <td data-l="Type"><span class="pill acc">${esc(r.record_type)}</span></td>
+              <td data-l="Name" class="mono"><b>${esc(r.name)}</b></td>
+              <td data-l="Target" class="mono muted" style="word-break:break-all">${esc(r.content)}</td>
+              <td data-l="TTL" class="num">${r.ttl}s</td>
+              <td data-l="Priority" class="num">${r.priority !== null ? r.priority : "\u2014"}</td>
+              <td data-l="Actions" class="r">
+                <button type="button" class="ib s delete-dns-btn" data-record-id="${esc(r.id)}" style="color:var(--bad)" aria-label="Delete record">
+                  <svg class="ic s" width="16" height="16"><use href="#i-delete-02"/></svg>
                 </button>
               </td>
             </tr>
@@ -1951,13 +4302,13 @@ ${node.textContent || ""}
   var invoiceCache = [];
   function invoiceRow(invoice) {
     const badgeClass = invoice.status === "PAID" ? "good" : invoice.status === "DRAFT" ? "" : "info";
-    return `<tr class="mobile-record">
-    <td data-label="Invoice"><b>${esc(invoice.invoice_number || "Draft")}</b></td>
-    <td data-label="Issued" class="muted">${esc(formatDate(invoice.created_at))}</td>
-    <td data-label="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
-    <td data-label="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
-    <td data-label="Status"><span class="pill ${badgeClass}">${esc(invoice.status)}</span></td>
-    <td data-label="Record" class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn s sec" download>${hero("document", "xs")}Receipt</a></td>
+    return `<tr class="h" data-s="${esc(invoice.status)}">
+    <td data-l="Invoice"><b>${esc(invoice.invoice_number || "Draft")}</b></td>
+    <td data-l="Date" class="faint">${esc(formatDate(invoice.created_at))}</td>
+    <td data-l="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
+    <td data-l="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
+    <td data-l="Status"><span class="pill ${badgeClass}">${esc(invoice.status)}</span></td>
+    <td class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn xs" download><svg class="ic xs" aria-hidden="true"><use href="#i-download-01"/></svg>Receipt</a></td>
   </tr>`;
   }
   function filterBilling() {
@@ -1974,16 +4325,98 @@ ${node.textContent || ""}
     if (count) count.textContent = `${records.length} of ${invoiceCache.length} records`;
     host.innerHTML = records.length ? records.map(invoiceRow).join("") : `<tr><td colspan="6">${renderEmptyState({ icon: "document", title: invoiceCache.length ? "No matching invoices" : "No invoices", message: invoiceCache.length ? "Try another number or status." : "Issued billing records will appear here." })}</td></tr>`;
   }
+  var billingRole = "";
+  function paintBillingProfile(profile, fallbackName, email) {
+    const set = (id, text) => {
+      const el2 = document.getElementById(id);
+      if (el2) el2.textContent = text;
+    };
+    set("billProfileName", profile?.companyName || fallbackName || "\u2014");
+    set("billProfileVat", profile?.taxId || "Not set");
+    set("billProfileAddress", profile ? [profile.addressLine1, profile.addressLine2, `${profile.postalCode} ${profile.city}`, profile.country].filter(Boolean).join(", ") : "Not set");
+    set("billProfileEmail", email || "\u2014");
+  }
   async function loadBillingProfile() {
     try {
-      const data = await api("/api/v1/auth/me");
-      const name = document.getElementById("billProfileName");
-      const workspace = document.getElementById("billProfileWorkspace");
-      const email = document.getElementById("billProfileEmail");
-      if (name) name.textContent = data.user?.name || data.account?.name || "\u2014";
-      if (workspace) workspace.textContent = data.account?.name || "\u2014";
-      if (email) email.textContent = data.user?.email || "\u2014";
+      const [me, bp] = await Promise.all([
+        api("/api/v1/auth/me"),
+        api("/api/v1/account/billing-profile")
+      ]);
+      billingRole = me.membership?.role || "";
+      paintBillingProfile(bp.profile, me.user?.name || me.account?.name || "", me.user?.email || "");
+      const btn = document.getElementById("editBillingBtn");
+      if (btn) {
+        btn.disabled = !["OWNER", "BILLING_MANAGER"].includes(billingRole);
+        if (!btn.dataset["bound"]) {
+          btn.dataset["bound"] = "1";
+          btn.addEventListener("click", () => void editBillingProfile(me.user?.name || "", me.user?.email || ""));
+        }
+      }
     } catch {
+    }
+  }
+  async function editBillingProfile(fallbackName, email) {
+    try {
+      const current = (await api("/api/v1/account/billing-profile")).profile;
+      const v = await formDialog({
+        title: "Billing details",
+        message: "Shown on every invoice. The tax ID is stored as you enter it and is not verified.",
+        confirmLabel: "Save",
+        fields: [
+          { key: "companyName", label: "Company name (optional)", value: current?.companyName ?? "" },
+          { key: "taxId", label: "Tax / VAT ID (optional)", value: current?.taxId ?? "" },
+          { key: "addressLine1", label: "Address", value: current?.addressLine1 ?? "" },
+          { key: "addressLine2", label: "Address line 2 (optional)", value: current?.addressLine2 ?? "" },
+          { key: "city", label: "City", value: current?.city ?? "" },
+          { key: "postalCode", label: "Postal code", value: current?.postalCode ?? "" },
+          { key: "country", label: "Country (two-letter code)", value: current?.country ?? "", placeholder: "RO" }
+        ]
+      });
+      if (!v) return;
+      const res = await api("/api/v1/account/billing-profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v)
+      });
+      paintBillingProfile(res.profile, fallbackName, email);
+      toast("Billing details saved", "good");
+    } catch (e) {
+      toast(e?.message || "Could not save billing details.", "bad");
+    }
+  }
+  var pendingCancelSubId = null;
+  function openCancelSubModal(subId, subName, renewalDate) {
+    pendingCancelSubId = subId;
+    const modal = document.getElementById("cancelSubModal");
+    const desc = document.getElementById("cancelSubDesc");
+    if (desc) {
+      desc.textContent = subName ? `${subName} keeps running until the current period ends${renewalDate ? " on " + renewalDate : ""}, then it is deleted.` : "The service keeps running until the current period ends, then it is deleted.";
+    }
+    if (modal) modal.hidden = false;
+  }
+  function closeCancelSubModal() {
+    pendingCancelSubId = null;
+    const modal = document.getElementById("cancelSubModal");
+    if (modal) modal.hidden = true;
+  }
+  async function executeScheduledCancel() {
+    if (!pendingCancelSubId) return;
+    const subId = pendingCancelSubId;
+    const btn = document.getElementById("confirmCancelSubBtn");
+    if (btn) btn.disabled = true;
+    try {
+      await api(`/api/v1/subscriptions/${encodeURIComponent(subId)}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ immediate: false })
+      });
+      toast("Cancellation scheduled at period end.", "good");
+      closeCancelSubModal();
+      await renderBilling();
+    } catch (err) {
+      toast(err.message, "bad");
+    } finally {
+      if (btn) btn.disabled = false;
     }
   }
   async function renderBilling() {
@@ -1992,57 +4425,63 @@ ${node.textContent || ""}
     host.innerHTML = `<tr><td colspan="6">${renderSkeleton("table", "Loading billing records")}</td></tr>`;
     loadBillingProfile();
     try {
-      const { invoices } = await api("/api/v1/invoices");
+      const [{ invoices }, subResult] = await Promise.all([
+        api("/api/v1/invoices"),
+        api("/api/v1/subscriptions").catch(() => ({ subscriptions: [] }))
+      ]);
       invoiceCache = invoices;
-      const paid = invoices.filter((inv) => inv.status === "PAID").reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
-      const pending = invoices.filter((inv) => ["DRAFT", "OPEN", "PENDING"].includes(inv.status)).reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
+      const subscriptions = subResult.subscriptions || [];
+      const paidInvoices = invoices.filter((inv) => inv.status === "PAID");
+      const openInvoices = invoices.filter((inv) => ["DRAFT", "OPEN", "PENDING"].includes(inv.status));
+      const paidTotal = paidInvoices.reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
+      const openTotal = openInvoices.reduce((sum, inv) => sum + Number(inv.total_minor_units || 0), 0);
       const currency = invoices[0]?.currency || "EUR";
+      const activeSubs = subscriptions.filter((s) => s.status === "ACTIVE");
+      activeSubs.sort((a, b) => new Date(a.nextRenewalDate).getTime() - new Date(b.nextRenewalDate).getTime());
+      const nextSub = activeSubs[0];
+      const nextRenewalLabel = nextSub ? formatDate(nextSub.nextRenewalDate) : "\u2014";
+      const nextRenewalDesc = nextSub ? esc(nextSub.serviceName) : "No recurring renewals";
+      const outstandingLabel = money(openTotal, currency);
+      const outstandingDesc = openInvoices.length ? `${openInvoices.length} open ${openInvoices.length === 1 ? "invoice" : "invoices"}` : "No open invoices";
+      const paidLabel = money(paidTotal, currency);
+      const paidDesc = `${paidInvoices.length} ${paidInvoices.length === 1 ? "invoice" : "invoices"}`;
       const summary = document.getElementById("invoiceSummary");
       if (summary) {
         summary.innerHTML = `
-        <div class="mt"><small>Paid</small><b>${money(paid, currency)}</b></div>
-        <div class="mt"><small>Pending</small><b>${money(pending, currency)}</b></div>
-        <div class="mt"><small>Invoices</small><b>${invoices.length}</b></div>
+        <div class="card mt" data-c="Metric tile"><div><span class="l">Next renewal</span><b class="v">${nextRenewalLabel}</b><small>${nextRenewalDesc}</small></div><span class="tile info"><svg class="ic" aria-hidden="true"><use href="#i-calendar-01"/></svg></span></div>
+        <div class="card mt" data-c="Metric tile"><div><span class="l">Outstanding</span><b class="v">${outstandingLabel}</b><small>${outstandingDesc}</small></div><span class="tile warn"><svg class="ic" aria-hidden="true"><use href="#i-alert-circle"/></svg></span></div>
+        <div class="card mt" data-c="Metric tile"><div><span class="l">Paid in 2026</span><b class="v">${paidLabel}</b><small>${paidDesc}</small></div><span class="tile good"><svg class="ic" aria-hidden="true"><use href="#i-coins-01"/></svg></span></div>
       `;
       }
       filterBilling();
       const subHost = document.getElementById("subscriptionsContainer");
       if (subHost) {
-        subHost.innerHTML = renderSkeleton("list", "Loading subscriptions");
-        try {
-          const { subscriptions } = await api("/api/v1/subscriptions");
-          if (!subscriptions.length) {
-            subHost.innerHTML = renderEmptyState({ icon: "document", title: "No active subscriptions", message: "Active recurring services will appear here." });
-          } else {
-            subHost.innerHTML = subscriptions.map((sub) => {
-              const isCancelScheduled = sub.status === "CANCEL_SCHEDULED";
-              const isCanceled = sub.status === "CANCELED" || sub.status === "TERMINATED";
-              const tone = sub.status === "ACTIVE" ? "good" : "warn";
-              return `<div class="li"><span class="tile ${tone} sm">${hero("server", "s")}</span><span class="tx"><b>${esc(sub.serviceName)}</b><small>${money(sub.renewalPriceMinorUnits, sub.currency)} / ${esc(sub.billingInterval.toLowerCase())} \xB7 Renews ${formatDate(sub.nextRenewalDate)}</small></span><span class="row" style="gap:8px;flex-shrink:0"><span class="pill ${tone}">${esc(sub.status)}</span>${isCanceled ? '<span class="pill">Cancelled</span>' : isCancelScheduled ? '<span class="pill warn">Cancel scheduled</span>' : `<button type="button" class="btn s sec" style="color:var(--bad)" data-cancel-sub="${esc(sub.id)}">Cancel</button>`}</span></div>`;
-            }).join("");
-          }
-        } catch (err) {
-          subHost.innerHTML = `<div class="alert bad"><div><b>Failed to load subscriptions</b><span>${esc(err.message)}</span></div></div>`;
+        if (!subscriptions.length) {
+          subHost.innerHTML = renderEmptyState({
+            icon: "wallet-01",
+            title: "No subscriptions",
+            message: "Subscriptions appear after your first order."
+          });
+        } else {
+          subHost.innerHTML = subscriptions.map((sub) => {
+            const isCancelScheduled = sub.status === "CANCEL_SCHEDULED";
+            const isCanceled = sub.status === "CANCELED" || sub.status === "TERMINATED";
+            const tone = sub.status === "ACTIVE" ? "good" : isCancelScheduled ? "warn" : "";
+            const statusLabel = isCancelScheduled ? "CANCELLATION SCHEDULED" : sub.status;
+            return `<div class="li">
+              <span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="#i-wallet-01"/></svg></span>
+              <span class="tx">
+                <b>${esc(sub.serviceName)}</b>
+                <small>${isCancelScheduled ? "Cancels " + formatDate(sub.nextRenewalDate) : "Renews " + formatDate(sub.nextRenewalDate) + " \xB7 " + esc(sub.billingInterval.toLowerCase())}</small>
+              </span>
+              <span class="pill ${tone}">${esc(statusLabel)}</span>
+              ${isCanceled ? "" : `<button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}">Manage</button>`}
+            </div>`;
+          }).join("");
         }
       }
     } catch (error) {
       host.innerHTML = `<tr><td colspan="6"><div class="alert bad"><div><b>Failed to load billing records</b><span>${esc(error.message)}</span></div></div></td></tr>`;
-    }
-  }
-  async function cancelSubscription(subId, button) {
-    if (!confirm("Cancel this subscription at the end of the current billing period?")) return;
-    button.disabled = true;
-    try {
-      await api(`/api/v1/subscriptions/${encodeURIComponent(subId)}/cancel`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ immediate: false })
-      });
-      toast("Subscription cancelled at period end.", "good");
-      await renderBilling();
-    } catch (err) {
-      toast(err.message, "bad");
-      button.disabled = false;
     }
   }
 
@@ -2072,9 +4511,15 @@ ${node.textContent || ""}
   }
   function ticketRow(ticket) {
     const search = `${ticket.subject} ${ticket.id} ${ticket.status} ${ticket.priority}`.toLowerCase();
-    const tone = priorityTone(ticket.priority) || "acc";
+    const tone = priorityTone(ticket.priority) || "info";
     const msgs = Number(ticket.message_count || 0);
-    return `<a class="li support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}"><span class="tile ${tone} sm">${hero("support", "s")}</span><span class="tx"><b>${esc(ticket.subject)}</b><small>${esc(ticket.id)} \xB7 ${msgs} message${msgs === 1 ? "" : "s"} \xB7 ${esc(formatDate(ticket.updated_at || ticket.created_at))}</small></span><span class="row" style="gap:6px;flex-shrink:0"><span class="pill ${statusTone(ticket.status)}">${esc(ticket.status.replace("_", " "))}</span><span class="pill ${tone}">${esc(ticket.priority)}</span>${hero("chevron", "s")}</span></a>`;
+    return `<a class="li support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}" style="padding:14px 16px">
+    <span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-message-01"/></svg></span>
+    <span class="tx"><b>${esc(ticket.subject)}</b><small>${esc(ticket.id)} \xB7 updated ${esc(formatDate(ticket.updated_at || ticket.created_at))} \xB7 ${msgs} message${msgs === 1 ? "" : "s"}</small></span>
+    <span class="pill ${tone}">${esc(ticket.priority)}</span>
+    <span class="pill ${statusTone(ticket.status)}">${esc(ticket.status.replace("_", " "))}</span>
+    <svg class="ic s hide-n" width="16" height="16"><use href="#i-arrow-right-01"/></svg>
+  </a>`;
   }
   async function renderTickets() {
     const host = document.getElementById("ticketsList");
@@ -2086,14 +4531,14 @@ ${node.textContent || ""}
       ticketCache = tickets;
       if (!tickets.length) {
         host.className = "support-empty";
-        host.innerHTML = renderEmptyState({ icon: "support", title: "No support conversations", message: "Open a ticket when you need help with an account or service.", actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new">${hero("plus", "s")}Open ticket</a>` });
+        host.innerHTML = renderEmptyState({ icon: "message-01", title: "No support conversations", message: "Open a ticket when you need help with an account or service.", actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" width="14" height="14"><use href="#i-add-01"/></svg>Open ticket</a>` });
         return;
       }
-      host.className = "";
+      host.className = "col";
       host.innerHTML = tickets.map(ticketRow).join("");
       filterTickets();
     } catch (error) {
-      host.className = "";
+      host.className = "col";
       host.innerHTML = `<div class="alert bad"><div><b>Failed to load tickets</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
@@ -2111,27 +4556,168 @@ ${node.textContent || ""}
     if (count) count.textContent = ticketCache.length ? `${visible} of ${ticketCache.length} conversations` : "";
   }
   function fileDrop(inputId, labelId) {
-    return `<div class="field"><span class="lbl">Attachment <small class="muted">optional \xB7 max 5 MB</small></span><label class="drop support-drop" tabindex="0" role="button" for="${inputId}">${hero("document", "l")}<b>Drop a file here or browse</b><small>PNG, JPEG, GIF, WebP, PDF, text, JSON or ZIP</small><input id="${inputId}" type="file" accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/markdown,application/pdf,application/json,application/zip" hidden><span id="${labelId}" class="support-file-label"></span></label></div>`;
+    return `<div class="fld">
+    <span class="lbl">Attachment <small class="muted" style="font-weight:500">optional \xB7 max 5 MB</small></span>
+    <label class="drop" for="${inputId}">
+      <svg class="ic" width="28" height="28" style="color:var(--ink3)"><use href="#i-paperclip"/></svg>
+      <b>Drop a file here or browse</b>
+      <small>PNG, JPEG, GIF, WebP, PDF, text, JSON or ZIP</small>
+      <input id="${inputId}" type="file" accept="image/jpeg,image/png,image/gif,image/webp,text/plain,text/markdown,application/pdf,application/json,application/zip" hidden>
+      <span id="${labelId}" class="pill" style="display:none;margin-top:8px;font-weight:600"></span>
+    </label>
+  </div>`;
   }
   function renderNewTicket() {
     const host = document.getElementById("newTicketPage");
     if (!host) return;
-    host.innerHTML = `<div class="support-form-layout">
-    <form id="createTicketPageForm" class="card support-form" novalidate>
-      <div class="section-card-head"><span class="ico-b accent">${hero("support")}</span><div class="tx"><h2>Tell us what happened</h2><p>Include the affected service, timing and current impact. Markdown is stored safely.</p></div></div>
-      <div class="field"><label for="ticketSubject">Subject</label><div class="inp"><input id="ticketSubject" name="subject" required minlength="3" maxlength="160" autocomplete="off" placeholder="e.g. Instance cannot start"></div></div>
-      <fieldset class="field"><legend class="lbl">Priority</legend><div class="seg block support-priority" role="radiogroup">${["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => `<label><input type="radio" name="ticketPriority" value="${value}"${value === "NORMAL" ? " checked" : ""}><span>${value[0]}${value.slice(1).toLowerCase()}</span></label>`).join("")}</div></fieldset>
-      <div class="field"><span class="lbl">Detailed message</span>${petalRichTextEditor("newTicketEditor", "Detailed message", "Describe what happened, when it started, and what is affected\u2026")}</div>
-      ${fileDrop("newTicketFileInput", "newTicketFileLabel")}
-      <div id="ticketFormError" class="err" role="alert" hidden></div>
-      <div class="support-form-actions"><a class="btn sec" href="/app/support" data-app-route="tickets">Cancel</a><button type="submit" class="btn" id="submitTicketBtn">${hero("paper", "s")}Open ticket</button></div>
-    </form>
-    <aside class="card support-help"><span class="ico-b info">${hero("document")}</span><h3>Useful details</h3><ul><li>Service name or identifier</li><li>When the issue started</li><li>Exact error message</li><li>Steps already attempted</li></ul><p class="truth-note">Do not include passwords, recovery codes or private keys.</p></aside>
-  </div>`;
+    host.innerHTML = `<div class="row faint" style="font-weight:650;padding:2px 0 8px;gap:6px">
+      <a class="lk" style="color:var(--ink3)" href="/app/support" data-app-route="tickets">Support</a>
+      <svg class="ic" width="12" height="12"><use href="#i-arrow-right-01"/></svg>
+      <span>Open a ticket</span>
+    </div>
+    <div class="hd" style="margin-bottom:18px">
+      <div class="tx">
+        <h1 style="font:800 24px/1.2 var(--font);letter-spacing:-.03em;margin:0 0 4px">Open a ticket</h1>
+        <p class="sub" style="margin:0">Tell us what happened and our team will investigate.</p>
+      </div>
+    </div>
+    <div class="g c21" style="gap:20px;align-items:start">
+      <form id="createTicketPageForm" class="card" style="padding:24px;display:flex;flex-direction:column;gap:18px" novalidate>
+        <div class="fld">
+          <span class="lbl">Priority</span>
+          <div class="seg blk" role="radiogroup">
+            ${["LOW", "NORMAL", "HIGH", "URGENT"].map((value) => `
+              <label>
+                <input type="radio" name="ticketPriority" value="${value}"${value === "NORMAL" ? " checked" : ""} hidden>
+                <button type="button" data-v="${value}" aria-selected="${value === "NORMAL"}">${value[0]}${value.slice(1).toLowerCase()}</button>
+              </label>
+            `).join("")}
+          </div>
+        </div>
+        <div class="fld">
+          <label for="ticketSubject">Subject</label>
+          <div class="inp">
+            <input id="ticketSubject" name="subject" required minlength="3" maxlength="160" autocomplete="off" placeholder="What do you need help with?">
+          </div>
+        </div>
+        <div class="fld">
+          <label>Message</label>
+          ${petalRichTextEditor("newTicketEditor", "Detailed message", "Describe what happened and what you expected\u2026")}
+        </div>
+        ${fileDrop("newTicketFileInput", "newTicketFileLabel")}
+        <div id="ticketFormError" class="err" role="alert" hidden></div>
+        <div class="row" style="justify-content:flex-end;gap:10px;margin-top:6px">
+          <a class="btn" href="/app/support" data-app-route="tickets">Cancel</a>
+          <button type="submit" class="btn pri" id="submitTicketBtn">
+            <svg class="ic s" width="16" height="16"><use href="#i-send"/></svg>
+            Submit ticket
+          </button>
+        </div>
+      </form>
+      <aside class="card" style="padding:24px">
+        <div class="ch"><div class="tx"><h3 style="margin:0 0 6px">Useful details</h3></div></div>
+        <ul class="col" style="gap:8px;font-size:13px;padding-left:18px;color:var(--ink2);line-height:1.6">
+          <li>Affected service name or identifier</li>
+          <li>Exact timestamp when the issue started</li>
+          <li>Error messages or reproduction steps</li>
+          <li>Troubleshooting steps already attempted</li>
+        </ul>
+        <p class="muted" style="font-size:12px;margin:16px 0 0;line-height:1.5">
+          Never share passwords, API tokens, private keys, or recovery codes in support messages.
+        </p>
+      </aside>
+    </div>`;
   }
   function attachmentMarkup(ticketId, attachments) {
     if (!attachments.length) return "";
-    return `<div class="att-list">${attachments.map((att) => `<a href="/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip">${hero("document", "xs")}<span class="name">${esc(att.filename)}</span><span class="sz">${formatBytes(att.byte_size)}</span></a>`).join("")}</div>`;
+    return `<div class="att-list">${attachments.map((att) => `<a href="/api/v1/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(att.id)}" download class="att-chip"><svg class="ic xs" width="12" height="12"><use href="#i-paperclip"/></svg><span class="name">${esc(att.filename)}</span><span class="sz">${formatBytes(att.byte_size)}</span></a>`).join("")}</div>`;
+  }
+  function openTicketModal() {
+    const modal = document.getElementById("ticketModal");
+    if (!modal) return;
+    const editorHost = document.getElementById("modalTicketMessageHost");
+    if (editorHost && !document.getElementById("modalTicketMessage")) {
+      editorHost.innerHTML = petalRichTextEditor("modalTicketMessage", "Detailed message", "Describe what happened and what you expected\u2026");
+    }
+    modal.hidden = false;
+    const select = document.getElementById("modalTicketService");
+    if (select && select.dataset["loaded"] !== "true" && select.dataset["loading"] !== "true") {
+      select.dataset["loading"] = "true";
+      api("/api/v1/services").then(({ services }) => {
+        select.replaceChildren(new Option("None", ""));
+        (services || []).filter((s) => s.contract_status !== "TERMINATED").forEach((s) => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          const name = s.plan_name || s.planName || s.identifier || s.id;
+          const identifier = s.identifier && s.identifier !== name ? ` \xB7 ${s.identifier}` : "";
+          opt.textContent = `${name}${identifier}`;
+          select.appendChild(opt);
+        });
+        select.dataset["loaded"] = "true";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      }).catch(() => {
+      }).finally(() => {
+        delete select.dataset["loading"];
+      });
+    }
+  }
+  function closeTicketModal() {
+    const modal = document.getElementById("ticketModal");
+    if (modal) modal.hidden = true;
+    const err = document.getElementById("modalTicketError");
+    if (err) err.hidden = true;
+  }
+  async function submitModalTicket(event, navigate) {
+    event.preventDefault();
+    const form = event.target;
+    const subject = document.getElementById("modalTicketSubject")?.value.trim() || "";
+    const message = editorMarkdown("modalTicketMessage");
+    const priority = (form.querySelector('input[name="modalTicketPriority"]:checked')?.value || "NORMAL").toUpperCase();
+    const serviceId = document.getElementById("modalTicketService")?.value || void 0;
+    const errorEl = document.getElementById("modalTicketError");
+    const submitBtn = document.getElementById("submitModalTicketBtn");
+    if (errorEl) errorEl.hidden = true;
+    if (subject.length < 3 || message.length < 5) {
+      if (errorEl) {
+        errorEl.textContent = "Add a clear subject and at least five characters of detail.";
+        errorEl.hidden = false;
+      }
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const created = await api("/api/v1/tickets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, priority, message, serviceId })
+      });
+      closeTicketModal();
+      form.reset();
+      resetEditor("modalTicketMessage");
+      toast(`Ticket opened \xB7 ${created.ticketId}`, "good");
+      await renderTickets();
+      navigate(`/app/support/${created.ticketId}`);
+    } catch (err) {
+      if (errorEl) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+      }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+  async function resolveTicketAction(ticketId) {
+    const btn = document.getElementById("markTicketResolvedBtn");
+    if (btn) btn.disabled = true;
+    try {
+      await api(`/api/v1/tickets/${encodeURIComponent(ticketId)}/resolve`, { method: "POST" });
+      toast("Ticket marked resolved.", "good");
+      await renderTicketDetail(ticketId);
+    } catch (err) {
+      toast(err.message, "bad");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
   async function renderTicketDetail(id) {
     const host = document.getElementById("ticketDetailPage");
@@ -2140,15 +4726,101 @@ ${node.textContent || ""}
     try {
       const data = await api(`/api/v1/tickets/${encodeURIComponent(id)}`);
       const closed = data.ticket.status === "CLOSED";
-      host.innerHTML = `<nav class="support-breadcrumb" aria-label="Breadcrumb"><a href="/app/support" data-app-route="tickets">Support</a>${hero("chevron", "xs")}<span>${esc(data.ticket.id)}</span></nav>
-      <div class="support-thread-layout">
-        <article class="card support-thread">
-          <header class="support-thread-head"><div class="tx"><div class="row wrap"><span class="pill ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span><span class="pill ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span></div><h2>${esc(data.ticket.subject)}</h2><p>${esc(data.ticket.id)} \xB7 Updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p></div></header>
-          <div class="support-messages z-cmt">${data.messages.map((message) => `<article class="z-cmi ${message.is_staff ? "staff" : "customer"}"><span class="av s">${esc((message.author_name || (message.is_staff ? "Support" : "You")).slice(0, 2).toUpperCase())}</span><div class="tx"><div class="hd"><b>${esc(message.is_staff ? message.author_name || "Fortless support" : message.author_name || "You")}</b><small>${message.is_staff ? "Fortless support" : "Customer"} \xB7 ${esc(formatDate(message.created_at))}</small></div><div class="bd">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div></div></article>`).join("")}</div>
-          ${closed ? `<div class="alert warn"><div><b>Ticket closed</b><span>New replies are disabled.</span></div></div>` : `<form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="support-composer"><div class="section-card-head"><div class="tx"><h3>Reply</h3><p>Your message is stored as Markdown.</p></div></div>${petalRichTextEditor("ticketReplyEditor", "Ticket reply", "Write a reply\u2026")}${fileDrop("ticketReplyFileInput", "ticketReplyFileLabel")}<div id="ticketReplyError" class="err" role="alert" hidden></div><div class="support-form-actions"><button id="sendReplyBtn" class="btn" type="submit">${hero("paper", "s")}Send reply</button></div></form>`}
-        </article>
-        <aside class="card support-context"><h3>Ticket details</h3><dl class="kv"><dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd><dt>Status</dt><dd><span class="pill ${statusTone(data.ticket.status)}">${esc(data.ticket.status)}</span></dd><dt>Priority</dt><dd><span class="pill ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span></dd><dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd><dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd></dl>${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}</aside>
+      const isResolved = data.ticket.status === "RESOLVED";
+      const recentStart = Math.max(1, data.messages.length - 5);
+      const olderCount = Math.max(0, recentStart - 1);
+      host.innerHTML = `<div class="row faint" style="font-weight:650;padding:2px 0 8px;gap:6px">
+        <a class="lk" style="color:var(--ink3)" href="/app/support" data-app-route="tickets">Support</a>
+        <svg class="ic xs" width="12" height="12"><use href="#i-arrow-right-01"/></svg>
+        <span>${esc(data.ticket.id)}</span>
+      </div>
+      <div class="hd" style="margin-bottom:14px">
+        <div class="tx">
+          <div class="row" style="margin-bottom:8px;gap:6px">
+            <span class="pill ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span>
+            <span class="pill ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span>
+          </div>
+          <h1 style="font:800 24px/1.2 var(--font);letter-spacing:-.03em;margin:0 0 4px">${esc(data.ticket.subject)}</h1>
+          <p class="sub" style="margin:0">Opened ${esc(formatDate(data.ticket.created_at))} \xB7 updated ${esc(formatDate(data.ticket.updated_at || data.ticket.created_at))}</p>
+        </div>
+        ${closed || isResolved ? "" : `<button class="btn" id="markTicketResolvedBtn" data-ticket-id="${esc(data.ticket.id)}"><svg class="ic s" aria-hidden="true"><use href="#i-tick-02"/></svg>Mark resolved</button>`}
+      </div>
+      <div class="g c21">
+        <div class="col" style="gap:12px">
+          <div class="card" style="padding:24px" data-c="Thread">
+            <div class="ch"><div class="tx"><h3 style="margin:0 0 4px">Conversation</h3><p>Showing the first message and the latest replies.</p></div></div>
+            ${olderCount ? `<div class="row" style="justify-content:center;margin-bottom:12px"><button class="btn s" type="button" id="loadOlderTicketMessages" data-remaining="${olderCount}">Load ${Math.min(5, olderCount)} older message${Math.min(5, olderCount) === 1 ? "" : "s"}</button></div>` : ""}
+            <div class="col" id="ticketConversation" style="gap:12px;max-height:min(680px,62vh);overflow-y:auto;padding-right:6px;scrollbar-gutter:stable">
+              ${data.messages.map((message, index) => `
+                <div class="row nw" data-ticket-message data-message-index="${index}" ${index > 0 && index < recentStart ? "hidden" : ""} style="align-items:flex-start;gap:12px">
+                  <span class="av ${message.is_staff ? "v" : ""} s">${esc((message.author_name || (message.is_staff ? "Support" : "You")).slice(0, 2).toUpperCase())}</span>
+                  <div class="li" style="display:block;border-radius:6px 20px 20px 20px;background:${message.is_staff ? "var(--s2)" : "var(--accent-bg)"};flex:1;padding:12px 16px">
+                    <div class="row" style="gap:8px;margin-bottom:6px">
+                      <b>${esc(message.is_staff ? message.author_name || "Support \xB7 Staff" : message.author_name || "You")}</b>
+                      ${message.is_staff ? '<span class="pill violet" style="font-size:11px">Staff</span>' : ""}
+                      <small class="faint" style="font-weight:600">${esc(formatDate(message.created_at))}</small>
+                    </div>
+                    <div style="font-weight:500;line-height:1.55;font-size:13.5px">${renderMarkdown(message.body)}${attachmentMarkup(id, data.attachments.filter((att) => att.message_id === message.id))}</div>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>
+          ${closed ? `<div class="alert warn"><div><b>Ticket closed</b><span>New replies are disabled.</span></div></div>` : `
+          <form id="ticketReplyForm" data-ticket-id="${esc(id)}" class="card support-composer" style="padding:24px;display:flex;flex-direction:column;gap:18px" data-c="Composer">
+            <div class="ch">
+              <div class="tx">
+                <h3 style="margin:0 0 4px">Reply</h3>
+                <p class="sub" style="margin:0;color:var(--ink2);font-size:13px">Your message is stored securely.</p>
+              </div>
+            </div>
+            <div class="fld">
+              ${petalRichTextEditor("ticketReplyEditor", "Ticket reply", "Write a reply\u2026")}
+            </div>
+            ${fileDrop("ticketReplyFileInput", "ticketReplyFileLabel")}
+            <div id="ticketReplyError" class="err" role="alert" hidden></div>
+            <div class="row" style="justify-content:flex-end;margin-top:4px">
+              <button id="sendReplyBtn" class="btn pri" type="submit">
+                <svg class="ic s" width="16" height="16"><use href="#i-send"/></svg>
+                Send reply
+              </button>
+            </div>
+          </form>
+          `}
+        </div>
+        <aside class="card" style="align-self:start" data-c="Key-value list">
+          <div class="ch"><div class="tx"><h3>Ticket details</h3></div></div>
+          <dl class="kv">
+            <dt>Reference</dt><dd><code>${esc(data.ticket.id)}</code></dd>
+            <dt>Status</dt><dd><span class="pill ${statusTone(data.ticket.status)}">${esc(data.ticket.status.replace("_", " "))}</span></dd>
+            <dt>Priority</dt><dd><span class="pill ${priorityTone(data.ticket.priority)}">${esc(data.ticket.priority)}</span></dd>
+            <dt>Created</dt><dd>${esc(formatDate(data.ticket.created_at))}</dd>
+            <dt>Updated</dt><dd>${esc(formatDate(data.ticket.updated_at))}</dd>
+            <dt>Messages</dt><dd>${data.messages.length}</dd>
+          </dl>
+          ${attachmentMarkup(id, data.attachments.filter((att) => !att.message_id))}
+        </aside>
       </div>`;
+      const conversation = document.getElementById("ticketConversation");
+      const loadOlder = document.getElementById("loadOlderTicketMessages");
+      loadOlder?.addEventListener("click", () => {
+        if (!conversation) return;
+        const hidden = Array.from(conversation.querySelectorAll("[data-ticket-message][hidden]"));
+        const before = conversation.scrollHeight;
+        hidden.slice(-5).forEach((message) => {
+          message.hidden = false;
+        });
+        const remaining = conversation.querySelectorAll("[data-ticket-message][hidden]").length;
+        conversation.scrollTop += conversation.scrollHeight - before;
+        if (!remaining) loadOlder.remove();
+        else {
+          loadOlder.dataset.remaining = String(remaining);
+          loadOlder.textContent = `Load ${Math.min(5, remaining)} older message${Math.min(5, remaining) === 1 ? "" : "s"}`;
+        }
+      });
+      window.requestAnimationFrame(() => {
+        if (conversation) conversation.scrollTop = conversation.scrollHeight;
+      });
     } catch (error) {
       host.innerHTML = `<div class="alert bad"><div><b>Failed to load ticket</b><span>${esc(error.message)}</span></div></div><a class="btn sec s" style="margin-top:12px" href="/app/support" data-app-route="tickets">Back to support</a>`;
     }
@@ -2251,10 +4923,90 @@ ${node.textContent || ""}
     const labelId = input.id === "newTicketFileInput" ? "newTicketFileLabel" : "ticketReplyFileLabel";
     const label = document.getElementById(labelId);
     const file = input.files?.[0];
-    if (label) label.textContent = file ? `${file.name} \xB7 ${formatBytes(file.size)}` : "";
+    if (label) {
+      if (file) {
+        label.textContent = `${file.name} \xB7 ${formatBytes(file.size)}`;
+        label.style.display = "inline-flex";
+      } else {
+        label.textContent = "";
+        label.style.display = "none";
+      }
+    }
   }
 
   // src/frontend/client/pages/activity/index.ts
+  function metadata(item) {
+    try {
+      return typeof item.metadata === "string" ? JSON.parse(item.metadata) : item.metadata || {};
+    } catch {
+      return {};
+    }
+  }
+  function resourceContext(item) {
+    if (item.resource_type === "service" && item.service_name) {
+      return { label: `${item.service_name}${item.service_plan && item.service_plan !== item.service_name ? ` \xB7 ${item.service_plan}` : ""}`, href: `/app/services/${encodeURIComponent(item.resource_id)}` };
+    }
+    if ((item.resource_type === "ticket" || item.resource_type === "ticket_attachment") && item.ticket_id) {
+      return { label: item.ticket_subject ? `Ticket: ${item.ticket_subject}` : item.ticket_id, href: `/app/support/${encodeURIComponent(item.ticket_id)}` };
+    }
+    if (item.resource_type === "order" && item.resource_id) return { label: `Order ${item.resource_id}` };
+    return null;
+  }
+  function friendlyAction(item) {
+    const action = String(item.action || "");
+    const meta = metadata(item);
+    const ip = item.ip_address ? ` \xB7 from ${item.ip_address}` : "";
+    const service = item.resource_type === "service" ? " this service" : "";
+    const exact = {
+      "user.login": ["Signed in to Fortless", `A new account session was started${ip}.`],
+      "user.logout": ["Signed out of Fortless", `The current account session was ended${ip}.`],
+      "oidc.authorize": ["Signed in to the server panel with SSO", "Fortless securely approved access to the hosting panel."],
+      "auth.passkey_authenticated": ["Signed in with a passkey", `A passkey was used to access the account${ip}.`],
+      "auth.passkey_registered": ["Added a passkey", "A new passkey was added to account security."],
+      "user.mfa_challenge_completed": ["Completed sign-in verification", `The extra security check was completed${ip}.`],
+      "user.step_up_completed": ["Confirmed a sensitive action", "Password and authenticator verification succeeded."],
+      "user.mfa_enabled": ["Turned on two-step verification", "The account now requires an authenticator at sign-in."],
+      "user.mfa_disabled": ["Turned off two-step verification", "Authenticator protection was removed from the account."],
+      "user.password_changed": ["Changed the account password", `Other signed-in devices were disconnected${ip}.`],
+      "session.revoked": ["Signed out a device", "One saved account session was removed."],
+      "session.others_revoked": ["Signed out other devices", `${Number(meta.revokedCount || 0)} other session${Number(meta.revokedCount || 0) === 1 ? "" : "s"} removed.`],
+      "service.game.eula_accepted": ["Accepted the Minecraft EULA", "Minecraft was approved to start and the server was restarted."],
+      "service.settings.reinstall": ["Started a server reinstall", "Fortless sent the reinstall request to the hosting platform."],
+      "service.settings.reinstall_completed": ["Server reinstall finished", "The fresh installation is ready to use."],
+      "service.created": ["Created a service", "A new service was added to this account."],
+      "service.provisioned": ["Service became ready", "The hosting platform finished preparing the service."],
+      "service.provider_missing": ["Server connection needs attention", "Fortless could no longer find this server on the hosting platform."],
+      "ticket.created": ["Opened a support ticket", "A new conversation with Fortless Support was started."],
+      "ticket.customer_replied": ["Replied to a support ticket", "Your reply was added to the conversation."],
+      "ticket.staff_reply_added": ["Support replied to a ticket", "A Fortless team member added a reply."],
+      "ticket.resolved": ["Marked a support ticket resolved", "The support conversation was marked as solved."],
+      "billing.profile_updated": ["Updated billing details", "The information used on invoices was changed."],
+      "order.paid": ["Payment confirmed", "The order was paid successfully."]
+    };
+    if (action === "user.notification_preferences_updated") {
+      const state = (value) => value === true ? "on" : "off";
+      return { title: "Updated email notifications", detail: `Billing ${state(meta.billingEmail)} \xB7 service ${state(meta.serviceEmail)} \xB7 support ${state(meta.supportEmail)}.` };
+    }
+    if (exact[action]) return { title: exact[action][0], detail: exact[action][1] };
+    if (action === "service.power") {
+      const verb = String(meta.action || "power command").toLowerCase();
+      return { title: `${verb[0]?.toUpperCase() || ""}${verb.slice(1)} requested`, detail: `Fortless sent the ${verb} command to${service || " the server"}.` };
+    }
+    if (action.startsWith("service.file.")) return { title: "Changed server files", detail: `A file operation was completed${meta.path ? ` for ${meta.path}` : ""}.` };
+    if (action.startsWith("service.backup.")) return { title: "Changed server backups", detail: "A backup action was completed." };
+    if (action.startsWith("service.database.")) return { title: "Changed a server database", detail: "A database setting or credential was updated." };
+    if (action.startsWith("service.network.")) return { title: "Changed a server address", detail: "A network address setting was updated." };
+    if (action.startsWith("service.schedule.")) return { title: "Changed an automatic task", detail: "A server schedule or task was updated." };
+    if (action.startsWith("service.startup.")) return { title: "Changed startup settings", detail: "A server startup option was updated." };
+    if (action.startsWith("service.member.")) return { title: "Changed server access", detail: "Sharing permissions for this server were updated." };
+    if (action.startsWith("team.")) return { title: "Changed workspace members", detail: "Team access to this workspace was updated." };
+    if (action.startsWith("ticket.")) return { title: "Updated a support ticket", detail: "The support conversation changed." };
+    if (/invoice|billing|payment|subscription|order|quote/.test(action)) return { title: "Updated billing", detail: "A billing or subscription record changed." };
+    if (action === "service.console_token") return { title: "Opened the server console", detail: "A temporary secure console connection was created." };
+    if (action === "panel_client_key.minted") return { title: "Connected to the hosting panel", detail: "Fortless created secure panel access for this account." };
+    const words = action.replaceAll(/[._-]+/g, " ").trim();
+    return { title: words ? words[0].toUpperCase() + words.slice(1) : "Account updated", detail: "An action was completed on this account." };
+  }
   function actionIcon(action) {
     const a = String(action || "").toLowerCase();
     if (/password|recovery|key/.test(a)) return ["key-01", ""];
@@ -2263,7 +5015,7 @@ ${node.textContent || ""}
     if (/ticket|support|message/.test(a)) return ["message-01", "info"];
     if (/provision|deploy|service|server/.test(a)) return ["rocket-01", "violet"];
     if (/invoice|billing|payment|subscription|order/.test(a)) return ["invoice-01", "warn"];
-    return ["shield", ""];
+    return ["shield-01", ""];
   }
   function dayLabel(ts) {
     const d = new Date(ts);
@@ -2288,8 +5040,12 @@ ${node.textContent || ""}
   function renderTimeline(items) {
     return '<div class="tl2">' + items.map((item) => {
       const [icon, tone] = actionIcon(item.action);
+      const friendly = friendlyAction(item);
       const time = item.created_at ? new Date(item.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
-      return `<div class="ev"><span class="tile ${tone} sm">${hero(icon, "s")}</span><div><b>${esc(item.actor_name || item.actor_type)} \xB7 ${esc(item.action.replaceAll(".", " \xB7 "))}</b><small>${esc(item.resource_type || "")}${item.resource_id ? " \xB7 " + esc(compactId(item.resource_id)) : ""}${item.ip_address ? " \xB7 " + esc(item.ip_address) : ""}</small></div><small>${esc(time)}</small></div>`;
+      const actor2 = item.actor_name || (item.actor_type === "SYSTEM" ? "Fortless" : "You");
+      const context = resourceContext(item);
+      const contextHtml = context ? ` \xB7 ${context.href ? `<a class="lk" href="${esc(context.href)}" data-app-route>${esc(context.label)}</a>` : `<span>${esc(context.label)}</span>`}` : "";
+      return `<div class="ev"><span class="tile ${tone} sm"><svg class="ic s" width="16" height="16"><use href="#i-${icon}"/></svg></span><div><b>${esc(friendly.title)}</b><small>${esc(friendly.detail)}${contextHtml} \xB7 ${esc(actor2)}</small></div><small class="muted mono" style="font-size:12px">${esc(time)}</small></div>`;
     }).join("") + "</div>";
   }
   var auditLogs = [];
@@ -2313,18 +5069,20 @@ ${node.textContent || ""}
     const type = document.querySelector('input[name="auditType"]:checked')?.value || "ALL";
     const logs = auditLogs.filter((item) => {
       const action = String(item.action || "").toUpperCase();
-      const matchesType = type === "ALL" || (type === "AUTH" ? /LOGIN|LOGOUT|SESSION|PASSWORD|MFA|EMAIL/.test(action) : type === "SUPPORT" ? /TICKET|SUPPORT/.test(action) : /BILL|INVOICE|PAYMENT|SUBSCRIPTION|ORDER|QUOTE/.test(action));
-      return matchesType && [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id].some(
+      const matchesType = type === "ALL" || (type === "AUTH" ? /LOGIN|LOGOUT|SESSION|PASSWORD|MFA|EMAIL|OIDC|PASSKEY|STEP_UP/.test(action) : type === "SUPPORT" ? /TICKET|SUPPORT/.test(action) : /BILL|INVOICE|PAYMENT|SUBSCRIPTION|ORDER|QUOTE/.test(action));
+      const friendly = friendlyAction(item);
+      const context = resourceContext(item);
+      return matchesType && (!query || [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id, item.service_name, item.service_plan, item.ticket_subject, context?.label, friendly.title, friendly.detail].some(
         (value) => String(value || "").toLowerCase().includes(query)
-      );
+      ));
     });
     const count = document.getElementById("auditResultCount");
     if (count) count.textContent = `${logs.length} of ${auditLogs.length} events`;
     if (!logs.length) {
       host.innerHTML = renderEmptyState({
         icon: "history",
-        title: query ? "No matching activity" : "No account activity yet",
-        message: query ? "Try a different actor, action or resource." : "Security-relevant account events will appear here."
+        title: "No recent activity",
+        message: "Events appear as you use the account."
       });
       return;
     }
@@ -2334,10 +5092,181 @@ ${node.textContent || ""}
 
   // src/frontend/client/pages/settings/index.ts
   var mfaEnrollmentState = null;
-  async function renderSettings() {
+  async function renderSettings(tab) {
     const tabsEl = document.getElementById("settingsTabs");
-    if (tabsEl) initTabs(tabsEl);
-    await Promise.all([loadMfa(), loadSessions(), loadTeamMembers(), loadEmailStatus()]);
+    if (tabsEl) {
+      initTabs(tabsEl);
+      bindTabUrls({
+        tabs: tabsEl,
+        base: "/app/settings",
+        initial: tab,
+        fallbackKey: "s",
+        slugs: { p: "profile", s: "security", t: "team", n: "notifications", d: "sessions" },
+        keyOf: (b) => b.getAttribute("aria-controls")?.split("-")[1],
+        select: (key) => tabsEl.querySelector(`[aria-controls="settings-${key}"]`)?.click()
+      });
+    }
+    bindEditProfile();
+    await Promise.all([loadMfa(), loadPasskeys(), loadSessions(), loadTeamMembers(), loadEmailStatus(), loadNotificationPreferences()]);
+  }
+  async function loadNotificationPreferences() {
+    const host = document.getElementById("notificationPreferences");
+    if (!host) return;
+    try {
+      const { preferences } = await api("/api/v1/notification-preferences");
+      const item = (key, title, description, icon, tone) => `
+      <div class="li" style="padding:14px 16px">
+        <span class="tile ${tone} sm">${hero(icon, "s")}</span>
+        <span class="tx"><b>${title}</b><small>${description}</small></span>
+        <button class="sw" type="button" role="switch" data-email-pref="${key}" aria-label="${title}" aria-checked="${preferences[key]}"></button>
+      </div>`;
+      host.innerHTML = item("billingEmail", "Billing updates", "Invoices, receipts, renewals and scheduled cancellations", "invoice-01", "warn") + item("serviceEmail", "Service updates", "Provisioning completed and service-ready messages", "server", "good") + item("supportEmail", "Support replies", "New staff replies in your support conversations", "message-01", "info");
+      if (!host.dataset["bound"]) {
+        host.dataset["bound"] = "1";
+        host.addEventListener("click", async (event) => {
+          const button = event.target.closest("[data-email-pref]");
+          if (!button) return;
+          const next = button.getAttribute("aria-checked") !== "true";
+          const body = {
+            billingEmail: host.querySelector('[data-email-pref="billingEmail"]')?.getAttribute("aria-checked") === "true",
+            serviceEmail: host.querySelector('[data-email-pref="serviceEmail"]')?.getAttribute("aria-checked") === "true",
+            supportEmail: host.querySelector('[data-email-pref="supportEmail"]')?.getAttribute("aria-checked") === "true"
+          };
+          body[button.dataset["emailPref"]] = next;
+          button.disabled = true;
+          try {
+            const result = await api("/api/v1/notification-preferences", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body)
+            });
+            Object.entries(result.preferences).forEach(([key, enabled]) => host.querySelector(`[data-email-pref="${key}"]`)?.setAttribute("aria-checked", String(enabled)));
+            toast("Notification preferences saved.", "good");
+          } catch (error) {
+            toast(error?.message || "Could not save notification preferences.", "bad");
+          } finally {
+            button.disabled = false;
+          }
+        });
+      }
+    } catch (error) {
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load notification preferences</b><span>${esc(error.message)}</span></div></div>`;
+    }
+  }
+  function bufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let str = "";
+    for (let i = 0; i < bytes.length; i++) {
+      str += String.fromCharCode(bytes[i] ?? 0);
+    }
+    return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function base64urlToBuffer(base64url) {
+    const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = base64.length % 4 === 0 ? "" : "=".repeat(4 - base64.length % 4);
+    const binary = atob(base64 + pad);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+  async function loadPasskeys() {
+    const host = document.getElementById("passkeyList");
+    if (!host) return;
+    try {
+      const { passkeys } = await api("/api/v1/auth/passkeys");
+      if (!passkeys || !passkeys.length) {
+        host.innerHTML = `
+        <div class="li" style="padding:14px 16px">
+          <span class="tx"><b class="muted">No passkeys registered yet</b><small>Add Touch ID, Face ID, Windows Hello or a security key.</small></span>
+        </div>
+      `;
+        return;
+      }
+      host.innerHTML = passkeys.map(
+        (pk) => `
+        <div class="li" style="padding:11px 14px">
+          <span class="tile sm">${hero("fingerprint", "s")}</span>
+          <span class="tx">
+            <b>${esc(pk.deviceLabel || "Security Key")}</b>
+            <small>Added ${formatDate(pk.createdAt)}${pk.lastUsedAt ? ` \xB7 Last used ${formatDate(pk.lastUsedAt)}` : ""}</small>
+          </span>
+          <button class="btn xs bad" type="button" data-remove-passkey="${esc(pk.id)}">Remove</button>
+        </div>
+      `
+      ).join("");
+    } catch (error) {
+      host.innerHTML = `<div class="alert bad"><div><b>Failed to load passkeys</b><span>${esc(error.message)}</span></div></div>`;
+    }
+  }
+  async function registerPasskey() {
+    if (!window.PublicKeyCredential) {
+      toast("Passkeys (WebAuthn) are not supported by this browser.", "bad");
+      return;
+    }
+    const btn = document.getElementById("addPasskeyBtn");
+    if (btn) btn.disabled = true;
+    try {
+      const options = await api("/api/v1/auth/passkeys/register-options", { method: "POST" });
+      const ua = navigator.userAgent;
+      const defaultLabel = /Macintosh/.test(ua) ? "MacBook Touch ID" : /iPhone|iPad/.test(ua) ? "Apple Device" : /Windows/.test(ua) ? "Windows Hello" : /Android/.test(ua) ? "Android Biometrics" : "Security Key";
+      const challengeBuf = base64urlToBuffer(options.challenge);
+      const userIdBuf = new TextEncoder().encode(options.user.id);
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: challengeBuf.buffer,
+          rp: options.rp,
+          user: {
+            id: userIdBuf.buffer,
+            name: options.user.name,
+            displayName: options.user.displayName
+          },
+          pubKeyCredParams: options.pubKeyCredParams,
+          timeout: options.timeout,
+          authenticatorSelection: {
+            residentKey: "preferred",
+            userVerification: "preferred"
+          },
+          attestation: "none"
+        }
+      });
+      if (!credential) throw new Error("Passkey creation returned empty.");
+      const clientDataJSON = bufferToBase64url(credential.response.clientDataJSON);
+      const attestationObject = bufferToBase64url(credential.response.attestationObject);
+      const rawId = bufferToBase64url(credential.rawId);
+      await api("/api/v1/auth/passkeys/register-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deviceLabel: defaultLabel,
+          challenge: options.challenge,
+          clientDataJSON,
+          credentialId: rawId,
+          publicKey: attestationObject
+        })
+      });
+      toast("Passkey registered successfully.", "good");
+      await loadPasskeys();
+    } catch (err) {
+      if (err.name === "NotAllowedError") {
+        toast("Passkey registration cancelled.", "warn");
+      } else {
+        toast(err.message || "Passkey registration failed.", "bad");
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+  async function handleRemovePasskey(id) {
+    if (!confirm("Are you sure you want to remove this passkey?")) return;
+    try {
+      await api(`/api/v1/auth/passkeys/${encodeURIComponent(id)}`, { method: "DELETE" });
+      toast("Passkey removed.", "good");
+      await loadPasskeys();
+    } catch (err) {
+      toast(err.message || "Failed to remove passkey.", "bad");
+    }
   }
   function describeDevice(userAgent) {
     const ua = String(userAgent || "Unknown client");
@@ -2359,200 +5288,246 @@ ${node.textContent || ""}
       const revokeOthers = document.getElementById("revokeOtherSessionsBtn");
       if (revokeOthers) {
         revokeOthers.disabled = otherCount === 0;
-        revokeOthers.textContent = otherCount ? `Sign out ${otherCount} other ${otherCount === 1 ? "device" : "devices"}` : "No other devices";
+        revokeOthers.textContent = otherCount === 0 ? "No other devices" : "Sign out all other devices";
       }
       host.innerHTML = sessions.map(
-        (session) => `<div class="li"><span class="tile ${session.isCurrent ? "good" : ""} sm">${hero("device", "s")}</span><span class="tx"><b>${esc(describeDevice(session.userAgent))}${session.isCurrent ? ' <span class="pill good">This device</span>' : ""}</b><small>${esc(describeAddress(session.ipAddress))} \xB7 Last active ${esc(formatDate(session.lastActiveAt))}</small></span>${session.isCurrent ? "" : `<button class="btn xs sec" style="color:var(--bad)" data-revoke-session="${esc(session.id)}">Sign out</button>`}</div>`
+        (session) => `<div class="li" style="padding:14px 16px">
+          <span class="tile ${session.isCurrent ? "good" : ""} sm"><svg class="ic" aria-hidden="true"><use href="#i-laptop"/></svg></span>
+          <span class="tx">
+            <b>${esc(describeDevice(session.userAgent))}${session.isCurrent ? ' <span class="pill good">This device</span>' : ""}</b>
+            <small>${esc(describeAddress(session.ipAddress))} \xB7 last active ${esc(formatDate(session.lastActiveAt))}</small>
+          </span>
+          ${session.isCurrent ? "" : `<button class="btn xs bad" type="button" data-revoke-session="${esc(session.id)}">Sign out</button>`}
+        </div>`
       ).join("");
     } catch (error) {
       host.innerHTML = `<div class="alert bad"><div><b>Failed to load sessions</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
+  var currentMfaStatus = null;
+  var lastRecoveryCodes = [];
   async function loadMfa() {
-    const host = document.getElementById("mfaControl");
-    if (!host) return;
-    host.innerHTML = renderSkeleton("profile", "Loading two-step verification");
+    const switchEl = document.getElementById("mfaToggleSwitch");
+    const countEl = document.getElementById("mfaRecoveryCount");
+    const regenBtn = document.getElementById("regenerateMfaCodesBtn");
+    const alertEl = document.getElementById("mfaDisablingAlert");
     try {
       const status = await api("/api/v1/auth/mfa");
-      const shieldIco = hero("shield", "s");
-      const codeWord = status.recoveryCodesRemaining === 1 ? "code" : "codes";
-      host.innerHTML = status.enabled ? `<div class="li"><span class="tile good sm">${shieldIco}</span><span class="tx"><b>Authenticator app</b><small>${status.recoveryCodesRemaining} recovery ${codeWord} remaining</small></span><span class="pill good">Enabled</span><button class="btn sec s" type="button" data-mfa-disable>Disable</button></div>` : `<div class="li"><span class="tile sm">${shieldIco}</span><span class="tx"><b>Add an authenticator app</b><small>Set up a six-digit code when signing in.</small></span><span class="pill">Off</span><button class="btn s" type="button" data-mfa-enable>Set up</button></div>`;
+      currentMfaStatus = status;
+      if (switchEl) switchEl.setAttribute("aria-checked", status.enabled ? "true" : "false");
+      if (regenBtn) regenBtn.disabled = !status.enabled;
+      if (alertEl) alertEl.hidden = !status.enabled;
+      if (countEl) {
+        const codeWord = status.recoveryCodesRemaining === 1 ? "code" : "codes";
+        countEl.textContent = status.enabled ? `${status.recoveryCodesRemaining} recovery ${codeWord} remaining` : "Disabled";
+      }
     } catch (error) {
-      host.innerHTML = `<div class="alert bad"><div><b>Failed to load MFA status</b><span>${esc(error.message)}</span></div></div>`;
+      if (countEl) countEl.textContent = "Failed to load MFA status";
     }
   }
-  function showMfaPasswordStep() {
-    const host = document.getElementById("mfaControl");
-    if (!host) return;
-    host.innerHTML = `
-    <form class="mfa-form" data-mfa-enroll-form>
-      <div class="field">
-        <label for="mfaPassword">Confirm your current password</label>
-        <div class="inp"><input id="mfaPassword" name="password" type="password" autocomplete="current-password" required></div>
-      </div>
-      <div class="mfa-actions">
-        <button class="btn sec s" type="button" data-mfa-cancel>Cancel</button>
-        <button class="btn s" type="submit">Continue</button>
-      </div>
-    </form>
-  `;
-    host.querySelector("input")?.focus();
+  async function handleRegenerateRecoveryCodes() {
+    const btn = document.getElementById("regenerateMfaCodesBtn");
+    if (!confirm("Regenerating recovery codes will invalidate all your existing recovery codes. Continue?")) return;
+    if (btn) btn.disabled = true;
+    try {
+      const { recoveryCodes } = await api("/api/v1/auth/mfa/recovery-codes/regenerate", {
+        method: "POST"
+      });
+      lastRecoveryCodes = recoveryCodes;
+      const grid = document.getElementById("recoveryCodesGrid");
+      if (grid) {
+        grid.innerHTML = recoveryCodes.map((c) => `<code style="text-align:center;padding:10px;font-size:13px">${esc(c)}</code>`).join("");
+      }
+      const recModal = document.getElementById("mfaRecoveryCodesModal");
+      if (recModal) recModal.hidden = false;
+      toast("Recovery codes regenerated successfully.", "good");
+      await loadMfa();
+    } catch (err) {
+      toast(err.message || "Failed to regenerate recovery codes.", "bad");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
-  async function beginMfaEnrollment(form) {
-    const button = form.querySelector("[type=submit]");
-    if (button) button.disabled = true;
+  function openMfaSetupModal() {
+    const modal = document.getElementById("mfaSetupModal");
+    if (!modal) return;
+    modal.hidden = false;
+    const passwordStep = document.getElementById("mfaSetupPasswordStep");
+    const enrollStep = document.getElementById("mfaSetupEnrollStep");
+    const passwordInput = document.getElementById("mfaConfirmPasswordInput");
+    const pwError = document.getElementById("mfaPasswordError");
+    const setupError = document.getElementById("mfaSetupError");
+    if (pwError) pwError.hidden = true;
+    if (setupError) setupError.hidden = true;
+    if (passwordInput) passwordInput.value = "";
+    if (passwordStep) passwordStep.hidden = false;
+    if (enrollStep) enrollStep.hidden = true;
+    passwordInput?.focus();
+  }
+  function closeMfaSetupModal() {
+    const modal = document.getElementById("mfaSetupModal");
+    if (modal) modal.hidden = true;
+  }
+  async function handleMfaPasswordSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const password = document.getElementById("mfaConfirmPasswordInput")?.value || "";
+    const errorEl = document.getElementById("mfaPasswordError");
+    const submitBtn = document.getElementById("submitMfaPasswordBtn");
+    if (!password) {
+      if (errorEl) {
+        errorEl.textContent = "Enter your current password.";
+        errorEl.hidden = false;
+      }
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
     try {
       const result = await api("/api/v1/auth/mfa/totp/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: form.elements.namedItem("password").value })
+        body: JSON.stringify({ password })
       });
-      const host = document.getElementById("mfaControl");
-      if (!host) return;
+      form.reset();
       mfaEnrollmentState = result;
-      const qrSvg = window.PetalQR ? window.PetalQR.svg(result.uri) : '<div class="mono" style="padding:10px">QR Engine</div>';
-      host.innerHTML = `
-      <div class="z-2f">
-        <div class="steps">
-          <div class="step cur"><i>1</i>Scan</div>
-          <div class="step"><i>2</i>Verify</div>
-          <div class="step"><i>3</i>Backup</div>
-        </div>
-        <div class="z-pane on">
-          <div class="z-qr">
-            <div class="z-qrb">${qrSvg}</div>
-            <div class="tx">
-              <b>Scan with your authenticator app</b>
-              <small class="muted">Works with Google Authenticator, 1Password, Authy and other TOTP apps.</small>
-              <div class="z-sec">
-                <span>${esc(result.secret.replace(/(.{4})/g, "$1 ").trim())}</span>
-                <button class="btn xs sq sec" type="button" data-copy-secret="${esc(result.secret)}" aria-label="Copy setup key">
-                  ${hero("copy", "xs")}
-                </button>
-              </div>
-              <a class="btn sec s mfa-app-link" href="${esc(result.uri)}">Open authenticator app</a>
-            </div>
-          </div>
-          <div class="row" style="justify-content:space-between">
-            <button class="btn sec" type="button" data-mfa-cancel>Cancel</button>
-            <button class="btn" type="button" data-mfa-next>Continue</button>
-          </div>
-        </div>
-      </div>
-    `;
-    } catch (error) {
-      toast(error.message, "bad");
-      if (button) button.disabled = false;
+      const passwordStep = document.getElementById("mfaSetupPasswordStep");
+      const enrollStep = document.getElementById("mfaSetupEnrollStep");
+      if (passwordStep) passwordStep.hidden = true;
+      if (enrollStep) enrollStep.hidden = false;
+      const qrContainer = document.getElementById("mfaQr");
+      if (qrContainer && window.PetalQR) {
+        try {
+          const qr = window.PetalQR.make(result.uri);
+          let qHtml = "";
+          for (let r = 0; r < qr.size; r++) {
+            const row = qr.m[r];
+            for (let c = 0; c < qr.size; c++) {
+              qHtml += `<i class="${row && row[c] ? "" : "o"}"></i>`;
+            }
+          }
+          qrContainer.style.gridTemplateColumns = `repeat(${qr.size}, 1fr)`;
+          qrContainer.innerHTML = qHtml;
+        } catch {
+          qrContainer.innerHTML = window.PetalQR.svg(result.uri);
+        }
+      }
+      const secretEl = document.getElementById("mfaSecret");
+      if (secretEl) {
+        secretEl.textContent = result.secret.replace(/(.{4})/g, "$1 ").trim();
+      }
+      const copyBtn = document.getElementById("copyMfaSecretBtn");
+      if (copyBtn) {
+        copyBtn.setAttribute("data-copy-secret", result.secret);
+      }
+      const otpInputs = document.querySelectorAll("#mfaOtpContainer input");
+      otpInputs.forEach((inp) => inp.value = "");
+      otpInputs[0]?.focus();
+    } catch (err) {
+      if (errorEl) {
+        errorEl.textContent = err.message || "Password confirmation failed.";
+        errorEl.hidden = false;
+      }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   }
-  function showMfaCodeStep() {
-    const host = document.getElementById("mfaControl");
-    if (!host) return;
-    host.innerHTML = `
-    <div class="z-2f">
-      <div class="steps">
-        <div class="step"><i>1</i>Scan</div>
-        <div class="step cur"><i>2</i>Verify</div>
-        <div class="step"><i>3</i>Backup</div>
-      </div>
-      <form class="z-pane on" data-mfa-confirm-form>
-        <b>Enter the six-digit code from your app</b>
-        <div class="otp">
-          ${[1, 2, 3, 4, 5, 6].map(
-      (digit) => `<input data-mfa-digit inputmode="numeric" maxlength="1" aria-label="Digit ${digit}" autocomplete="one-time-code" required>`
-    ).join("")}
-        </div>
-        <div class="mfa-actions">
-          <button class="btn sec" type="button" data-mfa-back>Back</button>
-          <button class="btn" type="submit">Verify</button>
-        </div>
-      </form>
-    </div>
-  `;
-    host.querySelector("[data-mfa-digit]")?.focus();
-  }
-  async function confirmMfaEnrollment(form) {
-    const button = form.querySelector("[type=submit]");
-    if (button) button.disabled = true;
+  async function verifyMfaSetup() {
+    const inputs = document.querySelectorAll("#mfaOtpContainer input");
+    const code = Array.from(inputs).map((i) => i.value.trim()).join("");
+    const errorEl = document.getElementById("mfaSetupError");
+    const verifyBtn = document.getElementById("verifyMfaBtn");
+    if (code.length !== 6) {
+      if (errorEl) {
+        errorEl.textContent = "Enter all 6 digits from your authenticator app.";
+        errorEl.hidden = false;
+      }
+      document.getElementById("mfaOtpContainer")?.classList.add("bad");
+      return;
+    }
+    if (verifyBtn) verifyBtn.disabled = true;
     try {
-      const code = [...form.querySelectorAll("[data-mfa-digit]")].map((input) => input.value).join("");
       const result = await api("/api/v1/auth/mfa/totp/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code })
       });
-      const host = document.getElementById("mfaControl");
-      if (!host) return;
-      host.innerHTML = `
-      <div class="z-2f">
-        <div class="steps">
-          <div class="step"><i>1</i>Scan</div>
-          <div class="step"><i>2</i>Verify</div>
-          <div class="step cur"><i>3</i>Backup</div>
-        </div>
-        <div class="z-pane on">
-          <div class="alert good">
-            <span>${hero("check")}</span>
-            <div><b>Two-step verification is on</b><p>Save these recovery codes somewhere safe. Each works once.</p></div>
-          </div>
-          <div class="z-bc">
-            ${result.recoveryCodes.map((c) => `<code>${esc(c)}</code>`).join("")}
-          </div>
-          <div class="row">
-            <button class="btn s sec" type="button" data-copy-recovery="${esc(result.recoveryCodes.join("\n"))}">
-              Copy codes
-            </button>
-            <span class="sp"></span>
-            <button class="btn s" type="button" data-mfa-done>Done</button>
-          </div>
-        </div>
-      </div>
-    `;
+      closeMfaSetupModal();
+      lastRecoveryCodes = result.recoveryCodes || [];
+      const recGrid = document.getElementById("recoveryCodesGrid");
+      if (recGrid) {
+        recGrid.innerHTML = lastRecoveryCodes.map((c) => `<code style="text-align:center;padding:10px;font-size:13px">${esc(c)}</code>`).join("");
+      }
+      const recModal = document.getElementById("mfaRecoveryCodesModal");
+      if (recModal) recModal.hidden = false;
       toast("Two-step verification is now enabled.", "good");
-    } catch (error) {
-      toast(error.message, "bad");
-      if (button) button.disabled = false;
+      await loadMfa();
+    } catch (err) {
+      if (errorEl) {
+        errorEl.textContent = err.message || "Invalid verification code.";
+        errorEl.hidden = false;
+      }
+      document.getElementById("mfaOtpContainer")?.classList.add("bad");
+    } finally {
+      if (verifyBtn) verifyBtn.disabled = false;
     }
   }
-  function showMfaDisableStep() {
-    const host = document.getElementById("mfaControl");
-    if (!host) return;
-    host.innerHTML = `
-    <form class="mfa-form" data-mfa-disable-form>
-      <div class="alert warn"><div><b>Warning</b><span>Disabling this removes the second sign-in step and every unused recovery code.</span></div></div>
-      <div class="field">
-        <label for="mfaDisablePassword">Current password</label>
-        <div class="inp"><input id="mfaDisablePassword" name="password" type="password" autocomplete="current-password" required></div>
-      </div>
-      <div class="field">
-        <label for="mfaDisableCode">Authenticator code</label>
-        <div class="inp"><input id="mfaDisableCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
-      </div>
-      <div class="mfa-actions">
-        <button class="btn sec s" type="button" data-mfa-cancel>Cancel</button>
-        <button class="btn badt s" type="submit">Disable</button>
-      </div>
-    </form>
-  `;
-    host.querySelector("input")?.focus();
+  function openMfaDisableModal() {
+    const modal = document.getElementById("mfaDisableModal");
+    if (!modal) return;
+    modal.hidden = false;
+    const pw = document.getElementById("disableMfaPassword");
+    const cd = document.getElementById("disableMfaCode");
+    const err = document.getElementById("disableMfaError");
+    if (pw) pw.value = "";
+    if (cd) cd.value = "";
+    if (err) err.hidden = true;
+    pw?.focus();
   }
-  async function disableMfa(form) {
-    const button = form.querySelector("[type=submit]");
-    if (button) button.disabled = true;
+  function closeMfaDisableModal() {
+    const modal = document.getElementById("mfaDisableModal");
+    if (modal) modal.hidden = true;
+    const switchEl = document.getElementById("mfaToggleSwitch");
+    if (switchEl && currentMfaStatus) switchEl.setAttribute("aria-checked", currentMfaStatus.enabled ? "true" : "false");
+  }
+  async function handleDisableMfaSubmit(event) {
+    event.preventDefault();
+    const password = document.getElementById("disableMfaPassword")?.value || "";
+    const code = document.getElementById("disableMfaCode")?.value.trim() || "";
+    const errorEl = document.getElementById("disableMfaError");
+    const btn = document.getElementById("confirmDisableMfaBtn");
+    if (!password || !code) {
+      if (errorEl) {
+        errorEl.textContent = "Password and code are required.";
+        errorEl.hidden = false;
+      }
+      return;
+    }
+    if (btn) btn.disabled = true;
     try {
-      const password = form.elements.namedItem("password").value;
-      const code = form.elements.namedItem("code").value;
       await api("/api/v1/auth/mfa/totp", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password, code })
       });
+      closeMfaDisableModal();
       toast("Two-step verification was disabled.", "good");
       await loadMfa();
-    } catch (error) {
-      toast(error.message, "bad");
-      if (button) button.disabled = false;
+    } catch (err) {
+      if (errorEl) {
+        errorEl.textContent = err.message || "Failed to disable two-step verification.";
+        errorEl.hidden = false;
+      }
+    } finally {
+      if (btn) btn.disabled = false;
     }
+  }
+  function copyLastRecoveryCodes() {
+    if (!lastRecoveryCodes.length) {
+      toast("No recovery codes to copy.", "warn");
+      return;
+    }
+    const text = lastRecoveryCodes.join("\n");
+    navigator.clipboard?.writeText(text).then(() => toast("Recovery codes copied to clipboard.", "good")).catch(() => toast("Failed to copy codes.", "warn"));
   }
   async function revokeDevice(sessionId, button) {
     button.disabled = true;
@@ -2639,40 +5614,46 @@ ${node.textContent || ""}
       host.innerHTML = `<div class="alert bad"><div><b>Failed to load email status</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
-  function restoreMfaScanStep() {
-    if (!mfaEnrollmentState) return;
-    const result = mfaEnrollmentState;
-    const host = document.getElementById("mfaControl");
-    if (!host) return;
-    const qrSvg = window.PetalQR ? window.PetalQR.svg(result.uri) : '<div class="mono" style="padding:10px">QR Engine</div>';
-    host.innerHTML = `
-    <div class="z-2f">
-      <div class="steps">
-        <div class="step cur"><i>1</i>Scan</div>
-        <div class="step"><i>2</i>Verify</div>
-        <div class="step"><i>3</i>Backup</div>
-      </div>
-      <div class="z-pane on">
-        <div class="z-qr">
-          <div class="z-qrb">${qrSvg}</div>
-          <div class="tx">
-            <b>Scan with your authenticator app</b>
-            <small class="muted">Works with Google Authenticator, 1Password, Authy and other TOTP apps.</small>
-            <div class="z-sec">
-              <span>${esc(result.secret.replace(/(.{4})/g, "$1 ").trim())}</span>
-              <button class="btn xs sq sec" type="button" data-copy-secret="${esc(result.secret)}" aria-label="Copy setup key">
-                ${hero("copy", "xs")}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="row" style="justify-content:space-between">
-          <button class="btn sec" type="button" data-mfa-cancel>Cancel</button>
-          <button class="btn" type="button" data-mfa-next>Continue</button>
-        </div>
-      </div>
-    </div>
-  `;
+  function bindEditProfile() {
+    const btn = document.getElementById("editProfileBtn");
+    if (!btn || btn.dataset["bound"]) return;
+    btn.dataset["bound"] = "1";
+    btn.addEventListener("click", async () => {
+      try {
+        const me = await api("/api/v1/auth/me");
+        const owner = me.membership.role === "OWNER";
+        const v = await formDialog({
+          title: "Edit profile",
+          confirmLabel: "Save",
+          message: owner ? void 0 : "Only the workspace owner can rename the workspace.",
+          fields: [
+            { key: "name", label: "Your name", value: me.user.name },
+            ...owner ? [{ key: "workspaceName", label: "Workspace name", value: me.account.name }] : []
+          ]
+        });
+        if (!v) return;
+        const body = { name: String(v["name"]) };
+        if (owner) body["workspaceName"] = String(v["workspaceName"]);
+        const res = await api("/api/v1/account/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const set = (id, text) => {
+          const el2 = document.getElementById(id);
+          if (el2) el2.textContent = text;
+        };
+        set("profName", res.user.name);
+        set("profWorkspace", res.account.name);
+        set("userName", res.user.name);
+        const initials = res.user.name.slice(0, 2).toUpperCase();
+        set("userAvatar", initials);
+        set("topUserAvatar", initials);
+        toast("Profile updated", "good");
+      } catch (e) {
+        toast(e?.message || "Could not update the profile.", "bad");
+      }
+    });
   }
 
   // src/frontend/client/index.ts
@@ -2713,15 +5694,26 @@ ${node.textContent || ""}
     const viewSubtitle = document.getElementById("viewSubtitle");
     if (viewTitle) viewTitle.textContent = titleEntry[0];
     if (viewSubtitle) viewSubtitle.textContent = titleEntry[1];
-    const catalogAction = document.querySelector(".app-top-actions .btn");
-    if (catalogAction) {
-      catalogAction.hidden = routeName === "deploy" || routeName === "service-detail";
-    }
+    document.querySelectorAll(".sd .nv").forEach((link) => {
+      const route = link.dataset.appRoute;
+      const isMatch = route === routeName || routeName === "service-detail" && route === "services" || routeName.startsWith("ticket") && route === "tickets";
+      link.classList.toggle("on", isMatch);
+      if (isMatch) link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    });
+    document.querySelectorAll(".tabbar a, .tabbar button").forEach((item) => {
+      const route = item.dataset.appRoute;
+      const isMatch = route === routeName || routeName === "service-detail" && route === "services" || routeName.startsWith("ticket") && route === "tickets";
+      item.classList.toggle("on", isMatch);
+    });
     const sectionKeys = ["dashboard", "services", "service-detail", "deploy", "domains", "billing", "tickets", "ticket-new", "ticket-detail", "audit", "settings"];
     sectionKeys.forEach((key) => {
       const section = document.getElementById(`section-${key}`);
       if (section) section.style.display = key === routeName ? "block" : "none";
     });
+    const mn = document.getElementById("mn");
+    if (mn) mn.scrollTop = 0;
+    window.scrollTo(0, 0);
   }
   var router = new Router(CLIENT_ROUTES);
   router.register("dashboard", async () => {
@@ -2735,7 +5727,7 @@ ${node.textContent || ""}
   router.register("service-detail", async (ctx) => {
     updateNavigationChrome("service-detail");
     const id = ctx.params.id;
-    if (id) await renderServiceDetail(id);
+    if (id) await renderServiceDetail(id, ctx.params.tab);
   });
   router.register("deploy", async () => {
     updateNavigationChrome("deploy");
@@ -2765,9 +5757,9 @@ ${node.textContent || ""}
     updateNavigationChrome("audit");
     await renderActivity();
   });
-  router.register("settings", async () => {
+  router.register("settings", async (ctx) => {
     updateNavigationChrome("settings");
-    await renderSettings();
+    await renderSettings(ctx.params.tab);
   });
   function bindDelegatedEvents() {
     document.getElementById("refreshInvoicesBtn")?.addEventListener("click", renderBilling);
@@ -2801,8 +5793,80 @@ ${node.textContent || ""}
         appShell.toggleTheme();
         return;
       }
-      if (target.closest("#globalSearchTrigger, [data-cmd]")) {
+      if (target.closest("#mobileLogoutBtn")) {
+        try {
+          api("/api/v1/auth/logout", { method: "POST" }).finally(() => {
+            window.location.href = "/login";
+          });
+        } catch {
+          window.location.href = "/login";
+        }
+        return;
+      }
+      if (target.matches("#cmd .ov, #cmd [data-close], [data-close]")) {
+        appShell.cmd.close();
+        const notifM = document.getElementById("notifModal");
+        if (notifM) notifM.hidden = true;
+        const navS = document.getElementById("mobileNavSheet");
+        if (navS) navS.hidden = true;
+        return;
+      }
+      if (target.closest('[data-modal="cmd"], #quickSearchBtn, .sch, .srch, #globalSearchTrigger, #mobileSearchTrigger, [data-cmd]')) {
         appShell.cmd.open();
+        return;
+      }
+      const segBtn = target.closest(".seg button");
+      if (segBtn) {
+        const segGroup = segBtn.closest(".seg");
+        if (segGroup) {
+          segGroup.querySelectorAll("button").forEach((b) => b.setAttribute("aria-selected", String(b === segBtn)));
+          const val = segBtn.dataset.v;
+          const radio = segBtn.parentElement?.querySelector('input[type="radio"]') || segGroup.querySelector(`input[value="${val}"]`);
+          if (radio) {
+            radio.checked = true;
+            radio.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+          if (segGroup.getAttribute("aria-label")?.includes("service state")) filterServices();
+          if (segGroup.getAttribute("aria-label")?.includes("invoice status")) filterBilling();
+          if (segGroup.getAttribute("aria-label")?.includes("ticket status")) filterTickets();
+          if (segGroup.getAttribute("aria-label")?.includes("activity type")) filterActivity();
+        }
+        return;
+      }
+      const detailTab = target.closest("#serviceDetailTabs button");
+      if (detailTab) {
+        document.querySelectorAll("#serviceDetailTabs button").forEach((b) => {
+          const isSel = b === detailTab;
+          b.setAttribute("aria-selected", String(isSel));
+          b.tabIndex = isSel ? 0 : -1;
+        });
+        const controls = detailTab.getAttribute("aria-controls");
+        ["dtlPaneOverview", "dtlPaneAllocation", "dtlPaneActivity"].forEach((pId) => {
+          const panel2 = document.getElementById(pId);
+          if (panel2) {
+            const isMatch = pId === controls;
+            panel2.hidden = !isMatch;
+            panel2.classList.toggle("on", isMatch);
+          }
+        });
+        return;
+      }
+      const settingsTab = target.closest("#settingsTabs button");
+      if (settingsTab) {
+        document.querySelectorAll("#settingsTabs button").forEach((b) => {
+          const isSel = b === settingsTab;
+          b.setAttribute("aria-selected", String(isSel));
+          b.tabIndex = isSel ? 0 : -1;
+        });
+        const controls = settingsTab.getAttribute("aria-controls");
+        ["settings-p", "settings-s", "settings-t", "settings-n", "settings-d"].forEach((pId) => {
+          const panel2 = document.getElementById(pId);
+          if (panel2) {
+            const isMatch = pId === controls;
+            panel2.hidden = !isMatch;
+            panel2.classList.toggle("on", isMatch);
+          }
+        });
         return;
       }
       const routeLink = target.closest("[data-app-route]");
@@ -2815,14 +5879,33 @@ ${node.textContent || ""}
         router.navigate(href);
         return;
       }
-      const notifBell = target.closest("#notifBellBtn");
+      const notifBell = target.closest('[data-modal="notif"], #notifBellBtn');
       if (notifBell) {
-        const popover = document.getElementById("notifPopover");
-        if (popover) {
-          const isClosed = popover.style.display === "none" || !popover.style.display;
-          popover.style.display = isClosed ? "block" : "none";
-          if (isClosed) appShell.loadNotifications();
+        const modal = document.getElementById("notifModal");
+        if (modal) {
+          modal.hidden = false;
+          appShell.loadNotifications();
         }
+        return;
+      }
+      if (target.matches("#notifModal .ov, [data-close-notif]")) {
+        const modal = document.getElementById("notifModal");
+        if (modal) modal.hidden = true;
+        return;
+      }
+      const moreBtn = target.closest('[data-modal="more"], #mobileMoreBtn');
+      if (moreBtn) {
+        const sheet = document.getElementById("mobileNavSheet");
+        if (sheet) {
+          sheet.hidden = !sheet.hidden;
+          moreBtn.setAttribute("aria-expanded", String(!sheet.hidden));
+        }
+        return;
+      }
+      if (target.matches("#mobileNavSheet .ov, [data-close-mobile-nav]")) {
+        const sheet = document.getElementById("mobileNavSheet");
+        if (sheet) sheet.hidden = true;
+        document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
         return;
       }
       const markAllNotifs = target.closest("#markAllNotifsReadBtn");
@@ -2832,7 +5915,15 @@ ${node.textContent || ""}
       }
       const cancelSub = target.closest("[data-cancel-sub]");
       if (cancelSub) {
-        cancelSubscription(cancelSub.dataset.cancelSub, cancelSub);
+        openCancelSubModal(cancelSub.dataset.cancelSub, cancelSub.dataset.subName, cancelSub.dataset.renewalDate);
+        return;
+      }
+      if (target.closest("#confirmCancelSubBtn")) {
+        executeScheduledCancel();
+        return;
+      }
+      if (target.closest("[data-close-cancel-sub], #cancelSubModal .ov")) {
+        closeCancelSubModal();
         return;
       }
       const power = target.closest("[data-power]");
@@ -2885,8 +5976,8 @@ ${node.textContent || ""}
       if (auditRow) {
         const row = auditRow.closest(".z-aur");
         if (row) {
-          const open = row.classList.toggle("open");
-          auditRow.setAttribute("aria-expanded", String(open));
+          const open2 = row.classList.toggle("open");
+          auditRow.setAttribute("aria-expanded", String(open2));
         }
         return;
       }
@@ -2895,11 +5986,58 @@ ${node.textContent || ""}
         revokeDevice(session.dataset.revokeSession, session);
         return;
       }
-      if (target.closest("[data-mfa-enable]")) showMfaPasswordStep();
-      if (target.closest("[data-mfa-disable]")) showMfaDisableStep();
-      if (target.closest("[data-mfa-next]")) showMfaCodeStep();
-      if (target.closest("[data-mfa-back]")) restoreMfaScanStep();
-      if (target.closest("[data-mfa-cancel], [data-mfa-done]")) loadMfa();
+      if (target.closest("#openTicketModalBtn, #emptyOpenTicketBtn")) {
+        openTicketModal();
+        return;
+      }
+      if (target.closest("[data-close-ticket], #ticketModal .ov")) {
+        closeTicketModal();
+        return;
+      }
+      const resolveBtn = target.closest("#markTicketResolvedBtn");
+      if (resolveBtn && resolveBtn.dataset.ticketId) {
+        resolveTicketAction(resolveBtn.dataset.ticketId);
+        return;
+      }
+      if (target.closest("#setupNewMfaBtn")) {
+        openMfaSetupModal();
+        return;
+      }
+      if (target.closest("#regenerateMfaCodesBtn")) {
+        handleRegenerateRecoveryCodes();
+        return;
+      }
+      if (target.closest("[data-close-mfa], #mfaSetupModal .ov")) {
+        closeMfaSetupModal();
+        return;
+      }
+      if (target.closest("#verifyMfaBtn")) {
+        verifyMfaSetup();
+        return;
+      }
+      if (target.closest("[data-close-rec], #mfaRecoveryCodesModal .ov")) {
+        const recModal = document.getElementById("mfaRecoveryCodesModal");
+        if (recModal) recModal.hidden = true;
+        return;
+      }
+      if (target.closest("#copyRecoveryCodesBtn")) {
+        copyLastRecoveryCodes();
+        return;
+      }
+      if (target.closest("[data-close-disable-mfa], #mfaDisableModal .ov")) {
+        closeMfaDisableModal();
+        return;
+      }
+      const mfaSwitch = target.closest("#mfaToggleSwitch");
+      if (mfaSwitch) {
+        const isEnabled = mfaSwitch.getAttribute("aria-checked") === "true";
+        if (isEnabled) {
+          openMfaDisableModal();
+        } else {
+          openMfaSetupModal();
+        }
+        return;
+      }
       const copySecret = target.closest("[data-copy-secret]");
       if (copySecret) {
         copyText(copySecret.dataset.copySecret, "setup key");
@@ -2910,9 +6048,9 @@ ${node.textContent || ""}
         copyText(copyRecovery.dataset.copyRecovery, "recovery codes");
         return;
       }
-      const copy = target.closest("[data-copy]");
-      if (copy) {
-        copyText(copy.dataset.copy || "", copy.dataset.copyLabel || "value");
+      const copy2 = target.closest("[data-copy]");
+      if (copy2) {
+        copyText(copy2.dataset.copy || "", copy2.dataset.copyLabel || "value");
         return;
       }
       if (target.closest("#openInviteModalBtn")) {
@@ -2936,6 +6074,17 @@ ${node.textContent || ""}
             toast(err.message, "bad");
           });
         }
+        return;
+      }
+      const addPasskeyBtn = target.closest("#addPasskeyBtn");
+      if (addPasskeyBtn) {
+        registerPasskey();
+        return;
+      }
+      const removePasskey = target.closest("[data-remove-passkey]");
+      if (removePasskey) {
+        handleRemovePasskey(removePasskey.dataset.removePasskey);
+        return;
       }
     });
     document.addEventListener("submit", (event) => {
@@ -2944,21 +6093,21 @@ ${node.textContent || ""}
         createTicket(event, (path) => router.navigate(path));
         return;
       }
+      if (target.id === "newTicketModalForm") {
+        submitModalTicket(event, (path) => router.navigate(path));
+        return;
+      }
       if (target.id === "ticketReplyForm") {
         sendReply(event);
         return;
       }
-      if (target.matches("[data-mfa-enroll-form]")) {
-        event.preventDefault();
-        beginMfaEnrollment(target);
+      if (target.id === "mfaPasswordConfirmForm") {
+        handleMfaPasswordSubmit(event);
+        return;
       }
-      if (target.matches("[data-mfa-confirm-form]")) {
-        event.preventDefault();
-        confirmMfaEnrollment(target);
-      }
-      if (target.matches("[data-mfa-disable-form]")) {
-        event.preventDefault();
-        disableMfa(target);
+      if (target.id === "disableMfaForm") {
+        handleDisableMfaSubmit(event);
+        return;
       }
       if (target.id === "inviteMemberForm") {
         event.preventDefault();
@@ -3023,13 +6172,30 @@ ${node.textContent || ""}
         updateFileLabel(target);
         return;
       }
-      if (target.matches("[data-mfa-digit]")) {
+      const o = target.closest("[data-otp]");
+      if (o && target.tagName === "INPUT") {
         target.value = target.value.replace(/\D/g, "").slice(-1);
         if (target.value) {
           const next = target.nextElementSibling;
           if (next) next.focus();
         }
+        o.classList.remove("bad");
       }
+    });
+    document.addEventListener("paste", (event) => {
+      const target = event.target;
+      const o = target.closest("[data-otp]");
+      if (!o) return;
+      const d = (event.clipboardData || window.clipboardData)?.getData("text").replace(/\D/g, "").slice(0, 6) || "";
+      if (!d) return;
+      event.preventDefault();
+      const inputs = Array.from(o.querySelectorAll("input"));
+      inputs.forEach((inp, idx) => {
+        inp.value = d[idx] || "";
+      });
+      const last = inputs[Math.min(d.length, 5)];
+      last?.focus();
+      o.classList.remove("bad");
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
@@ -3038,6 +6204,20 @@ ${node.textContent || ""}
           sheet.hidden = true;
           document.getElementById("mobileMoreBtn")?.setAttribute("aria-expanded", "false");
           document.getElementById("mobileMoreBtn")?.focus();
+        }
+        closeTicketModal();
+        closeCancelSubModal();
+        closeMfaSetupModal();
+        closeMfaDisableModal();
+        const recModal = document.getElementById("mfaRecoveryCodesModal");
+        if (recModal) recModal.hidden = true;
+      }
+      if (event.key === "Backspace") {
+        const target = event.target;
+        const o = target.closest("[data-otp]");
+        const inp = target;
+        if (o && inp && !inp.value && inp.previousElementSibling) {
+          inp.previousElementSibling.focus();
         }
       }
     });

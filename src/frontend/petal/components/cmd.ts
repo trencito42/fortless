@@ -1,18 +1,24 @@
 /**
  * Petal Design System — Command Palette Controller
- * Source: blueprint/fortless-blueprint/design/parts/z5.js & panel.html
+ * Matches Petal Fortless Views: .mdl.cmd > .bx > .inp + .col > .dh + .li
  */
 
 import { api } from '../../core/api/client.js';
 import { esc } from '../../core/utils/dom.js';
-import { hero } from './icons.js';
 
 export interface CommandItem {
   category: string;
   title: string;
   subtitle?: string;
   icon?: string;
+  kbd?: string;
   action: () => void;
+}
+
+function spaNavigate(path: string): void {
+  if (window.location.pathname === path) return;
+  window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
 export class CommandPaletteController {
@@ -38,7 +44,7 @@ export class CommandPaletteController {
       inp.value = '';
       inp.focus();
     }
-    this.search('');
+    this.renderDefaultNavigation();
   }
 
   public close(): void {
@@ -51,16 +57,53 @@ export class CommandPaletteController {
     return Boolean(modal && !modal.hidden);
   }
 
+  private getDefaultNavItems(): CommandItem[] {
+    const isAdmin = window.location.pathname.startsWith('/admin');
+    if (isAdmin) {
+      return [
+        { category: 'Navigate', title: 'Operations Overview', icon: 'dashboard-square-01', kbd: 'G O', action: () => spaNavigate('/admin') },
+        { category: 'Navigate', title: 'Customer Accounts', icon: 'shield-user', kbd: 'G A', action: () => spaNavigate('/admin/accounts') },
+        { category: 'Navigate', title: 'Managed Instances', icon: 'server', kbd: 'G S', action: () => spaNavigate('/admin/services') },
+        { category: 'Navigate', title: 'Support Helpdesk', icon: 'message-01', kbd: 'G T', action: () => spaNavigate('/admin/tickets') },
+        { category: 'Navigate', title: 'Security Audit Trail', icon: 'history', action: () => spaNavigate('/admin/audit') },
+        { category: 'Navigate', title: 'Staff Directory', icon: 'user-group', action: () => spaNavigate('/admin/staff') },
+        { category: 'Switch', title: 'Back to Client App', icon: 'arrow-right-01', action: () => spaNavigate('/app') },
+      ];
+    }
+    return [
+      { category: 'Navigate', title: 'Dashboard', icon: 'dashboard-square-01', kbd: 'G D', action: () => spaNavigate('/app') },
+      { category: 'Navigate', title: 'Servers & Instances', icon: 'server', kbd: 'G S', action: () => spaNavigate('/app/services') },
+      { category: 'Navigate', title: 'Deploy Instance', icon: 'rocket-01', kbd: 'G R', action: () => spaNavigate('/app/deploy') },
+      { category: 'Navigate', title: 'Domains & DNS', icon: 'globe-02', action: () => spaNavigate('/app/domains') },
+      { category: 'Navigate', title: 'Invoices & Billing', icon: 'invoice-01', action: () => spaNavigate('/app/billing') },
+      { category: 'Navigate', title: 'Support Tickets', icon: 'message-01', action: () => spaNavigate('/app/support') },
+      { category: 'Navigate', title: 'Security & Team', icon: 'shield-user', action: () => spaNavigate('/app/settings') },
+      { category: 'Navigate', title: 'Audit Trail', icon: 'history', action: () => spaNavigate('/app/activity') },
+    ];
+  }
+
+  public renderDefaultNavigation(): void {
+    const resBox = document.getElementById(this.resultsId);
+    if (!resBox) return;
+
+    this.cmdList = this.getDefaultNavItems();
+    this.activeIndex = 0;
+    this.renderItems(resBox);
+  }
+
   public async search(query: string): Promise<void> {
     const resBox = document.getElementById(this.resultsId);
     if (!resBox) return;
 
+    const q = (query || '').trim();
+    if (!q) {
+      this.renderDefaultNavigation();
+      return;
+    }
+
     try {
-      const q = (query || '').trim();
       const res = await api<any>(`/api/v1/search?q=${encodeURIComponent(q)}`);
       this.cmdList = [];
-
-      // Unified parser for both customer and admin payloads
       const data = res.results || res;
 
       if (data.pages) {
@@ -68,10 +111,8 @@ export class CommandPaletteController {
           this.cmdList.push({
             category: 'Navigation',
             title: p.title,
-            icon: 'servers',
-            action: () => {
-              window.location.href = p.path;
-            },
+            icon: 'server',
+            action: () => spaNavigate(p.path),
           })
         );
       }
@@ -81,10 +122,8 @@ export class CommandPaletteController {
           this.cmdList.push({
             category: 'Admin Control',
             title: p.title,
-            icon: 'shield',
-            action: () => {
-              window.location.href = p.path;
-            },
+            icon: 'shield-user',
+            action: () => spaNavigate(p.path),
           })
         );
       }
@@ -95,10 +134,8 @@ export class CommandPaletteController {
             category: 'Services',
             title: s.title,
             subtitle: s.subtitle,
-            icon: 'servers',
-            action: () => {
-              window.location.href = `/app/services/${encodeURIComponent(s.id)}`;
-            },
+            icon: 'server',
+            action: () => spaNavigate(`/app/services/${encodeURIComponent(s.id)}`),
           })
         );
       }
@@ -109,10 +146,10 @@ export class CommandPaletteController {
             category: 'Tickets',
             title: t.title,
             subtitle: t.subtitle,
-            icon: 'support',
+            icon: 'message-01',
             action: () => {
               const url = window.location.pathname.startsWith('/admin') ? `/admin/tickets` : `/app/support`;
-              window.location.href = url;
+              spaNavigate(url);
             },
           })
         );
@@ -124,55 +161,60 @@ export class CommandPaletteController {
             category: 'Billing',
             title: inv.title,
             subtitle: inv.subtitle,
-            icon: 'credit',
-            action: () => {
-              window.location.href = '/app/billing';
-            },
+            icon: 'invoice-01',
+            action: () => spaNavigate('/app/billing'),
           })
         );
       }
 
       if (!this.cmdList.length) {
         resBox.innerHTML = `
-          <div style="padding:24px;text-align:center;color:var(--ink3);font-size:13px">
-            No matching resources found for "${esc(q)}"
+          <div class="es" data-c="Empty state" style="padding:28px 16px">
+            <span class="tile neu md"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"/></svg></span>
+            <p style="margin:8px 0 0;color:var(--ink2);font-weight:600">No results found for "${esc(q)}"</p>
           </div>
         `;
         return;
       }
 
       this.activeIndex = 0;
-      let html = '';
-      let lastCat = '';
-
-      this.cmdList.slice(0, 15).forEach((item, i) => {
-        if (item.category !== lastCat) {
-          html += `<div class="hd">${esc(item.category)}</div>`;
-          lastCat = item.category;
-        }
-        html += `
-          <button type="button" class="it ${i === 0 ? 'act' : ''}" data-cmd-idx="${i}">
-            ${hero(item.icon || 'cube', 's')}
-            <span style="display:flex;flex-direction:column;gap:1px;min-width:0;flex:1">
-              <span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.title)}</span>
-              ${item.subtitle ? `<span style="font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(item.subtitle)}</span>` : ''}
-            </span>
-          </button>
-        `;
-      });
-
-      resBox.innerHTML = html;
+      this.renderItems(resBox);
     } catch {
-      resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad)">Search request failed.</div>';
+      resBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--bad);font-weight:600">Search request failed.</div>';
     }
   }
 
+  private renderItems(container: HTMLElement): void {
+    let html = '';
+    let lastCat = '';
+
+    this.cmdList.slice(0, 20).forEach((item, i) => {
+      if (item.category !== lastCat) {
+        html += `<div class="dh">${esc(item.category)}</div>`;
+        lastCat = item.category;
+      }
+      const icon = item.icon || 'server';
+      html += `
+        <button type="button" class="li ${i === this.activeIndex ? 'on' : ''}" data-cmd-idx="${i}" style="padding:11px 12px;cursor:pointer">
+          <span class="tile neu sm"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${icon}"/></svg></span>
+          <span class="tx">
+            <b>${esc(item.title)}</b>
+            ${item.subtitle ? `<small>${esc(item.subtitle)}</small>` : ''}
+          </span>
+          ${item.kbd ? `<span class="kbd">${esc(item.kbd)}</span>` : ''}
+        </button>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
   public moveSelection(dir: number): void {
-    const items = document.querySelectorAll(`#${this.resultsId} .it`);
+    const items = document.querySelectorAll<HTMLElement>(`#${this.resultsId} .li`);
     if (!items.length) return;
     this.activeIndex = (this.activeIndex + dir + items.length) % items.length;
     items.forEach((btn, i) => {
-      btn.classList.toggle('act', i === this.activeIndex);
+      btn.classList.toggle('on', i === this.activeIndex);
       if (i === this.activeIndex) btn.scrollIntoView({ block: 'nearest' });
     });
   }
@@ -230,7 +272,7 @@ export class CommandPaletteController {
         this.execute(Number(cmdItem.dataset.cmdIdx));
         return;
       }
-      if (target.id === this.modalId) {
+      if (target.id === this.modalId || target.matches(`#${this.modalId} .ov`)) {
         this.close();
       }
     };

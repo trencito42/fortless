@@ -21,11 +21,39 @@ export const deployState: DeployState = {
   plans: [],
   regions: [],
   selectedPlanId: null,
-  selectedRegionId: 'reg_fra_1',
+  selectedRegionId: null,
   activeCoupon: null,
 };
 
 let deployStep = 0;
+
+function checkoutReadiness(): { ready: boolean; reason: string } {
+  if (deployStep !== 2) return { ready: false, reason: 'Complete all three steps to continue to secure checkout.' };
+  if (!deployState.selectedPlanId) return { ready: false, reason: 'Select a plan first.' };
+  const region = deployState.regions.find((item) => item.id === deployState.selectedRegionId && !item.isSoldOut);
+  if (!region) return { ready: false, reason: 'Select an available region.' };
+  const name = (document.getElementById('deployServerName') as HTMLInputElement | null)?.value.trim() ?? '';
+  if (name.length < 3) return { ready: false, reason: 'Enter a service label with at least 3 characters.' };
+  const capabilities = capabilitiesStore.get();
+  if (!capabilities?.payments?.enabled || !capabilities?.provisioning?.enabled) return { ready: false, reason: 'Payment and infrastructure integrations are not available yet.' };
+  return { ready: true, reason: 'You will continue to the configured hosted payment provider.' };
+}
+
+export function updateDeployActions(): void {
+  const next = document.getElementById('deployNextBtn') as HTMLButtonElement | null;
+  const checkout = document.getElementById('doDeployBtn') as HTMLButtonElement | null;
+  const hint = document.getElementById('deployCheckoutHint');
+  const state = checkoutReadiness();
+  if (next) next.hidden = deployStep === 2;
+  if (checkout) {
+    checkout.hidden = deployStep !== 2;
+    checkout.disabled = !state.ready;
+    checkout.dataset.checkoutReady = String(state.ready);
+    const label = checkout.querySelector('span');
+    if (label) label.textContent = state.ready ? 'Continue to secure checkout' : 'Checkout unavailable';
+  }
+  if (hint) hint.textContent = state.reason;
+}
 
 function showDeployStep(nextStep: number): void {
   deployStep = Math.max(0, Math.min(2, nextStep));
@@ -36,12 +64,19 @@ function showDeployStep(nextStep: number): void {
     const index = Number(indicator.dataset.deployStepIndicator);
     indicator.className = `step${index < deployStep ? ' done' : index === deployStep ? ' cur' : ''}`;
     const marker = indicator.querySelector('i');
-    if (marker) marker.textContent = index < deployStep ? '✓' : String(index + 1);
+    if (marker) {
+      if (index < deployStep) {
+        marker.innerHTML = hero('check', 'xs');
+      } else {
+        marker.textContent = String(index + 1);
+      }
+    }
   });
   const back = document.getElementById('deployBackBtn') as HTMLButtonElement | null;
   const next = document.getElementById('deployNextBtn') as HTMLButtonElement | null;
   if (back) back.disabled = deployStep === 0;
-  if (next) next.textContent = deployStep === 2 ? 'Review order' : 'Continue';
+  if (next) next.textContent = 'Continue';
+  updateDeployActions();
 }
 
 function bindDeployWizard(): void {
@@ -56,10 +91,9 @@ function bindDeployWizard(): void {
     if (deployStep === 0 && !deployState.selectedPlanId) return toast('Select a plan first.', 'warn');
     if (deployStep === 1 && !deployState.selectedRegionId) return toast('Select an available region.', 'warn');
     if (deployStep < 2) return showDeployStep(deployStep + 1);
-    const name = (document.getElementById('deployServerName') as HTMLInputElement | null)?.value.trim();
-    if (!name || name.length < 3) return toast('Enter a service label with at least 3 characters.', 'warn');
-    document.querySelector('.summary-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
+  document.getElementById('deployServerName')?.addEventListener('input', updateDeployActions);
+  window.addEventListener('fortless:capabilities', updateDeployActions);
   showDeployStep(deployStep);
 }
 
@@ -83,13 +117,6 @@ export async function renderDeploy(): Promise<void> {
     deployState.plans = plansRes.plans || [];
     deployState.regions = regionsRes.regions || [];
 
-    if (!deployState.selectedPlanId && deployState.plans[0]) {
-      deployState.selectedPlanId = deployState.plans[0].planVersionId;
-    }
-    if (!deployState.selectedRegionId && deployState.regions[0]) {
-      deployState.selectedRegionId = deployState.regions[0].id;
-    }
-
     renderCatalog();
   } catch (error: any) {
     if (host) {
@@ -110,8 +137,8 @@ export function renderCatalog(): void {
       })
       .join('');
     host.innerHTML = planHtml
-      ? `<div class="grid g2">${planHtml}</div>`
-      : `<div class="alert warn">${hero('warning', 's')}<div><b>No published plans available</b></div></div>`;
+      ? `<div class="g g2">${planHtml}</div>`
+      : `<div class="alert warn"><svg class="ic" aria-hidden="true"><use href="#i-alert-circle"/></svg><div><b>No published plans available</b></div></div>`;
   }
 
   const regHost = document.getElementById('regionSelector');
@@ -129,7 +156,7 @@ export function renderCatalog(): void {
         return `<button type="button" class="sel" data-region-id="${esc(reg.id)}" aria-pressed="${selected}"${reg.isSoldOut ? ' disabled' : ''}><span class="row nw"><b>${flag} ${esc(reg.name)} (${esc(reg.code)})</b>${avail}</span><small class="f">${esc(statusText)}</small></button>`;
       })
       .join('');
-    regHost.innerHTML = `<div class="grid g2">${regHtml}</div>`;
+    regHost.innerHTML = `<div class="g g2">${regHtml}</div>`;
   }
 
   updateSummary();
@@ -137,21 +164,26 @@ export function renderCatalog(): void {
 
 export function updateSummary(): void {
   const plan = deployState.plans.find((item) => item.planVersionId === deployState.selectedPlanId);
-  if (!plan) return;
+  const sumPlan = document.getElementById('sumPlan');
+  const sumReg = document.getElementById('sumReg');
+  const sumVat = document.getElementById('sumVat');
+  const sumTotal = document.getElementById('sumTotal');
+  if (!plan) {
+    if (sumPlan) sumPlan.textContent = 'Not selected';
+    if (sumReg) sumReg.textContent = 'Not selected';
+    if (sumTotal) sumTotal.textContent = '—';
+    updateDeployActions();
+    return;
+  }
 
   const price = plan.prices[0];
   const subtotal = price?.priceMinorUnits || 0;
   const discount = deployState.activeCoupon ? deployState.activeCoupon.discountMinorUnits : 0;
   const estimatedSubtotal = Math.max(0, subtotal - discount);
 
-  const sumPlan = document.getElementById('sumPlan');
-  const sumReg = document.getElementById('sumReg');
-  const sumVat = document.getElementById('sumVat');
-  const sumTotal = document.getElementById('sumTotal');
-
   if (sumPlan) sumPlan.textContent = plan.planName;
   const selReg = deployState.regions.find((r) => r.id === deployState.selectedRegionId);
-  if (sumReg) sumReg.textContent = selReg ? `${selReg.name} (${selReg.code})` : 'Frankfurt (catalog)';
+  if (sumReg) sumReg.textContent = selReg ? `${selReg.name} (${selReg.code})` : 'Not selected';
 
   const rowDisc = document.getElementById('rowDiscount');
   const discountLabel = document.getElementById('sumDiscountLabel');
@@ -171,11 +203,14 @@ export function updateSummary(): void {
 
   if (sumVat) sumVat.textContent = 'Calculated by secure quote';
   if (sumTotal) sumTotal.textContent = money(estimatedSubtotal, price?.currency || 'EUR');
+  updateDeployActions();
 }
 
 export async function beginCheckout(): Promise<void> {
   const button = document.getElementById('doDeployBtn') as HTMLButtonElement | null;
   const capabilities = capabilitiesStore.get();
+
+  if (deployStep !== 2) return toast('Complete the configuration steps before checkout.', 'warn');
 
   if (!capabilities?.payments?.enabled || !capabilities?.provisioning?.enabled) {
     return toast('Ordering is unavailable until payment and infrastructure providers are verified.', 'warn');
@@ -183,8 +218,12 @@ export async function beginCheckout(): Promise<void> {
 
   if (!deployState.selectedPlanId) return toast('Select a plan first.', 'warn');
 
+  const region = deployState.regions.find((item) => item.id === deployState.selectedRegionId && !item.isSoldOut);
+  if (!region) return toast('Select an available region.', 'warn');
+
   const nameInput = document.getElementById('deployServerName') as HTMLInputElement | null;
-  const name = nameInput?.value.trim() || 'fortless-instance';
+  const name = nameInput?.value.trim() ?? '';
+  if (name.length < 3) return toast('Enter a service label with at least 3 characters.', 'warn');
 
   if (button) {
     button.disabled = true;
@@ -219,9 +258,7 @@ export async function beginCheckout(): Promise<void> {
     toast(error.message, 'bad');
   } finally {
     if (button) {
-      button.disabled = false;
-      const span = button.querySelector('span');
-      if (span) span.textContent = 'Continue to secure checkout';
+      updateDeployActions();
     }
   }
 }

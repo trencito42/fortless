@@ -20,6 +20,7 @@ export const heroPaths: Record<string, string> = {
   document: '<path d="M19.5 14.25v-2.625A3.375 3.375 0 0 0 16.125 8.25h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5A3.375 3.375 0 0 0 10.125 2.25H8.25m0 12.75h7.5m-7.5 3h4.5M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/>',
   copy: '<path d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-10.5A1.125 1.125 0 0 1 3 20.625v-10.5C3 9.504 3.504 9 4.125 9H7.5"/><path d="M10.125 3h9.75C20.496 3 21 3.504 21 4.125v9.75c0 .621-.504 1.125-1.125 1.125h-9.75A1.125 1.125 0 0 1 9 13.875v-9.75C9 3.504 9.504 3 10.125 3Z"/>',
   warning: '<path d="M12 9v3.75m9.303 3.376c.866 1.5-.217 3.374-1.948 3.374H4.645c-1.73 0-2.813-1.874-1.948-3.374L10.052 3.38c.866-1.5 3.03-1.5 3.896 0l7.355 12.746ZM12 15.75h.008v.008H12v-.008Z"/>',
+  fingerprint: '<path d="M12 2a10 10 0 0 0-10 10c0 4.14 2.52 7.7 6.11 9.25M12 2a10 10 0 0 1 10 10c0 4.14-2.52 7.7-6.11 9.25M12 6a6 6 0 0 0-6 6c0 2.22 1.21 4.16 3 5.2M12 6a6 6 0 0 1 6 6c0 2.22-1.21 4.16-3 5.2M12 10a2 2 0 0 0-2 2v6M12 10a2 2 0 0 1 2 2v6"/>',
   device: '<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.25 20.25h7.5M12 16.5v3.75"/>',
   chevron: '<path d="m9 18 6-6-6-6"/>',
   home: '<path d="M2.25 12 11.2 3.05a1.13 1.13 0 0 1 1.6 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-5.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75"/>',
@@ -30,7 +31,15 @@ export const heroPaths: Record<string, string> = {
 };
 
 export function hero(name: string, size = ''): string {
-  const path = heroPaths[name] || heroPaths.cube;
+  const petalNames: Record<string, string> = {
+    home: 'dashboard-square-01', users: 'user-group', server: 'server', servers: 'server', plus: 'add-01',
+    credit: 'credit-card', support: 'message-01', shield: 'shield-01', settings: 'settings-01',
+    refresh: 'circle-arrow-reload-01', play: 'play', stop: 'stop', check: 'tick-02', cube: 'package',
+    paper: 'sent', x: 'cancel-01', document: 'invoice-01', copy: 'copy-01', warning: 'alert-circle',
+    fingerprint: 'finger-print-scan', device: 'laptop', chevron: 'arrow-right-01', search: 'search-01',
+    arrow: 'arrow-up-right-01', sun: 'sun-03', moon: 'moon-01',
+  };
   const classes = ['ic', size, 'hero-icon'].filter(Boolean).join(' ');
-  return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`;
+  const iconName = petalNames[name] || name || 'package';
+  return `<svg class="${classes}" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${iconName}"></use></svg>`;
 }

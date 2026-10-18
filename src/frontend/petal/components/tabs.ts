@@ -8,7 +8,7 @@ export function initTabs(container: Element | string): () => void {
   if (!el) return () => {};
 
   const buttons = (): HTMLButtonElement[] =>
-    Array.from(el.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    Array.from(el.querySelectorAll<HTMLButtonElement>('[role="tab"]')).filter((button) => !button.hidden);
 
   function activate(btn: HTMLButtonElement, focus = false): void {
     buttons().forEach((b) => {

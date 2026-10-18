@@ -1,6 +1,8 @@
 # Fortless Implementation Status
 
-Last updated: 2026-10-17
+Last updated: 2026-10-19
+
+Current execution order and plan drift are reconciled in `docs/PLAN_RECONCILIATION_2026-10-19.md`.
 
 Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIFIED`.
 
@@ -18,7 +20,7 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | Capability | Status | Evidence / limitation |
 | --- | --- | --- |
 | Registration + Argon2id | `MOCK_ONLY` | New users remain `PENDING_VERIFICATION`; local integration tests |
-| Email verification | `MOCK_ONLY` | 24-hour, hash-at-rest, single-use tokens; delivery provider not configured |
+| Email verification | `SANDBOX_VERIFIED` | 24-hour, hash-at-rest, single-use tokens; canonical Fortless Mail rendering and SMTP adapter exist, but live deliverability is not verified |
 | Login + sessions | `MOCK_ONLY` | Opaque tokens, SHA-256 at rest, HttpOnly cookie, server guard; legacy sessions rotated and pre-verification ACTIVE identities safely grandfathered by audited migrations |
 | Password recovery | `MOCK_ONLY` | Non-enumerating API, 15-minute single-use token, all sessions revoked after reset |
 | Brute-force control | `MOCK_ONLY` | Persistent per-IP + normalized-identifier failure window; distributed Redis enforcement remains open |
@@ -44,7 +46,8 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 
 | Capability | Status | Evidence / limitation |
 | --- | --- | --- |
-| Transactional email outbox | `MOCK_ONLY` | Atomic queueing in SQLite, durable retry backoff, bounded attempts, dead-letter state, offline sandbox receipts |
+| Transactional email outbox | `SANDBOX_VERIFIED` | Canonical `Fortless Mail.html` templates, atomic SQLite queueing, SMTP/sandbox transports, leasing, retry/backoff and dead-letter state; live SMTP deliverability remains unverified |
+| User email preferences | `MOCK_ONLY` | Billing, service and support mail can be disabled per user; account security/recovery, payment-failure and invitation mail remains mandatory |
 | Staff owner bootstrap | `MOCK_ONLY` | `npm run staff:bootstrap-owner` CLI requires verified email, confirmed TOTP MFA; enforces `--force --reason` protection |
 | Phishing-resistant WebAuthn | `MOCK_ONLY` | FIDO2/WebAuthn registration and authentication, anti-replay challenge lifecycle, ES256 signature verification, authenticator counter validation |
 | Universal Petal Command Palette | `MOCK_ONLY` | `Ctrl+K` / `⌘K` global palette across customer and admin shells, scoped `/api/v1/search` with multi-tenant isolation, Arrow/Enter navigation |
@@ -53,6 +56,8 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 | Client redesign documentation | `MOCK_ONLY` | `docs/frontend/CLIENT_AREA_REDESIGN.md`, component map, route spec, progress and visual QA matrix; rendered browser QA remains pending |
 | Petal client route sweep | `MOCK_ONLY` | Full `out.html` category-to-route audit recorded; Support uses canonical conversation/comment components; Deploy uses original `z4` wizard/summary; Domains/Billing/Activity/Settings use Petal tables, lists and filters; Utilities Pro page skeletons prevent loading-state collapse. Authenticated device visual QA remains pending. |
 | Admin Step-Up Challenge Modal | `MOCK_ONLY` | Transparent 403 `STEP_UP_REQUIRED` interception, TOTP challenge verify `/api/v1/auth/step-up`, seamless mutation retry |
+| Petal catalog & provider operations | `MOCK_ONLY` | `/admin/catalog` reuses `Fortless Views.html` tokens/components; lists private/published products, immutable plans, prices and live secret-free Pterodactyl inventory; commercial mutations remain RBAC protected, sensitive state transitions require step-up, and every mutation writes an audit event |
+| Pterodactyl inventory connection | `NOT_STARTED` | Read-only Application API smoke check returned 1 location, 1 node, 4 nests and 14 eggs; this is connectivity evidence only, not a verified create/suspend/delete provisioning lifecycle |
 
 ## Fail-closed integrations
 
@@ -61,11 +66,13 @@ Status labels: `NOT_STARTED`, `MOCK_ONLY`, `SANDBOX_VERIFIED`, `PRODUCTION_VERIF
 - Customer power actions return `PROVIDER_NOT_CONFIGURED`.
 - Background provisioning dispatch is disabled at runtime.
 - Capability API reports the exact non-operational verification tier.
+- Legacy demonstration products and synthetic Frankfurt/London capacity are hidden from production customer APIs by Migration 31; the records remain available to staff for review.
 
 ## Verification executed
 
-- `npx tsc --noEmit` — passed with 0 TypeScript compiler errors.
-- `npm test` — 129/129 passed across the modular frontend, identity, catalog, payments, support, provisioning, staff RBAC, team/email, subscriptions/notifications, workers, WebAuthn, attachments, domains/DNS, VPS, cPanel, web apps, AI guardrails, renewal/dunning, status and backup suites.
+- `npx tsc --noEmit` — passed.
+- `npm test` — 212/212 passed across 12 files, including canonical email rendering, optional-notification suppression, mandatory security delivery and idempotent renewal reminders.
+- `npm run build:frontend` — passed for customer, admin and editor bundles.
 - Separated `getDatabase()` connection acquisition from automatic schema migration runs.
 - Fixed Admin UI modal clipping on mobile and invisibility on desktop by correcting unclosed `<nav class="tabbar">` and adding Petal `.scrim` / `.modal` CSS.
 - Applied Migration 11 (`ticket attachments and multi-tenant file storage`) to SQLite database.

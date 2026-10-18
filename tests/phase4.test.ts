@@ -128,8 +128,32 @@ describe('Phase 4: Subscription Renewal, Dunning & System Status Management', ()
 
       // Verify email was queued in email_outbox
       const emails = db.prepare('SELECT * FROM email_outbox WHERE recipient = ?').all(reg.user.email) as any[];
-      const alertEmail = emails.find((e: any) => e.template === 'security_alert');
+      const alertEmail = emails.find((e: any) => e.template === 'payment_failed');
       expect(alertEmail).toBeDefined();
+    });
+
+    it('DUN-02b: upcoming renewal reminder is queued once per billing period', async () => {
+      const reg = registerUser({
+        email: 'renewal-reminder@example.com', password: 'Password123!', name: 'Reminder Test',
+        ipAddress: '127.0.0.1', userAgent: 'vitest',
+      }, db);
+      const serviceId = createTestService(reg.account.id, 'ACTIVE');
+      const subId = `sub_${crypto.randomUUID()}`;
+      db.prepare(`
+        INSERT INTO subscriptions (
+          id, account_id, service_id, status, billing_interval, currency,
+          renewal_price_minor_units, current_period_start, current_period_end,
+          next_renewal_date, created_at, updated_at
+        ) VALUES (?, ?, ?, 'ACTIVE', 'MONTHLY', 'EUR', 1500, datetime('now', '-24 days'),
+          datetime('now', '+6 days'), datetime('now', '+6 days'), datetime('now', 'utc'), datetime('now', 'utc'))
+      `).run(subId, reg.account.id, serviceId);
+
+      const first = await processSubscriptionRenewals(db);
+      const second = await processSubscriptionRenewals(db);
+      expect(first.remindersSentCount).toBe(1);
+      expect(second.remindersSentCount).toBe(0);
+      const reminders = db.prepare("SELECT * FROM email_outbox WHERE recipient = ? AND template = 'renewal_reminder'").all(reg.user.email);
+      expect(reminders).toHaveLength(1);
     });
 
     it('DUN-03: expired grace period triggers service suspension', async () => {

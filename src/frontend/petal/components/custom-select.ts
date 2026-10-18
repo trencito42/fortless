@@ -24,7 +24,7 @@ function enhance(select: EnhancedSelect): void {
   const draw = () => {
     button.textContent = select.options[select.selectedIndex]?.text || '';
     button.disabled = select.disabled;
-    drop.innerHTML = `<div class="menu" role="listbox">${Array.from(select.options).map((option, index) => `<button type="button" role="option" data-petal-option="${index}" aria-selected="${option.selected}">${esc(option.text)}<svg class="ic s ck" aria-hidden="true"><use href="#i-tick-02"/></svg></button>`).join('')}</div>`;
+    drop.innerHTML = `<div class="menu" role="listbox">${Array.from(select.options).map((option, index) => `<button type="button" role="option" data-petal-option="${index}" aria-selected="${option.selected}">${esc(option.text)}<svg class="ic s ck" aria-hidden="true"><use href="/assets/petal-icons.svg#i-tick-02"/></svg></button>`).join('')}</div>`;
   };
   draw();
   select.__petalObserver = new MutationObserver(draw);

@@ -8,7 +8,7 @@
 
 This is a **plan and instructions for Codex**, not an assertion that each phase has been executed. Read the repository anew at the beginning of every session; this file's baseline may be stale. The previous review was static GitHub-source inspection, not deployment validation, penetration testing, or verified live service testing.
 
-The design system exists in the repo. Never discard it, replace it with generic component frameworks, or rebuild all pages in an unrelated style. Existing frontend is mostly static HTML/CSS/JS composed from Petal examples; backend is currently Fastify + TypeScript + SQLite, not an operational Next.js/Redis/PostgreSQL deployment. A rewrite is **not** an acceptance criterion; preserve working behavior and migrate carefully as production requirements demand.
+The design system exists in the repo. The binding visual reference is the read-only file `fortless-redesign/Fortless Views.html`; `docs/design/views.html` is its normalized design-content copy. Never alter the reference to fit an implementation, discard it, replace it with generic component frameworks, or rebuild pages in an unrelated style. Reuse `public/assets/petal-app.css` and `src/frontend/petal/`; add a reusable primitive there only when the reference demonstrates the required pattern and no production primitive exists. Existing frontend is mostly static HTML/CSS/JS composed from Petal examples; backend is currently Fastify + TypeScript + SQLite, not an operational Next.js/Redis/PostgreSQL deployment. A rewrite is **not** an acceptance criterion; preserve working behavior and migrate carefully as production requirements demand.
 
 ## Run in this order
 
@@ -24,8 +24,11 @@ The design system exists in the repo. Never discard it, replace it with generic 
 10. `09_OPTIONAL_PROVIDER_EXPANSION.md` — web hosting, domains, VPS, app hosting, managed databases, AI optional.
 11. `10_RELEASE_SECURITY_OPERATIONS.md` — pre-launch negative tests, monitoring, recovery, legal approvals, release gates.
 12. `11_MASTER_ORCHESTRATOR_PROMPT.md` — paste this once into Codex to direct ordered implementation.
+13. `12_SERVER_MANAGEMENT_EXTENSIONS.md` — current continuation after re-auditing the already implemented server-management work; admin-configurable game profiles first.
 
 **Recommended workflow:** give Codex `11_MASTER_ORCHESTRATOR_PROMPT.md`, let it read stage 00 and audit, then run *one phase or one small vertical slice per session*. The individual stage files are self-contained enough to be pasted into a new Codex session alongside `00_GLOBAL_CONTRACT.md`.
+
+Because the repository has advanced far beyond the original 2026-10-17 baseline, do not replay phases merely because their old checklist remains unchecked. Read `docs/PLAN_RECONCILIATION_2026-10-19.md`, verify current code and evidence, then execute the smallest incomplete slice. Stage 12 is the current product continuation; provider/browser verification and the three existing TypeScript failures remain gates.
 
 ## Non-negotiable acceptance rule
 

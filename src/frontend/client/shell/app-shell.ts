@@ -6,7 +6,7 @@
 import { api } from '../../core/api/client.js';
 import { esc } from '../../core/utils/dom.js';
 import { formatDate } from '../../core/utils/dates.js';
-import { hero, CommandPaletteController } from '../../petal/index.js';
+import { hero, CommandPaletteController, initModalStacker } from '../../petal/index.js';
 import { sessionStore } from '../../core/state/session.js';
 import { capabilitiesStore } from '../../core/state/capabilities.js';
 
@@ -18,6 +18,7 @@ export class AppShell {
   }
 
   public init(): void {
+    initModalStacker();
     this.initTheme();
     this.installHeroicons();
     this.installResponsiveComposition();
@@ -26,37 +27,43 @@ export class AppShell {
   }
 
   public initTheme(): void {
-    const theme = localStorage.getItem('fortless_theme');
+    const theme = localStorage.getItem('fortless_theme') || localStorage.getItem('theme');
     if (theme) document.documentElement.dataset.theme = theme;
+    window.addEventListener('storage', (e) => {
+      if ((e.key === 'fortless_theme' || e.key === 'theme') && e.newValue) {
+        document.documentElement.dataset.theme = e.newValue;
+      }
+    });
   }
 
   public toggleTheme(): void {
-    const current = document.documentElement.dataset.theme;
-    const next = current === 'dark' ? 'light' : 'dark';
+    const isDark = document.documentElement.dataset.theme === 'dark' ||
+      (!document.documentElement.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    const next = isDark ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
     localStorage.setItem('fortless_theme', next);
+    localStorage.setItem('theme', next);
   }
 
   public installHeroicons(): void {
+    // Retain SVG symbols if present; only fallback for missing icon markup
     const targets: [string, string][] = [
-      ['#nav-dashboard .ic, #tab-dashboard .ic', 'home'],
-      ['#nav-servers .ic, #tab-servers .ic', 'servers'],
-      ['#nav-deploy .ic, #tab-deploy .ic', 'plus'],
-      ['#nav-billing .ic, #tab-billing .ic', 'credit'],
-      ['#nav-tickets .ic, #tab-tickets .ic', 'support'],
-      ['#nav-audit .ic', 'shield'],
-      ['#nav-settings .ic, #tab-settings .ic', 'settings'],
-      ['#refreshServersBtn svg, #refreshInvoicesBtn svg, #refreshAuditBtn svg', 'refresh'],
-      ['.app-top-actions > a.btn svg', 'plus'],
-      ['#doDeployBtn svg', 'cube'],
+      ['#nav-dashboard .ic:not(:has(use)), #tab-dashboard .ic:not(:has(use))', 'home'],
+      ['#nav-servers .ic:not(:has(use)), #tab-servers .ic:not(:has(use))', 'servers'],
+      ['#nav-deploy .ic:not(:has(use)), #tab-deploy .ic:not(:has(use))', 'plus'],
+      ['#nav-billing .ic:not(:has(use)), #tab-billing .ic:not(:has(use))', 'credit'],
+      ['#nav-tickets .ic:not(:has(use)), #tab-tickets .ic:not(:has(use))', 'support'],
+      ['#nav-audit .ic:not(:has(use))', 'shield'],
+      ['#nav-settings .ic:not(:has(use)), #tab-settings .ic:not(:has(use))', 'settings'],
     ];
 
     targets.forEach(([selector, icon]) => {
       document.querySelectorAll(selector).forEach((node) => {
-        node.outerHTML = hero(icon, node.classList.contains('s') ? 's' : '');
+        if (!node.querySelector('use')) {
+          node.outerHTML = hero(icon, node.classList.contains('s') ? 's' : '');
+        }
       });
     });
-
   }
 
   public installResponsiveComposition(): void {
@@ -120,13 +127,16 @@ export class AppShell {
     const profEmail = document.getElementById('profEmail');
     const profRole = document.getElementById('profRole');
 
+    const initials = label.slice(0, 2).toUpperCase();
     if (userName) userName.textContent = label;
     if (userRole) userRole.textContent = data.membership.role;
-    if (userAvatar) userAvatar.textContent = label.slice(0, 2).toUpperCase();
+    if (userAvatar) userAvatar.textContent = initials;
+    const topUserAvatar = document.getElementById('topUserAvatar');
+    if (topUserAvatar) topUserAvatar.textContent = initials;
     if (profName) profName.textContent = data.user.name || '—';
     if (profWorkspace) profWorkspace.textContent = data.account.name;
     if (profEmail) profEmail.textContent = data.user.email;
-    if (profRole) profRole.innerHTML = `<span class="badge accent">${esc(data.membership.role)}</span>`;
+    if (profRole) profRole.innerHTML = `<span class="pill acc">${esc(data.membership.role)}</span>`;
   }
 
   public async loadCapabilities(): Promise<void> {
@@ -134,22 +144,23 @@ export class AppShell {
     capabilitiesStore.set(data);
 
     const ready = data.payments.enabled && data.provisioning.enabled;
-    const status = document.querySelector('.app-status span:last-child');
-    if (status) status.textContent = ready ? 'Commerce available' : 'Preview mode';
+    const status = document.getElementById('platformStatus');
+    if (status) {
+      status.innerHTML = `<span class="live" style="margin-right:4px;background:${ready ? 'var(--good)' : 'var(--warn)'}"></span><span>${ready ? 'Commerce available' : 'Commerce configuration required'}</span>`;
+    }
 
     const button = document.getElementById('doDeployBtn') as HTMLButtonElement | null;
     if (button) {
-      button.disabled = !ready;
+      button.disabled = !ready || button.dataset.checkoutReady !== 'true';
       const span = button.querySelector('span');
-      if (span) span.textContent = ready ? 'Continue to secure checkout' : 'Ordering unavailable';
+      if (span && !ready) span.textContent = 'Ordering unavailable';
     }
 
-    const notice = document.querySelector('#doDeployBtn + p');
+    const notice = document.getElementById('deployCheckoutHint');
     if (notice) {
-      notice.textContent = ready
-        ? 'You will continue to the configured hosted payment provider.'
-        : 'Payment and infrastructure integrations are disabled until sandbox verification is complete.';
+      if (!ready) notice.textContent = 'Payment and infrastructure integrations are disabled until sandbox verification is complete.';
     }
+    window.dispatchEvent(new Event('fortless:capabilities'));
   }
 
   public async loadNotifications(): Promise<void> {
@@ -168,24 +179,21 @@ export class AppShell {
       const list = document.getElementById('notifList');
       if (list) {
         if (!data.notifications.length) {
-          list.innerHTML = '<div class="state-message">No notifications.</div>';
+          list.innerHTML = `
+            <div class="es" data-c="Empty state" style="padding:28px 16px">
+              <span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-notification-01"/></svg></span>
+              <h4>No notifications</h4>
+              <p>You are all caught up.</p>
+            </div>
+          `;
         } else {
           list.innerHTML = data.notifications
             .map(
               (n) => `
-            <div class="card s2" style="padding:10px;border-radius:12px;opacity:${n.readAt ? '0.7' : '1'}">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-                <b style="font-size:13px">${esc(n.title)}</b>
-                <small class="faint" style="font-size:11px">${formatDate(n.createdAt)}</small>
-              </div>
-              <p style="font-size:12px;color:var(--ink2);margin:0 0 6px">${esc(n.message)}</p>
-              ${
-                n.linkUrl
-                  ? `<a href="${esc(n.linkUrl)}" data-app-route="${
-                      n.linkUrl.includes('services') ? 'service-detail' : 'dashboard'
-                    }" style="font-size:11px;color:var(--accent);font-weight:600">View details →</a>`
-                  : ''
-              }
+            <div class="li h" style="padding:12px 14px;opacity:${n.readAt ? '0.65' : '1'}">
+              <span class="tile ${n.tone || 'neu'} sm"><svg class="ic" aria-hidden="true"><use href="#i-${n.icon || 'notification-01'}"/></svg></span>
+              <span class="tx"><b>${esc(n.title)}</b><small>${esc(n.message)} · ${formatDate(n.createdAt)}</small></span>
+              ${n.linkUrl ? `<a href="${esc(n.linkUrl)}" data-close-notif class="ib s" aria-label="Open"><svg class="ic s" aria-hidden="true"><use href="#i-arrow-right-01"/></svg></a>` : ''}
             </div>
           `
             )

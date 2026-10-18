@@ -77,6 +77,22 @@ export class Router {
   }
 
   public resolve(): void {
+    // A tab change inside the same view only announces the new tab; the page is not rebuilt.
+    const path = window.location.pathname;
+    const prev = this.currentMatch;
+    if (prev?.route.tabbed) {
+      const route = prev.route;
+      const params = this.matchRoute(route, path);
+      if (params !== null) {
+        const { tab: nextTab, ...rest } = params;
+        const { tab: _prevTab, ...prevRest } = prev.params;
+        if (JSON.stringify(rest) === JSON.stringify(prevRest)) {
+          this.currentMatch = { route, params, pathname: path };
+          window.dispatchEvent(new CustomEvent('fortless:tab', { detail: { route: route.id, tab: nextTab ?? null } }));
+          return;
+        }
+      }
+    }
     // Run cleanup for prior view
     while (this.cleanups.length) {
       const cleanup = this.cleanups.pop();

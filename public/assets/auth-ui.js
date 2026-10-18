@@ -130,5 +130,48 @@
       }
     } catch (error) { show(error.message); submit.disabled = false; submit.textContent = original; }
   });
+
+  // Passkey sign-in: a button, plus the browser's own passkey suggestion in the email field when it supports it.
+  if (page === 'login' && window.PublicKeyCredential && navigator.credentials) {
+    const toBuffer = (b64u) => { const b = atob(b64u.replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, (c) => c.charCodeAt(0)).buffer; };
+    const toB64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const passkeyButton = document.getElementById('passkeyLogin');
+    let controller = null;
+    const signIn = async (conditional) => {
+      controller?.abort();
+      controller = new AbortController();
+      const options = await post('/api/v1/auth/passkeys/login-options', {});
+      const credential = await navigator.credentials.get({
+        publicKey: { challenge: toBuffer(options.challenge), rpId: options.rpId, timeout: options.timeout, userVerification: 'preferred' },
+        mediation: conditional ? 'conditional' : undefined,
+        signal: controller.signal,
+      });
+      if (!credential) return;
+      await post('/api/v1/auth/passkeys/login-verify', {
+        credentialId: toB64u(credential.rawId),
+        challenge: options.challenge,
+        clientDataJSON: toB64u(credential.response.clientDataJSON),
+        authenticatorData: toB64u(credential.response.authenticatorData),
+        signature: toB64u(credential.response.signature),
+      });
+      const next = new URLSearchParams(location.search).get('next');
+      location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app';
+    };
+    if (passkeyButton) {
+      passkeyButton.hidden = false;
+      passkeyButton.addEventListener('click', async () => {
+        alertBox && (alertBox.hidden = true);
+        try { await signIn(false); }
+        catch (error) {
+          if (error && error.name === 'NotAllowedError') show('Passkey sign-in was cancelled.');
+          else if (error && error.name !== 'AbortError') show(error.message || 'Passkey sign-in failed.');
+        }
+      });
+    }
+    form?.addEventListener('submit', () => controller?.abort());
+    PublicKeyCredential.isConditionalMediationAvailable?.().then((ok) => { if (ok) signIn(true).catch(() => {}); }).catch(() => {});
+  }
   if (page === 'verify') form?.requestSubmit();
+  const prefill = new URLSearchParams(location.search).get('email');
+  if (prefill && form && form.email && !form.email.value && prefill.length < 255) form.email.value = prefill;
 })();

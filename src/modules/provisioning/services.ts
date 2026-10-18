@@ -1,10 +1,21 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
-import { type ProviderAdapter } from './adapter.js';
+import { PterodactylHttpAdapter, type ProviderAdapter } from './adapter.js';
+import { allows, getServiceAccess, permissionList } from './service-access.js';
+import { config } from '../../config/index.js';
+import { withAccountClientKey } from './console.js';
 import { getProviderAdapter } from '../outbox/worker.js';
 
+export interface ServiceAccessInfo {
+  kind: 'ACCOUNT' | 'MEMBER';
+  preset: string | null;
+  permissions: string[];
+  sharedBy: string | null;
+}
+
 export interface ServiceDetail {
+  access: ServiceAccessInfo;
   id: string;
   accountId: string;
   orderItemId: string;
@@ -47,7 +58,8 @@ export interface ServiceDetail {
 export function getServiceDetail(
   serviceId: string,
   accountId: string,
-  db: Database.Database = getDatabase()
+  db: Database.Database = getDatabase(),
+  viewer?: { userId: string; role?: string }
 ): ServiceDetail {
   const row = db.prepare(`
     SELECT s.id, s.account_id, s.order_item_id, s.provider_type, s.external_id, s.identifier,
@@ -64,20 +76,23 @@ export function getServiceDetail(
     JOIN plan_versions pv ON pv.id = oi.plan_version_id
     LEFT JOIN service_desired_configs sdc ON sdc.service_id = s.id
     LEFT JOIN service_observed_states sos ON sos.service_id = s.id
-    WHERE s.id = ? AND s.account_id = ?
-  `).get(serviceId, accountId) as any;
+    WHERE s.id = ?
+  `).get(serviceId) as any;
 
-  if (!row) {
+  const access = row ? getServiceAccess(db, { serviceId, accountId, userId: viewer?.userId ?? '', role: viewer?.role }) : undefined;
+  if (!row || !access) {
     throw new Error('Service not found');
   }
 
   const audits = db.prepare(`
     SELECT id, action, actor_type, created_at, metadata
     FROM audit_events
-    WHERE resource_type = 'service' AND resource_id = ?
-    ORDER BY created_at DESC
+    WHERE account_id = ?
+      AND ((resource_type = 'service' AND resource_id = ?)
+        OR (resource_type = 'order' AND resource_id = (SELECT order_id FROM order_items WHERE id = ?)))
+    ORDER BY created_at DESC, rowid DESC
     LIMIT 20
-  `).all(serviceId) as Array<{
+  `).all(row.account_id, serviceId, row.order_item_id) as Array<{
     id: string;
     action: string;
     actor_type: string;
@@ -120,6 +135,12 @@ export function getServiceDetail(
     })),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    access: {
+      kind: access.kind,
+      preset: access.preset,
+      permissions: permissionList(access),
+      sharedBy: access.kind === 'MEMBER' ? ((db.prepare('SELECT name FROM accounts WHERE id = ?').get(row.account_id) as { name: string } | undefined)?.name ?? null) : null,
+    },
   };
 }
 
@@ -131,27 +152,18 @@ export async function executeServicePowerAction(
     serviceId: string;
     accountId: string;
     userId: string;
+    role?: string;
     action: 'START' | 'STOP' | 'RESTART' | 'KILL';
     ipAddress?: string;
   },
   adapter: ProviderAdapter = getProviderAdapter(),
   db: Database.Database = getDatabase()
 ): Promise<{ success: boolean; runtimeState: string }> {
-  const service = db.prepare(`
-    SELECT id, external_id, identifier, contract_status, account_id
-    FROM services
-    WHERE id = ? AND account_id = ?
-  `).get(params.serviceId, params.accountId) as ({
-    id: string;
-    external_id: string | null;
-    identifier: string | null;
-    contract_status: string;
-    account_id: string;
-  }) | undefined;
-
-  if (!service) {
-    throw new Error('Service not found');
-  }
+  const access = getServiceAccess(db, params);
+  if (!access) throw new Error('Service not found');
+  const needed = params.action === 'START' ? 'control.start' : params.action === 'RESTART' ? 'control.restart' : 'control.stop';
+  if (!allows(access, needed)) throw new Error('You do not have permission to do this.');
+  const service = access.service;
 
   if (service.contract_status !== 'ACTIVE') {
     throw new Error(`Service cannot receive power commands in ${service.contract_status} status`);
@@ -162,16 +174,25 @@ export async function executeServicePowerAction(
   }
 
   // Execute on provider
-  await adapter.powerAction(service.external_id, params.action);
+  if (adapter instanceof PterodactylHttpAdapter && config.PTERODACTYL_KEYMINT_SECRET) {
+    const externalId = service.external_id;
+    await withAccountClientKey(params.accountId, adapter, db, config.PTERODACTYL_KEYMINT_SECRET,
+      (key) => adapter.powerAction(externalId, params.action, key));
+  } else {
+    await adapter.powerAction(service.external_id, params.action);
+  }
 
   const newRuntime = params.action === 'STOP' || params.action === 'KILL' ? 'STOPPED' : 'RUNNING';
 
   runInTransaction((trx) => {
-    trx.prepare(`
-      UPDATE service_observed_states
-      SET runtime_state = ?, last_checked_at = datetime('now', 'utc')
-      WHERE service_id = ?
-    `).run(newRuntime, service.id);
+    // Only a stop is recorded right away. A start may still crash, so START/RESTART wait for the live state.
+    if (params.action === 'STOP' || params.action === 'KILL') {
+      trx.prepare(`
+        UPDATE service_observed_states
+        SET runtime_state = ?, last_checked_at = datetime('now', 'utc')
+        WHERE service_id = ?
+      `).run(newRuntime, service.id);
+    }
 
     trx.prepare(`
       INSERT INTO audit_events (
@@ -370,4 +391,74 @@ export async function terminateService(
       JSON.stringify({ reason: params.reason })
     );
   }, db);
+}
+
+export const ACTIVITY_CATEGORIES = {
+  power: ['service.power'],
+  files: ['service.file.write', 'service.file.mkdir', 'service.file.delete', 'service.file.rename', 'service.file.archive', 'service.file.unarchive', 'service.file.copy', 'service.file.move', 'service.file.chmod', 'service.file.pull'],
+  backups: ['service.backup.create', 'service.backup.delete', 'service.backup.lock', 'service.backup.restore'],
+  network: ['service.network.assign', 'service.network.notes', 'service.network.primary', 'service.network.remove'],
+  settings: ['service.startup.variable', 'service.startup.image', 'service.settings.rename', 'service.settings.reinstall'],
+  game: ['service.mod.install', 'service.game.icon'],
+  databases: ['service.database.create', 'service.database.rotate', 'service.database.delete'],
+  schedules: ['service.schedule.create', 'service.schedule.update', 'service.schedule.delete', 'service.schedule.execute', 'service.schedule.task_add', 'service.schedule.task_update', 'service.schedule.task_delete'],
+  lifecycle: ['service.created', 'service.provisioned', 'service.provision_failed', 'service.suspend', 'service.unsuspend', 'service.terminate', 'service.owner_assigned', 'service.provider_missing'],
+} as const;
+export type ActivityCategory = keyof typeof ACTIVITY_CATEGORIES | 'billing' | 'all';
+export const ACTIVITY_PAGE_SIZE = 15;
+const RANGE_DAYS: Record<string, number> = { '1': 1, '7': 7, '30': 30 };
+
+/**
+ * Customer-facing activity for one service. Only an explicit allowlist of actions is listed, so internal
+ * noise (console tokens, signed URL requests, key minting) never shows up. Always scoped to the account.
+ */
+export function listServiceActivity(
+  params: { serviceId: string; accountId: string; userId?: string; role?: string; category?: string; range?: string; q?: string; page?: number },
+  db: Database.Database = getDatabase()
+): { events: Array<{ id: string; action: string; actorType: string; createdAt: string; metadata: string }>; total: number; page: number; pageSize: number } {
+  const access = getServiceAccess(db, { serviceId: params.serviceId, accountId: params.accountId, userId: params.userId ?? '', role: params.role });
+  if (!access || !allows(access, 'activity.read')) throw new Error('Service not found');
+  const svc = { order_item_id: access.service.order_item_id };
+  const ownerAccountId = access.service.account_id;
+
+  const category = (params.category ?? 'all') as ActivityCategory;
+  const serviceActions: string[] =
+    category === 'all' ? Object.values(ACTIVITY_CATEGORIES).flat()
+    : category === 'billing' ? []
+    : [...(ACTIVITY_CATEGORIES[category as keyof typeof ACTIVITY_CATEGORIES] ?? [])];
+  const includeOrders = category === 'all' || category === 'billing';
+
+  const where: string[] = [];
+  const args: unknown[] = [ownerAccountId];
+  const branches: string[] = [];
+  if (serviceActions.length) {
+    branches.push(`(resource_type = 'service' AND resource_id = ? AND action IN (${serviceActions.map(() => '?').join(',')}))`);
+    args.push(params.serviceId, ...serviceActions);
+  }
+  if (includeOrders) {
+    branches.push(`(resource_type = 'order' AND resource_id = (SELECT order_id FROM order_items WHERE id = ?))`);
+    args.push(svc.order_item_id);
+  }
+  if (!branches.length) return { events: [], total: 0, page: 1, pageSize: ACTIVITY_PAGE_SIZE };
+  where.push(`(${branches.join(' OR ')})`);
+
+  const days = RANGE_DAYS[params.range ?? ''];
+  if (days) { where.push("created_at >= datetime('now', 'utc', ?)"); args.push(`-${days} days`); }
+  const q = (params.q ?? '').trim().slice(0, 80);
+  if (q) {
+    const like = `%${q.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    where.push("(action LIKE ? ESCAPE '\\' OR metadata LIKE ? ESCAPE '\\')");
+    args.push(like, like);
+  }
+
+  const base = `FROM audit_events WHERE account_id = ? AND ${where.join(' AND ')}`;
+  const total = (db.prepare(`SELECT COUNT(*) AS c ${base}`).get(...args) as { c: number }).c;
+  const pages = Math.max(1, Math.ceil(total / ACTIVITY_PAGE_SIZE));
+  const page = Math.min(Math.max(1, Math.floor(params.page ?? 1) || 1), pages);
+  const rows = db.prepare(`SELECT id, action, actor_type, created_at, metadata ${base} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`)
+    .all(...args, ACTIVITY_PAGE_SIZE, (page - 1) * ACTIVITY_PAGE_SIZE) as Array<{ id: string; action: string; actor_type: string; created_at: string; metadata: string }>;
+  return {
+    events: rows.map((r) => ({ id: r.id, action: r.action, actorType: r.actor_type, createdAt: r.created_at, metadata: r.metadata })),
+    total, page, pageSize: ACTIVITY_PAGE_SIZE,
+  };
 }

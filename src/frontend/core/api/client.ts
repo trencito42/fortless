@@ -91,7 +91,10 @@ class ApiClient {
   }
 
   public post<T = unknown>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    const headers = { 'Content-Type': 'application/json', ...(options?.headers || {}) };
+    const headers: Record<string, string> = { ...(options?.headers || {}) };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
     return this.request<T>(url, {
       ...options,
       method: 'POST',
@@ -101,7 +104,10 @@ class ApiClient {
   }
 
   public patch<T = unknown>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
-    const headers = { 'Content-Type': 'application/json', ...(options?.headers || {}) };
+    const headers: Record<string, string> = { ...(options?.headers || {}) };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+    }
     return this.request<T>(url, {
       ...options,
       method: 'PATCH',

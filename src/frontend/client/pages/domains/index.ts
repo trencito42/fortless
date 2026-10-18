@@ -91,44 +91,28 @@ export async function loadZones(): Promise<void> {
     }
 
     host.innerHTML = `
-      <div class="z-scroll"><table class="tbl">
-        <thead>
-          <tr>
-            <th>Domain Name</th>
-            <th>Status</th>
-            <th>Nameservers</th>
-            <th>Auto-Renew</th>
-            <th>Expires</th>
-            <th class="r">DNS Records</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${zones
-            .map((z) => {
-              const ns = JSON.parse(z.nameservers || '[]') as string[];
-              return `
-              <tr class="mobile-record" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(' ')}`.toLowerCase())}">
-                <td data-label="Domain">
-                  <div class="row" style="gap:8px">
-                    <svg class="ic s" style="color:var(--accent)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                    <b>${esc(z.domain_name)}</b>
-                  </div>
-                </td>
-                <td data-label="Status"><span class="badge good s">${esc(z.status)}</span></td>
-                <td data-label="Nameservers" class="muted mono" style="font-size:12px">${esc(ns.join(', '))}</td>
-                <td data-label="Auto-Renew">${z.auto_renew ? '<span class="badge s accent">Active</span>' : '<span class="badge s">Disabled</span>'}</td>
-                <td data-label="Expires" class="muted">${esc(formatDate(z.expires_at))}</td>
-                <td data-label="DNS Records" class="r">
-                  <button type="button" class="btn sec s manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}">
-                    Manage DNS
-                  </button>
-                </td>
-              </tr>
-            `;
-            })
-            .join('')}
-        </tbody>
-      </table></div>
+      <div class="col" style="gap:8px">
+        ${zones
+          .map((z) => {
+            const ns = JSON.parse(z.nameservers || '[]') as string[];
+            const nsText = ns.length ? ns.join(' · ') : 'ns1.fortless.net · ns2.fortless.net';
+            const exp = z.expires_at ? ` · Expires ${formatDate(z.expires_at)}` : '';
+            return `
+            <div class="li h" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(' ')}`.toLowerCase())}" style="padding:12px 14px;gap:12px;align-items:center">
+              <span class="tile good sm"><svg class="ic s" width="16" height="16"><use href="#i-globe-02"/></svg></span>
+              <span class="tx" style="min-width:140px">
+                <b>${esc(z.domain_name)}</b>
+                <small class="muted mono" style="font-size:12px">${esc(nsText)}${esc(exp)}</small>
+              </span>
+              <span class="pill good">${esc(z.status)}</span>
+              <button type="button" class="btn xs tint manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}" style="flex-shrink:0">
+                <svg class="ic xs" width="14" height="14"><use href="#i-arrow-right-01"/></svg>Manage DNS
+              </button>
+            </div>
+          `;
+          })
+          .join('')}
+      </div>
     `;
 
     filterZones();
@@ -180,7 +164,7 @@ export async function searchDomains(query: string): Promise<void> {
     host.innerHTML = `<div class="col" style="gap:6px;margin-top:8px">${res.results.map((item) => {
         const isAvail = item.available && item.status === 'AVAILABLE';
         const tone = isAvail ? 'good' : 'bad';
-        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result · registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || 'EUR')}<small class="muted">/yr</small></b>` : ''}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s sec register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ''}</span></div>`;
+        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-globe-02"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result · registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || 'EUR')}<small class="muted">/yr</small></b>` : ''}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s tint register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ''}</span></div>`;
       }).join('')}</div>`;
 
     host.querySelectorAll<HTMLButtonElement>('.register-domain-btn').forEach((btn) => {
@@ -240,12 +224,12 @@ export async function loadDnsRecords(zoneId: string): Promise<void> {
     }
 
     host.innerHTML = `
-      <table class="tbl">
+      <table class="tbl rsp" data-c="Data table">
         <thead>
           <tr>
             <th>Type</th>
             <th>Name</th>
-            <th>Content / Target</th>
+            <th>Target</th>
             <th>TTL</th>
             <th>Priority</th>
             <th class="r">Actions</th>
@@ -255,15 +239,15 @@ export async function loadDnsRecords(zoneId: string): Promise<void> {
           ${records
             .map(
               (r) => `
-            <tr class="mobile-record">
-              <td data-label="Type"><span class="badge accent s">${esc(r.record_type)}</span></td>
-              <td data-label="Name" class="mono"><b>${esc(r.name)}</b></td>
-              <td data-label="Content" class="mono muted" style="word-break:break-all">${esc(r.content)}</td>
-              <td data-label="TTL" class="num">${r.ttl}s</td>
-              <td data-label="Priority" class="num">${r.priority !== null ? r.priority : '—'}</td>
-              <td data-label="Actions" class="r">
-                <button type="button" class="btn sec xs delete-dns-btn" data-record-id="${esc(r.id)}" style="color:var(--bad)">
-                  Delete
+            <tr class="h mobile-record">
+              <td data-l="Type"><span class="pill acc">${esc(r.record_type)}</span></td>
+              <td data-l="Name" class="mono"><b>${esc(r.name)}</b></td>
+              <td data-l="Target" class="mono muted" style="word-break:break-all">${esc(r.content)}</td>
+              <td data-l="TTL" class="num">${r.ttl}s</td>
+              <td data-l="Priority" class="num">${r.priority !== null ? r.priority : '—'}</td>
+              <td data-l="Actions" class="r">
+                <button type="button" class="ib s delete-dns-btn" data-record-id="${esc(r.id)}" style="color:var(--bad)" aria-label="Delete record">
+                  <svg class="ic s" width="16" height="16"><use href="#i-delete-02"/></svg>
                 </button>
               </td>
             </tr>

@@ -1,0 +1,14 @@
+info:
+  name: "Fortless Theme"
+  identifier: "fortlesstheme"
+  description: "Restyles the panel to match the Fortless app (Petal design system)."
+  version: "1.0.0"
+  target: "{{target}}"
+  author: "Fortless"
+  website: "https://fortless.net"
+
+admin:
+  view: "admin.blade.php"
+
+dashboard:
+  wrapper: "wrapper.blade.php"

@@ -1,6 +1,18 @@
+import { updateProfile, getBillingProfile, saveBillingProfile, ProfileValidationError } from './modules/identity/profile.js';
+import { createGameTools } from './modules/provisioning/game-tools.js';
+import { listProfiles, saveProfile, deleteProfile, ProfileError } from './modules/provisioning/game-profiles.js';
+import { getProviderAdapter } from './modules/outbox/worker.js';
+import { createServiceSharing, SharingError } from './modules/provisioning/service-members.js';
+import { getServiceAccess } from './modules/provisioning/service-access.js';
+import { touchService, relinkService, RelinkError } from './modules/provisioning/runtime-sync.js';
+import { createServerPanelApi } from './modules/provisioning/server-panel.js';
+import { createFilesApi } from './modules/provisioning/files.js';
+import { getServiceConsoleCredentials, ConsoleAccessError, withAccountClientKey } from './modules/provisioning/console.js';
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import cookie from '@fastify/cookie';
+import { registerOidcRoutes } from './modules/oidc/routes.js';
+import { panelLoginUrl } from './modules/oidc/oidc.js';
 import rateLimit from '@fastify/rate-limit';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -21,6 +33,7 @@ import {
   getMfaStatus,
   beginTotpEnrollment,
   confirmTotpEnrollment,
+  regenerateRecoveryCodes,
   disableTotp,
   verifyEmail,
   resendVerification,
@@ -45,11 +58,13 @@ import {
   verifyAndAuthenticatePasskey,
   listPasskeysForUser,
   revokePasskey,
+  relyingPartyId,
 } from './modules/identity/passkeys.js';
 import {
   getPublishedPlans,
   listCategories,
   listProducts,
+  listAdminCatalog,
   getProductDetail,
   listRegionsWithCapacity,
   validateCoupon,
@@ -60,12 +75,14 @@ import {
   createPlanVersion,
   updatePlanStatus,
 } from './modules/catalog/catalog.js';
+import { PterodactylHttpAdapter, ProviderError } from './modules/provisioning/adapter.js';
 import { createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
 import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund } from './modules/payments/webhooks.js';
 import {
   getServiceDetail,
   executeServicePowerAction,
+  listServiceActivity,
   suspendService,
   unsuspendService,
   terminateService,
@@ -78,12 +95,14 @@ import {
   markAllNotificationsRead,
   getUnreadNotificationCount,
 } from './modules/notifications/notifications.js';
+import { getNotificationPreferences, saveNotificationPreferences } from './modules/notifications/preferences.js';
 import {
   getAdminOverview,
   listAdminAccounts,
   getAdminAccountDetail,
   updateAccountStatus,
   listAdminServices,
+  getAdminServiceDetail,
   listAdminTickets,
   getAdminTicketDetail,
   addStaffTicketReply,
@@ -101,6 +120,7 @@ import {
   createTicket,
   getTicketThread,
   addCustomerReply,
+  resolveTicket,
   addTicketAttachment,
   listTicketAttachments,
   getTicketAttachment,
@@ -148,12 +168,19 @@ export function buildServer(): FastifyInstance {
 
   const aiAdapter = new MockAiProviderAdapter();
 
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, Object.fromEntries(new URLSearchParams(body as string)));
+  });
+
   // 1. Raw body capture plugin for webhook signature verification
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
     try {
       const buffer = body as Buffer;
       const rawString = buffer.toString('utf8');
       req.rawBody = rawString;
+      if (!rawString.trim()) {
+        return done(null, {});
+      }
       const json = JSON.parse(rawString);
       done(null, json);
     } catch (err) {
@@ -202,7 +229,7 @@ export function buildServer(): FastifyInstance {
     }
 
     if (token) {
-      const context = authenticateSession(token);
+      const context = authenticateSession(token, getDatabase(), req.ip);
       if (context) {
         req.auth = context;
       }
@@ -210,7 +237,7 @@ export function buildServer(): FastifyInstance {
   });
 
   app.addHook('preHandler', async (req, reply) => {
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.url.startsWith('/api/v1/webhooks/')) return;
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.url.startsWith('/api/v1/webhooks/') || req.url.split('?')[0] === '/oidc/token') return;
     const cookieToken = req.cookies['fortless_csrf'];
     const headerToken = req.headers['x-csrf-token'];
     if (!cookieToken || typeof headerToken !== 'string' || cookieToken !== headerToken || !validCsrfToken(cookieToken)) {
@@ -322,12 +349,25 @@ export function buildServer(): FastifyInstance {
     return reply.redirect('/');
   });
 
-  app.get('/app/services/:id', async (req, reply) => {
+  const SERVICE_TABS = new Set(['overview', 'console', 'files', 'game', 'databases', 'schedules', 'backups', 'network', 'startup', 'settings', 'users', 'allocation', 'activity']);
+  const SETTINGS_TABS = new Set(['profile', 'security', 'team', 'sessions']);
+  const serveServicePage = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
-    const { id } = req.params as { id: string };
+    const { id, tab } = req.params as { id: string; tab?: string };
+    if (tab !== undefined && !SERVICE_TABS.has(tab)) return reply.redirect(`/app/services/${encodeURIComponent(id)}`);
     const db = getDatabase();
-    const service = db.prepare('SELECT id FROM services WHERE id = ? AND account_id = ?').get(id, req.auth.account.id);
+    const service = getServiceAccess(db, { serviceId: id, accountId: req.auth.account.id, userId: req.auth.user.id, role: req.auth.membership.role });
     if (!service) return reply.redirect('/app/services');
+    const appPath = path.join(publicDir, 'app.html');
+    if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
+    return reply.redirect('/app');
+  };
+  app.get('/app/services/:id', serveServicePage);
+  app.get('/app/services/:id/:tab', serveServicePage);
+  app.get('/app/settings/:tab', async (req, reply) => {
+    const { tab } = req.params as { tab: string };
+    if (!SETTINGS_TABS.has(tab)) return reply.redirect('/app/settings');
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/app');
@@ -344,6 +384,8 @@ export function buildServer(): FastifyInstance {
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/app/support');
   });
+
+  registerOidcRoutes(app);
 
   app.get('/login', async (req, reply) => {
     if (req.auth) return reply.redirect('/app');
@@ -447,7 +489,11 @@ export function buildServer(): FastifyInstance {
 
   app.get('/admin/:view', async (req, reply) => {
     const { view } = req.params as { view: string };
-    const viewPermissions: Record<string, StaffPermission> = { accounts: 'accounts:read', services: 'services:read', tickets: 'tickets:read', audit: 'audit:read', staff: 'staff:read' };
+    const viewPermissions: Record<string, StaffPermission> = {
+      accounts: 'accounts:read', services: 'services:read', orders: 'accounts:read', billing: 'accounts:read',
+      infrastructure: 'services:read', catalog: 'catalog:read', tickets: 'tickets:read', audit: 'audit:read',
+      staff: 'staff:read', status: 'services:read', settings: 'admin:access',
+    };
     if (!viewPermissions[view]) return reply.redirect('/admin');
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(`/admin/${view}`)}`);
     if (!hasStaffPermission(req.auth.user.id, viewPermissions[view]!, getDatabase()) || !req.auth.session.mfaVerifiedAt) return reply.status(403).type('text/plain').send('Staff MFA and route permission are required.');
@@ -482,7 +528,12 @@ export function buildServer(): FastifyInstance {
 
   const operationalCapability = (capability: 'payments' | 'provisioning' | 'email'): boolean => {
     if (capability === 'payments') return config.PAYMENTS_MODE === 'stripe_test' || (config.PAYMENTS_MODE === 'stripe_live' && Boolean(config.STRIPE_SECRET_KEY));
-    if (capability === 'provisioning') return config.PROVIDER_MODE !== 'disabled';
+    if (capability === 'provisioning') {
+      return config.PROVIDER_MODE !== 'disabled'
+        && Boolean(config.PTERODACTYL_PANEL_URL)
+        && Boolean(config.PTERODACTYL_API_KEY)
+        && (config.PROVIDER_VERIFICATION_TIER === 'SANDBOX_VERIFIED' || config.PROVIDER_VERIFICATION_TIER === 'PRODUCTION_VERIFIED');
+    }
     if (capability === 'email') return config.EMAIL_MODE !== 'disabled';
     return false;
   };
@@ -517,7 +568,10 @@ export function buildServer(): FastifyInstance {
     provisioning: {
       enabled: operationalCapability('provisioning'),
       mode: config.PROVIDER_MODE,
-      verification: config.PROVIDER_MODE === 'pterodactyl_1' ? 'SANDBOX_VERIFIED' : 'MOCK_ONLY',
+      verification: config.PROVIDER_VERIFICATION_TIER,
+    },
+    panelSso: {
+      enabled: panelLoginUrl() !== null,
     },
     transactionalEmail: {
       enabled: operationalCapability('email'),
@@ -646,6 +700,10 @@ export function buildServer(): FastifyInstance {
   app.post('/api/v1/auth/logout', { preHandler: [requireAuth] }, async (req, reply) => {
     const token = req.cookies['fortless_session'] || req.headers['authorization']?.substring(7);
     if (token) {
+      getDatabase().prepare(`
+        INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+        VALUES (?, ?, ?, 'USER', 'user.logout', 'session', ?, ?, ?)
+      `).run(generateId('aud'), req.auth!.account.id, req.auth!.user.id, req.auth!.session.id, req.ip, generateId('cor'));
       revokeSession(token);
     }
     reply.clearCookie('fortless_session', { path: '/' });
@@ -660,6 +718,19 @@ export function buildServer(): FastifyInstance {
       membership: req.auth!.membership,
     };
   });
+
+  // Account profile: your name, the workspace (tenant) name, and the invoice details
+  const profileActor = (req: FastifyRequest) => ({ userId: req.auth!.user.id, accountId: req.auth!.account.id, role: req.auth!.membership.role, ipAddress: req.ip });
+  const profileGuard = (fn: (req: FastifyRequest) => unknown) => async (req: FastifyRequest, reply: FastifyReply) => {
+    try { reply.header('Cache-Control', 'no-store'); return await fn(req); }
+    catch (err) {
+      if (err instanceof ProfileValidationError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  };
+  app.patch('/api/v1/account/profile', { preHandler: [requireAuth] }, profileGuard((req) => updateProfile(profileActor(req), req.body)));
+  app.get('/api/v1/account/billing-profile', { preHandler: [requireAuth] }, profileGuard((req) => ({ profile: getBillingProfile(req.auth!.account.id) })));
+  app.put('/api/v1/account/billing-profile', { preHandler: [requireAuth] }, profileGuard((req) => ({ profile: saveBillingProfile(profileActor(req), req.body) })));
 
   app.get('/api/v1/auth/sessions', { preHandler: [requireAuth] }, async (req) => ({
     sessions: listUserSessions(req.auth!.user.id, req.auth!.session.id),
@@ -708,6 +779,17 @@ export function buildServer(): FastifyInstance {
         code: parse.data.code, ipAddress: req.ip,
       });
       return reply.send({ enabled: true, recoveryCodes });
+    } catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
+  });
+
+  app.post('/api/v1/auth/mfa/recovery-codes/regenerate', { preHandler: [requireAuth] }, async (req, reply) => {
+    try {
+      const recoveryCodes = regenerateRecoveryCodes({
+        userId: req.auth!.user.id,
+        accountId: req.auth!.account.id,
+        ipAddress: req.ip,
+      });
+      return reply.send({ recoveryCodes });
     } catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
   });
 
@@ -769,9 +851,10 @@ export function buildServer(): FastifyInstance {
   // --- WebAuthn Passkeys ---
   app.post('/api/v1/auth/passkeys/register-options', { preHandler: [requireAuth] }, async (req) => {
     const { challenge, expiresAt } = generateWebAuthnChallenge('REGISTRATION', req.auth!.user.id, getDatabase());
+    const rpId = relyingPartyId(req.hostname);
     return {
       challenge,
-      rp: { name: 'FORTLESS', id: 'fortless.net' },
+      rp: { name: 'FORTLESS', id: rpId },
       user: { id: req.auth!.user.id, name: req.auth!.user.email, displayName: req.auth!.user.name },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
       timeout: 60000,
@@ -807,7 +890,7 @@ export function buildServer(): FastifyInstance {
     const { challenge, expiresAt } = generateWebAuthnChallenge('AUTHENTICATION', null, getDatabase());
     return {
       challenge,
-      rpId: 'fortless.net',
+      rpId: relyingPartyId(),
       timeout: 60000,
       userVerification: 'preferred',
       expiresAt,
@@ -1021,8 +1104,56 @@ export function buildServer(): FastifyInstance {
 
   // Admin Catalog: List Products
   app.get('/api/v1/admin/catalog/products', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => {
-    const products = listProducts({ includeUnpublished: true });
+    const products = listAdminCatalog();
     return { products };
+  });
+
+  const recordCatalogAudit = (
+    req: FastifyRequest,
+    action: string,
+    resourceType: 'catalog_product' | 'plan_version' | 'service',
+    resourceId: string,
+    metadata: Record<string, unknown>,
+    db = getDatabase()
+  ) => {
+    db.prepare(`
+      INSERT INTO audit_events (
+        id, account_id, actor_user_id, actor_type, action, resource_type,
+        resource_id, ip_address, correlation_id, metadata
+      ) VALUES (?, NULL, ?, 'STAFF', ?, ?, ?, ?, ?, ?)
+    `).run(
+      generateId('aud'), req.auth!.user.id, action, resourceType, resourceId,
+      req.ip, generateId('cor'), JSON.stringify(metadata)
+    );
+  };
+
+  // Read-only provider inventory for explicit catalog-to-egg mapping.
+  app.get('/api/v1/admin/providers/pterodactyl/inventory', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async (_req, reply) => {
+    if (config.PROVIDER_MODE !== 'pterodactyl_1' || !config.PTERODACTYL_PANEL_URL || !config.PTERODACTYL_API_KEY) {
+      return reply.status(503).send({
+        error: 'Pterodactyl provider is not configured.',
+        code: 'PROVIDER_NOT_CONFIGURED',
+      });
+    }
+
+    try {
+      const adapter = new PterodactylHttpAdapter({
+        panelUrl: config.PTERODACTYL_PANEL_URL,
+        apiKey: config.PTERODACTYL_API_KEY,
+        timeoutMs: 15000,
+      });
+      const inventory = await adapter.getInventory();
+      return reply.send({
+        provider: { type: 'PTERODACTYL', version: adapter.version, verification: config.PROVIDER_VERIFICATION_TIER },
+        inventory,
+      });
+    } catch (error: unknown) {
+      const providerError = error instanceof ProviderError ? error : null;
+      return reply.status(providerError?.statusCode && providerError.statusCode < 500 ? providerError.statusCode : 502).send({
+        error: 'Unable to read the Pterodactyl inventory.',
+        code: providerError?.code || 'PROVIDER_INVENTORY_UNAVAILABLE',
+      });
+    }
   });
 
   // Admin Catalog: Create Product
@@ -1039,15 +1170,54 @@ export function buildServer(): FastifyInstance {
     if (!parse.success) {
       return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
     }
-    const result = createProduct(parse.data);
+    const db = getDatabase();
+    const result = db.transaction(() => {
+      const created = createProduct(parse.data, db);
+      recordCatalogAudit(req, 'catalog.product_created', 'catalog_product', created.id, {
+        slug: parse.data.slug,
+        providerType: parse.data.providerType,
+        isPublished: false,
+      }, db);
+      return created;
+    })();
     return reply.status(201).send(result);
   });
 
   // Admin Catalog: Toggle Publish
-  app.patch('/api/v1/admin/catalog/products/:id/publish', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+  app.patch('/api/v1/admin/catalog/products/:id/publish', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { isPublished?: boolean } | undefined;
-    updateProductPublishStatus(id, Boolean(body?.isPublished));
+    if (Boolean(body?.isPublished)) {
+      const db = getDatabase();
+      const product = db.prepare('SELECT provider_type FROM products WHERE id = ?').get(id) as { provider_type: string } | undefined;
+      if (!product) return reply.status(404).send({ error: 'Product not found.', code: 'PRODUCT_NOT_FOUND' });
+      const plans = db.prepare("SELECT id, resource_specs FROM plan_versions WHERE product_id = ? AND status = 'ACTIVE'").all(id) as Array<{ id: string; resource_specs: string }>;
+      if (!plans.length) {
+        return reply.status(422).send({ error: 'A product requires at least one active plan before publication.', code: 'ACTIVE_PLAN_REQUIRED' });
+      }
+      if (product.provider_type === 'PTERODACTYL') {
+        if (config.PROVIDER_MODE !== 'pterodactyl_1' || !config.PTERODACTYL_PANEL_URL || !config.PTERODACTYL_API_KEY) {
+          return reply.status(503).send({ error: 'Pterodactyl must be configured before publishing this product.', code: 'PROVIDER_NOT_CONFIGURED' });
+        }
+        const adapter = new PterodactylHttpAdapter({ panelUrl: config.PTERODACTYL_PANEL_URL, apiKey: config.PTERODACTYL_API_KEY, timeoutMs: 15000 });
+        const inventory = await adapter.getInventory();
+        const availableEggIds = new Set(inventory.eggs.map((egg) => egg.id));
+        const missingMapping = plans.find((plan) => {
+          const resources = JSON.parse(plan.resource_specs) as { eggId?: number };
+          return !resources.eggId || !availableEggIds.has(resources.eggId);
+        });
+        if (missingMapping) {
+          return reply.status(422).send({ error: 'Every active plan must reference an egg present in the configured Pterodactyl panel.', code: 'PROVIDER_MAPPING_INVALID' });
+        }
+      }
+    }
+    const db = getDatabase();
+    db.transaction(() => {
+      updateProductPublishStatus(id, Boolean(body?.isPublished), db);
+      recordCatalogAudit(req, 'catalog.product_publication_changed', 'catalog_product', id, {
+        isPublished: Boolean(body?.isPublished),
+      }, db);
+    })();
     return reply.send({ success: true, productId: id, isPublished: Boolean(body?.isPublished) });
   });
 
@@ -1062,6 +1232,7 @@ export function buildServer(): FastifyInstance {
       databases: z.number().int().nonnegative().default(0),
       backups: z.number().int().nonnegative().default(0),
       eggId: z.number().int().optional(),
+      dockerImage: z.string().min(3).max(255).optional(),
     }),
     prices: z.array(
       z.object({
@@ -1078,18 +1249,36 @@ export function buildServer(): FastifyInstance {
     if (!parse.success) {
       return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
     }
-    const result = createPlanVersion(parse.data);
+    const product = getDatabase().prepare('SELECT provider_type FROM products WHERE id = ?').get(parse.data.productId) as { provider_type: string } | undefined;
+    if (!product) return reply.status(404).send({ error: 'Product not found.', code: 'PRODUCT_NOT_FOUND' });
+    if (product.provider_type === 'PTERODACTYL' && !parse.data.resourceSpecs.eggId) {
+      return reply.status(422).send({ error: 'Pterodactyl plans require an explicit egg mapping.', code: 'EGG_MAPPING_REQUIRED' });
+    }
+    const db = getDatabase();
+    const result = db.transaction(() => {
+      const created = createPlanVersion(parse.data, db);
+      recordCatalogAudit(req, 'catalog.plan_created', 'plan_version', created.planVersionId, {
+        productId: parse.data.productId,
+        eggId: parse.data.resourceSpecs.eggId,
+        prices: parse.data.prices.map((price) => ({ currency: price.currency, interval: price.interval, priceMinorUnits: price.priceMinorUnits })),
+      }, db);
+      return created;
+    })();
     return reply.status(201).send(result);
   });
 
   // Admin Catalog: Update Plan Status
-  app.patch('/api/v1/admin/catalog/plans/:id/status', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
+  app.patch('/api/v1/admin/catalog/plans/:id/status', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { status?: 'DRAFT' | 'ACTIVE' | 'RETIRED' } | undefined;
     if (!body?.status || !['DRAFT', 'ACTIVE', 'RETIRED'].includes(body.status)) {
       return reply.status(400).send({ error: 'Valid status (DRAFT, ACTIVE, RETIRED) is required.' });
     }
-    updatePlanStatus(id, body.status);
+    const db = getDatabase();
+    db.transaction(() => {
+      updatePlanStatus(id, body.status!, db);
+      recordCatalogAudit(req, 'catalog.plan_status_changed', 'plan_version', id, { status: body.status }, db);
+    })();
     return reply.send({ success: true, planVersionId: id, status: body.status });
   });
 
@@ -1140,7 +1329,7 @@ export function buildServer(): FastifyInstance {
     }
 
     try {
-      const result = processCheckout({
+      const result = await processCheckout({
         accountId: req.auth!.account.id,
         quoteId: parse.data.quoteId,
         idempotencyKey,
@@ -1150,6 +1339,7 @@ export function buildServer(): FastifyInstance {
 
       return reply.status(201).send(result);
     } catch (err: unknown) {
+      console.error('[Checkout] Error:', (err as Error).message, (err as Error).stack?.split('\n')[1]);
       return reply.status(422).send({ error: (err as Error).message });
     }
   });
@@ -1213,22 +1403,26 @@ export function buildServer(): FastifyInstance {
     }
   });
 
-  // Services: List (Tenant Isolated!)
+  // Services: List (own services plus services shared with the viewer)
   app.get('/api/v1/services', { preHandler: [requireAuth] }, async (req) => {
     const db = getDatabase();
     const services = db.prepare(`
       SELECT s.*, sos.runtime_state, sos.last_checked_at,
              sdc.cpu_limit_pct, sdc.memory_limit_mb, sdc.disk_limit_mb,
-             n.name as node_name, pv.name as plan_name
+             n.name as node_name, pv.name as plan_name,
+             CASE WHEN s.account_id = @acc THEN NULL ELSE a.name END AS shared_by,
+             CASE WHEN s.account_id = @acc THEN NULL ELSE sm.preset END AS shared_preset
       FROM services s
       LEFT JOIN service_observed_states sos ON sos.service_id = s.id
       LEFT JOIN service_desired_configs sdc ON sdc.service_id = s.id
       JOIN nodes n ON n.id = s.node_id
       JOIN order_items oi ON oi.id = s.order_item_id
       JOIN plan_versions pv ON pv.id = oi.plan_version_id
-      WHERE s.account_id = ?
+      JOIN accounts a ON a.id = s.account_id
+      LEFT JOIN service_members sm ON sm.service_id = s.id AND sm.user_id = @usr
+      WHERE s.account_id = @acc OR sm.user_id IS NOT NULL
       ORDER BY s.created_at DESC
-    `).all(req.auth!.account.id);
+    `).all({ acc: req.auth!.account.id, usr: req.auth!.user.id });
     return { services };
   });
 
@@ -1236,10 +1430,36 @@ export function buildServer(): FastifyInstance {
   app.get('/api/v1/services/:id', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
-      const detail = getServiceDetail(id, req.auth!.account.id);
+      const detail = getServiceDetail(id, req.auth!.account.id, getDatabase(), { userId: req.auth!.user.id, role: req.auth!.membership.role });
       return { service: detail };
     } catch (err: unknown) {
       return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/v1/services/:id/usage', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const access = getServiceAccess(getDatabase(), { serviceId: id, accountId: req.auth!.account.id, userId: req.auth!.user.id, role: req.auth!.membership.role });
+    if (!access) return reply.status(404).send({ error: 'Service not found.' });
+    touchService(id);
+    const svc = { external_id: access.service.external_id };
+    if (config.PROVIDER_MODE !== 'pterodactyl_1' || !(config.PTERODACTYL_KEYMINT_SECRET || config.PTERODACTYL_CLIENT_API_KEY) || !svc.external_id) {
+      return { available: false };
+    }
+    try {
+      const adapter = new PterodactylHttpAdapter({
+        panelUrl: config.PTERODACTYL_PANEL_URL,
+        apiKey: config.PTERODACTYL_API_KEY,
+        clientApiKey: config.PTERODACTYL_CLIENT_API_KEY,
+        timeoutMs: 8000,
+      });
+      const externalId = svc.external_id;
+      const usage = config.PTERODACTYL_KEYMINT_SECRET
+        ? await withAccountClientKey(req.auth!.account.id, adapter, getDatabase(), config.PTERODACTYL_KEYMINT_SECRET, (key) => adapter.getResourceUsage(externalId, key))
+        : await adapter.getResourceUsage(externalId);
+      return { available: true, usage };
+    } catch {
+      return { available: false };
     }
   });
 
@@ -1248,7 +1468,7 @@ export function buildServer(): FastifyInstance {
     action: z.enum(['START', 'STOP', 'RESTART', 'KILL']),
   });
 
-  app.post('/api/v1/services/:id/power', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
+  app.post('/api/v1/services/:id/power', { preHandler: [requireAuth] }, async (req, reply) => {
     if (!operationalCapability('provisioning')) return reply.status(503).send({ error: 'Infrastructure provider is not configured.', code: 'PROVIDER_NOT_CONFIGURED' });
     const { id } = req.params as { id: string };
     const parse = powerSchema.safeParse(req.body);
@@ -1261,6 +1481,7 @@ export function buildServer(): FastifyInstance {
         serviceId: id,
         accountId: req.auth!.account.id,
         userId: req.auth!.user.id,
+        role: req.auth!.membership.role,
         action: parse.data.action,
         ipAddress: req.ip,
       });
@@ -1268,12 +1489,205 @@ export function buildServer(): FastifyInstance {
     } catch (err: unknown) {
       const msg = (err as Error).message;
       if (msg.includes('not found')) return reply.status(404).send({ error: msg });
-      if (msg.includes('cannot receive power commands') || msg.includes('still provisioning')) {
+      if (msg.includes('cannot receive power commands') || msg.includes('still provisioning') || msg.includes('permission')) {
         return reply.status(403).send({ error: msg });
       }
       return reply.status(500).send({ error: msg });
     }
   });
+
+  // Services: Console websocket credentials (tenant isolated; per-account panel key never leaves the server)
+  app.get('/api/v1/services/:id/console', { preHandler: [requireAuth] }, async (req, reply) => {
+    if (!operationalCapability('provisioning')) return reply.status(503).send({ error: 'Infrastructure provider is not configured.', code: 'PROVIDER_NOT_CONFIGURED' });
+    const { id } = req.params as { id: string };
+    try {
+      touchService(id);
+      const creds = await getServiceConsoleCredentials({
+        serviceId: id,
+        accountId: req.auth!.account.id,
+        userId: req.auth!.user.id,
+        role: req.auth!.membership.role,
+        ipAddress: req.ip,
+      });
+      reply.header('Cache-Control', 'no-store');
+      return creds;
+    } catch (err: unknown) {
+      if (err instanceof ConsoleAccessError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      req.log.error({ err: (err as Error).message, name: (err as Error).name, serviceId: id }, 'console credentials failed');
+      console.error('[Console] credentials failed:', (err as Error).name, (err as Error).message);
+      return reply.status(502).send({ error: 'Console is temporarily unavailable.', code: 'PROVIDER_ERROR' });
+    }
+  });
+
+  // Services: file manager (tenant isolated; every call uses the account's own panel key)
+  const filesApi = createFilesApi();
+  const filesGuard = { preHandler: [requireAuth] };
+  const filesCtx = (req: any) => ({
+    serviceId: (req.params as { id: string }).id,
+    accountId: req.auth!.account.id as string,
+    userId: req.auth!.user.id as string,
+    role: req.auth!.membership.role as string,
+    ipAddress: req.ip as string,
+  });
+  const filesHandler = (fn: (req: any) => Promise<unknown>) => async (req: any, reply: any) => {
+    if (!operationalCapability('provisioning')) return reply.status(503).send({ error: 'Infrastructure provider is not configured.', code: 'PROVIDER_NOT_CONFIGURED' });
+    try {
+      reply.header('Cache-Control', 'no-store');
+      return await fn(req);
+    } catch (err: unknown) {
+      if (err instanceof ConsoleAccessError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      const status = (err as { statusCode?: number }).statusCode;
+      if (status === 404) return reply.status(404).send({ error: 'Not found on the server.', code: 'NOT_FOUND' });
+      // The panel's own refusals (limit reached, server must be offline...) are the useful message for the customer.
+      if (err instanceof ProviderError && err.detail && [400, 409, 422, 429].includes(status ?? 0)) {
+        return reply.status(409).send({ error: err.detail, code: 'PANEL_REFUSED' });
+      }
+      console.error('[Files] request failed:', (err as Error).name, (err as Error).message);
+      return reply.status(502).send({ error: 'File manager is temporarily unavailable.', code: 'PROVIDER_ERROR' });
+    }
+  };
+  const q = (req: any) => (req.query ?? {}) as Record<string, unknown>;
+  const b = (req: any) => (req.body ?? {}) as Record<string, unknown>;
+  app.get('/api/v1/services/:id/files', filesGuard, filesHandler((req) => filesApi.list(filesCtx(req), q(req)['dir'] ?? '/')));
+  app.get('/api/v1/services/:id/files/content', filesGuard, filesHandler((req) => filesApi.read(filesCtx(req), q(req)['path'])));
+  app.put('/api/v1/services/:id/files/content', filesGuard, filesHandler(async (req) => { await filesApi.write(filesCtx(req), b(req)['path'], b(req)['content']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/folder', filesGuard, filesHandler(async (req) => { await filesApi.createFolder(filesCtx(req), b(req)['dir'], b(req)['name']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/delete', filesGuard, filesHandler(async (req) => { await filesApi.remove(filesCtx(req), b(req)['dir'], b(req)['names']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/rename', filesGuard, filesHandler(async (req) => { await filesApi.rename(filesCtx(req), b(req)['dir'], b(req)['from'], b(req)['to']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/archive', filesGuard, filesHandler((req) => filesApi.archive(filesCtx(req), b(req)['dir'], b(req)['names'])));
+  app.post('/api/v1/services/:id/files/unarchive', filesGuard, filesHandler(async (req) => ({ success: true, ...(await filesApi.unarchive(filesCtx(req), b(req)['dir'], b(req)['file'])) })));
+  app.post('/api/v1/services/:id/files/move', filesGuard, filesHandler(async (req) => { await filesApi.move(filesCtx(req), b(req)['dir'], b(req)['name'], b(req)['destDir']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/chmod', filesGuard, filesHandler(async (req) => { await filesApi.chmod(filesCtx(req), b(req)['dir'], b(req)['names'], b(req)['mode']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/pull', filesGuard, filesHandler(async (req) => ({ success: true, ...(await filesApi.pull(filesCtx(req), b(req)['dir'], b(req)['url'], b(req)['filename'])) })));
+  app.post('/api/v1/services/:id/files/copy', filesGuard, filesHandler(async (req) => { await filesApi.copy(filesCtx(req), b(req)['path']); return { success: true }; }));
+  app.get('/api/v1/services/:id/files/upload-url', filesGuard, filesHandler(async (req) => ({ url: await filesApi.signedUrl(filesCtx(req), 'upload', q(req)['dir'] ?? '/') })));
+  app.get('/api/v1/services/:id/files/download-url', filesGuard, filesHandler(async (req) => ({ url: await filesApi.signedUrl(filesCtx(req), 'download', q(req)['path']) })));
+
+  app.get('/api/v1/services/:id/activity', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const query = (req.query ?? {}) as Record<string, string | undefined>;
+    try {
+      return listServiceActivity({
+        serviceId: id,
+        accountId: req.auth!.account.id,
+        userId: req.auth!.user.id,
+        role: req.auth!.membership.role,
+        category: query['category'],
+        range: query['range'],
+        q: query['q'],
+        page: Number(query['page'] ?? 1),
+      });
+    } catch {
+      return reply.status(404).send({ error: 'Service not found.' });
+    }
+  });
+
+  // Service sharing: invite people to one server, they get their own panel access
+  const sharing = createServiceSharing();
+  const sharingHandler = (fn: (req: any) => unknown | Promise<unknown>) => async (req: any, reply: any) => {
+    try { reply.header('Cache-Control', 'no-store'); return await fn(req); }
+    catch (err: unknown) {
+      if (err instanceof SharingError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      console.error('[Sharing] request failed:', (err as Error).name, (err as Error).message);
+      return reply.status(502).send({ error: 'Sharing is temporarily unavailable.', code: 'PROVIDER_ERROR' });
+    }
+  };
+  const actorOf = (req: any) => ({ serviceId: (req.params as { id: string }).id, accountId: req.auth!.account.id as string, userId: req.auth!.user.id as string, role: req.auth!.membership.role as string, ipAddress: req.ip as string });
+  app.get('/api/v1/services/:id/members', { preHandler: [requireAuth] }, sharingHandler((req) => sharing.list(actorOf(req))));
+  app.post('/api/v1/services/:id/members/invite', { preHandler: [requireAuth] }, sharingHandler(async (req) => { const r = sharing.invite(actorOf(req), (req.body ?? {}) as { email: unknown; preset: unknown }); return { success: true, ...r }; }));
+  app.delete('/api/v1/services/:id/invitations/:iid', { preHandler: [requireAuth] }, sharingHandler((req) => { sharing.revokeInvitation(actorOf(req), (req.params as { iid: string }).iid); return { success: true }; }));
+  app.delete('/api/v1/services/:id/members/:mid', { preHandler: [requireAuth] }, sharingHandler(async (req) => { await sharing.remove(actorOf(req), (req.params as { mid: string }).mid); return { success: true }; }));
+  app.patch('/api/v1/services/:id/members/:mid', { preHandler: [requireAuth] }, sharingHandler(async (req) => { await sharing.setPreset(actorOf(req), (req.params as { mid: string }).mid, ((req.body ?? {}) as { preset?: unknown }).preset); return { success: true }; }));
+
+  const escapeHtml = (v: string) => v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const invitePage = (reply: FastifyReply, title: string, message: string) => reply.status(400).type('text/html').header('Cache-Control', 'no-store').send(
+    `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>:root{color-scheme:light dark}body{font:500 15px/1.5 -apple-system,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px;background:Canvas;color:CanvasText}main{max-width:420px}h1{font-size:22px;margin:0 0 8px}a{color:#2f6bff;font-weight:700}</style><main><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><p><a href="/login">Sign in</a> · <a href="/app">Dashboard</a></p></main>`);
+  app.get('/invite/service/:token', async (req, reply) => {
+    const { token } = req.params as { token: string };
+    const info = sharing.peek(token);
+    if (!info) return invitePage(reply, 'Invitation unavailable', 'This invitation is invalid, expired or was revoked. Ask the owner to send a new one.');
+    const here = `/invite/service/${encodeURIComponent(token)}`;
+    if (!req.auth) {
+      const q = `next=${encodeURIComponent(here)}&email=${encodeURIComponent(info.email)}`;
+      return reply.redirect(info.userExists ? `/login?${q}` : `/register?${q}`);
+    }
+    try {
+      const r = await sharing.accept(token, { userId: req.auth.user.id, accountId: req.auth.account.id, ipAddress: req.ip });
+      return reply.redirect(`/app/services/${encodeURIComponent(r.serviceId)}`);
+    } catch (err) {
+      if (err instanceof SharingError) return invitePage(reply, 'Could not accept the invitation', err.message);
+      console.error('[Sharing] accept failed:', (err as Error).name, (err as Error).message);
+      return invitePage(reply, 'Could not accept the invitation', 'Something went wrong. Try opening the link again in a minute.');
+    }
+  });
+
+  // Game tools: settings form, Java recommendation, mod and plugin installer, icon (driven by game profiles)
+  const gameTools = createGameTools();
+  app.get('/api/v1/services/:id/game', filesGuard, filesHandler((req) => gameTools.info(filesCtx(req))));
+  app.put('/api/v1/services/:id/game/config', filesGuard, filesHandler(async (req) => { await gameTools.saveConfig(filesCtx(req), req.body); return { success: true }; }));
+  app.post('/api/v1/services/:id/game/eula/accept', filesGuard, filesHandler((req) => gameTools.acceptEula(filesCtx(req))));
+  app.get('/api/v1/services/:id/game/mods/search', filesGuard, filesHandler((req) => gameTools.searchMods(filesCtx(req), { source: q(req)['source'], q: q(req)['q'], page: q(req)['page'] })));
+  app.post('/api/v1/services/:id/game/mods/install', filesGuard, filesHandler(async (req) => ({ success: true, ...(await gameTools.installMod(filesCtx(req), b(req) as { source: unknown; projectId: unknown; versionId?: unknown })) })));
+  app.get('/api/v1/services/:id/game/mods/installed', filesGuard, filesHandler((req) => gameTools.installed(filesCtx(req), q(req)['source'])));
+  app.post('/api/v1/services/:id/game/icon', filesGuard, filesHandler(async (req) => { await gameTools.setIcon(filesCtx(req), b(req) as { png?: unknown }); return { success: true }; }));
+
+  // Staff: game profiles are data, managed here instead of in code
+  const profileAudit = (req: FastifyRequest, action: string, id: string, metadata: Record<string, unknown>) =>
+    getDatabase().prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, NULL, ?, 'STAFF', ?, 'game_profile', ?, ?, ?, ?)
+    `).run(generateId('aud'), req.auth!.user.id, action, id, req.ip, generateId('cor'), JSON.stringify(metadata));
+  const profileHandler = (fn: (req: any) => unknown) => async (req: any, reply: any) => {
+    try { return await fn(req); } catch (err) {
+      if (err instanceof ProfileError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  };
+  app.get('/api/v1/admin/game-profiles', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => ({ profiles: listProfiles(getDatabase()) }));
+  app.post('/api/v1/admin/game-profiles', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, profileHandler((req) => {
+    const p = saveProfile(getDatabase(), req.body); profileAudit(req, 'admin.game_profile_created', p.id, { slug: p.slug }); return { profile: p };
+  }));
+  app.put('/api/v1/admin/game-profiles/:id', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, profileHandler((req) => {
+    const p = saveProfile(getDatabase(), req.body, (req.params as { id: string }).id); profileAudit(req, 'admin.game_profile_updated', p.id, { slug: p.slug }); return { profile: p };
+  }));
+  app.delete('/api/v1/admin/game-profiles/:id', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, profileHandler((req) => {
+    const id = (req.params as { id: string }).id; deleteProfile(getDatabase(), id); profileAudit(req, 'admin.game_profile_deleted', id, {}); return { success: true };
+  }));
+
+  // Services: backups, network, startup, settings (same gate as the file manager)
+  const panelApi = createServerPanelApi();
+  const ok = async (fn: () => Promise<unknown>) => { await fn(); return { success: true }; };
+  const pid = (req: any, k: string) => String((req.params as Record<string, string>)[k] ?? '');
+  app.get('/api/v1/services/:id/backups', filesGuard, filesHandler((req) => panelApi.backups(filesCtx(req))));
+  app.post('/api/v1/services/:id/backups', filesGuard, filesHandler((req) => ok(() => panelApi.createBackup(filesCtx(req), b(req)))));
+  app.delete('/api/v1/services/:id/backups/:uuid', filesGuard, filesHandler((req) => ok(() => panelApi.deleteBackup(filesCtx(req), pid(req, 'uuid')))));
+  app.post('/api/v1/services/:id/backups/:uuid/lock', filesGuard, filesHandler((req) => ok(() => panelApi.lockBackup(filesCtx(req), pid(req, 'uuid')))));
+  app.post('/api/v1/services/:id/backups/:uuid/restore', filesGuard, filesHandler((req) => ok(() => panelApi.restoreBackup(filesCtx(req), pid(req, 'uuid'), b(req)['truncate']))));
+  app.get('/api/v1/services/:id/backups/:uuid/download-url', filesGuard, filesHandler(async (req) => ({ url: await panelApi.backupDownloadUrl(filesCtx(req), pid(req, 'uuid')) })));
+  app.get('/api/v1/services/:id/network', filesGuard, filesHandler((req) => panelApi.network(filesCtx(req))));
+  app.post('/api/v1/services/:id/network', filesGuard, filesHandler((req) => ok(() => panelApi.assignAllocation(filesCtx(req)))));
+  app.patch('/api/v1/services/:id/network/:aid', filesGuard, filesHandler((req) => ok(() => panelApi.setAllocationNotes(filesCtx(req), pid(req, 'aid'), b(req)['notes']))));
+  app.post('/api/v1/services/:id/network/:aid/primary', filesGuard, filesHandler((req) => ok(() => panelApi.setPrimaryAllocation(filesCtx(req), pid(req, 'aid')))));
+  app.delete('/api/v1/services/:id/network/:aid', filesGuard, filesHandler((req) => ok(() => panelApi.removeAllocation(filesCtx(req), pid(req, 'aid')))));
+  app.get('/api/v1/services/:id/databases', filesGuard, filesHandler((req) => panelApi.databases(filesCtx(req))));
+  app.post('/api/v1/services/:id/databases', filesGuard, filesHandler((req) => ok(() => panelApi.createDatabase(filesCtx(req), b(req)))));
+  app.post('/api/v1/services/:id/databases/:did/rotate', filesGuard, filesHandler((req) => panelApi.rotateDatabasePassword(filesCtx(req), pid(req, 'did'))));
+  app.delete('/api/v1/services/:id/databases/:did', filesGuard, filesHandler((req) => ok(() => panelApi.deleteDatabase(filesCtx(req), pid(req, 'did')))));
+  app.get('/api/v1/services/:id/schedules', filesGuard, filesHandler((req) => panelApi.schedules(filesCtx(req))));
+  app.post('/api/v1/services/:id/schedules', filesGuard, filesHandler((req) => ok(() => panelApi.saveSchedule(filesCtx(req), null, b(req)))));
+  app.post('/api/v1/services/:id/schedules/:sid', filesGuard, filesHandler((req) => ok(() => panelApi.saveSchedule(filesCtx(req), pid(req, 'sid'), b(req)))));
+  app.delete('/api/v1/services/:id/schedules/:sid', filesGuard, filesHandler((req) => ok(() => panelApi.deleteSchedule(filesCtx(req), pid(req, 'sid')))));
+  app.post('/api/v1/services/:id/schedules/:sid/execute', filesGuard, filesHandler((req) => ok(() => panelApi.executeSchedule(filesCtx(req), pid(req, 'sid')))));
+  app.post('/api/v1/services/:id/schedules/:sid/tasks', filesGuard, filesHandler((req) => ok(() => panelApi.addTask(filesCtx(req), pid(req, 'sid'), b(req)))));
+  app.post('/api/v1/services/:id/schedules/:sid/tasks/:tid', filesGuard, filesHandler((req) => ok(() => panelApi.updateTask(filesCtx(req), pid(req, 'sid'), pid(req, 'tid'), b(req)))));
+  app.get('/api/v1/services/:id/panel-activity', filesGuard, filesHandler((req) => panelApi.panelActivity(filesCtx(req), q(req)['page'])));
+  app.delete('/api/v1/services/:id/schedules/:sid/tasks/:tid', filesGuard, filesHandler((req) => ok(() => panelApi.deleteTask(filesCtx(req), pid(req, 'sid'), pid(req, 'tid')))));
+  app.get('/api/v1/services/:id/startup', filesGuard, filesHandler((req) => panelApi.startup(filesCtx(req))));
+  app.put('/api/v1/services/:id/startup/variable', filesGuard, filesHandler((req) => ok(() => panelApi.setVariable(filesCtx(req), b(req)['key'], b(req)['value']))));
+  app.put('/api/v1/services/:id/startup/image', filesGuard, filesHandler((req) => ok(() => panelApi.setImage(filesCtx(req), b(req)['image']))));
+  app.get('/api/v1/services/:id/settings', filesGuard, filesHandler((req) => panelApi.settings(filesCtx(req))));
+  app.post('/api/v1/services/:id/settings/rename', filesGuard, filesHandler((req) => ok(() => panelApi.rename(filesCtx(req), b(req)['name'], b(req)['description']))));
+  app.post('/api/v1/services/:id/settings/reinstall', filesGuard, filesHandler((req) => ok(() => panelApi.reinstall(filesCtx(req)))));
 
   // Services: AI Diagnostic Analysis (Tenant Isolated)
   app.post('/api/v1/services/:id/diagnostics', { preHandler: [requireAuth] }, async (req, reply) => {
@@ -1375,6 +1789,27 @@ export function buildServer(): FastifyInstance {
     return { success: true, count };
   });
 
+  app.get('/api/v1/notification-preferences', { preHandler: [requireAuth] }, async (req) => ({
+    preferences: getNotificationPreferences(req.auth!.user.id),
+    mandatory: ['Account verification and recovery', 'Password and security alerts', 'Payment failures and access invitations'],
+  }));
+
+  app.put('/api/v1/notification-preferences', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parsed = z.object({
+      billingEmail: z.boolean(),
+      serviceEmail: z.boolean(),
+      supportEmail: z.boolean(),
+    }).strict().safeParse(req.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'All notification preference values must be booleans.' });
+    const db = getDatabase();
+    const preferences = saveNotificationPreferences(req.auth!.user.id, parsed.data, db);
+    db.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'USER', 'user.notification_preferences_updated', 'user', ?, ?, ?, ?)
+    `).run(generateId('aud'), req.auth!.account.id, req.auth!.user.id, req.auth!.user.id, req.ip, generateId('cor'), JSON.stringify(preferences));
+    return { preferences };
+  });
+
   // Activity: CSV Export
   app.get('/api/v1/activity/export', { preHandler: [requireAuth] }, async (req, reply) => {
     const db = getDatabase();
@@ -1413,7 +1848,7 @@ export function buildServer(): FastifyInstance {
     reason: z.string().trim().min(5).max(300),
   });
 
-  app.post('/api/v1/admin/invoices/:id/refund', { preHandler: [requireAuth, requireStaffPermission('accounts:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/invoices/:id/refund', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parse = staffRefundSchema.safeParse(req.body);
     if (!parse.success) {
@@ -1636,6 +2071,18 @@ export function buildServer(): FastifyInstance {
     return reply.status(201).send({ messageId: result.messageId });
   });
 
+  app.post('/api/v1/tickets/:id/resolve', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const result = resolveTicket({
+      ticketId: id,
+      accountId: req.auth!.account.id,
+      userId: req.auth!.user.id,
+      ipAddress: req.ip,
+    }, getDatabase());
+    if (result.outcome === 'NOT_FOUND') return reply.status(404).send({ error: 'Ticket not found' });
+    return reply.send({ resolved: true });
+  });
+
   // Tickets: Upload Attachment
   const uploadAttachmentSchema = z.object({
     filename: z.string().min(1).max(255),
@@ -1791,19 +2238,32 @@ export function buildServer(): FastifyInstance {
       { id: 'adm-overview', title: 'Admin: Operations Overview', category: 'Admin Control Plane', icon: 'home-01', path: '/admin' },
       { id: 'adm-accounts', title: 'Admin: Customer Accounts', category: 'Admin Control Plane', icon: 'user-group', path: '/admin/accounts' },
       { id: 'adm-services', title: 'Admin: Service Inventory', category: 'Admin Control Plane', icon: 'server', path: '/admin/services' },
+      { id: 'adm-orders', title: 'Admin: Orders', category: 'Admin Control Plane', icon: 'package', path: '/admin/orders' },
+      { id: 'adm-billing', title: 'Admin: Billing Operations', category: 'Admin Control Plane', icon: 'credit-card', path: '/admin/billing' },
+      { id: 'adm-infrastructure', title: 'Admin: Infrastructure Capacity', category: 'Admin Control Plane', icon: 'database', path: '/admin/infrastructure' },
       { id: 'adm-tickets', title: 'Admin: Support Queue', category: 'Admin Control Plane', icon: 'bubble-chat', path: '/admin/tickets' },
       { id: 'adm-audit', title: 'Admin: Global Audit Trail', category: 'Admin Control Plane', icon: 'shield-01', path: '/admin/audit' },
       { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff' },
+      { id: 'adm-status', title: 'Admin: System Status', category: 'Admin Control Plane', icon: 'activity', path: '/admin/status' },
     ] : [];
 
     const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
 
     const services = query ? (db.prepare(`
-      SELECT id, name, identifier, plan_name, ip_address, runtime_state
-      FROM services
-      WHERE account_id = ? AND (name LIKE ? ESCAPE '\\' OR identifier LIKE ? ESCAPE '\\' OR coalesce(ip_address, '') LIKE ? ESCAPE '\\' OR plan_name LIKE ? ESCAPE '\\')
+      SELECT s.id, s.identifier, pv.name as plan_name, n.name as node_name, coalesce(sos.runtime_state, 'UNKNOWN') as runtime_state
+      FROM services s
+      JOIN order_items oi ON oi.id = s.order_item_id
+      JOIN plan_versions pv ON pv.id = oi.plan_version_id
+      JOIN nodes n ON n.id = s.node_id
+      LEFT JOIN service_observed_states sos ON sos.service_id = s.id
+      WHERE s.account_id = ? AND (
+        s.id LIKE ? ESCAPE '\\' OR
+        coalesce(s.identifier, '') LIKE ? ESCAPE '\\' OR
+        pv.name LIKE ? ESCAPE '\\' OR
+        n.name LIKE ? ESCAPE '\\'
+      )
       LIMIT 5
-    `).all(accountId, like, like, like, like) as Array<{ id: string; name: string; identifier: string | null; plan_name: string; ip_address: string | null; runtime_state: string }>) : [];
+    `).all(accountId, like, like, like, like) as Array<{ id: string; identifier: string | null; plan_name: string; node_name: string; runtime_state: string }>) : [];
 
     const tickets = query ? (db.prepare(`
       SELECT id, subject, priority, status, updated_at
@@ -1813,9 +2273,9 @@ export function buildServer(): FastifyInstance {
     `).all(accountId, like, like) as Array<{ id: string; subject: string; priority: string; status: string; updated_at: string }>) : [];
 
     const invoices = query ? (db.prepare(`
-      SELECT id, invoice_number, total_minor_units, currency, status
+      SELECT id, coalesce(invoice_number, 'DRAFT') as invoice_number, total_minor_units, currency, status
       FROM invoices
-      WHERE account_id = ? AND (invoice_number LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')
+      WHERE account_id = ? AND (coalesce(invoice_number, '') LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')
       LIMIT 5
     `).all(accountId, like, like) as Array<{ id: string; invoice_number: string; total_minor_units: number; currency: string; status: string }>) : [];
 
@@ -1826,12 +2286,12 @@ export function buildServer(): FastifyInstance {
 
     const formattedServices = services.map(s => ({
       id: s.id,
-      title: s.name,
-      subtitle: `${s.plan_name} · ${s.ip_address || s.identifier || s.id}`,
+      title: s.plan_name,
+      subtitle: `${s.node_name} · ${s.identifier || s.id}`,
       status: s.runtime_state,
       category: 'Services',
       icon: 'server',
-      path: '/app',
+      path: `/app/services/${encodeURIComponent(s.id)}`,
       serviceId: s.id,
     }));
 
@@ -1878,8 +2338,31 @@ export function buildServer(): FastifyInstance {
     const db = getDatabase();
     const logs = db.prepare(`
       SELECT ae.id, ae.actor_user_id, ae.actor_type, ae.action, ae.resource_type,
-             ae.resource_id, ae.ip_address, ae.correlation_id, ae.created_at,
-             u.name as actor_name
+             ae.resource_id, ae.ip_address, ae.correlation_id, ae.metadata, ae.created_at,
+             u.name as actor_name,
+             CASE WHEN ae.resource_type = 'service' THEN (
+               SELECT COALESCE(json_extract(oi.custom_options, '$.serverName'), pv.name, s.identifier, s.id)
+               FROM services s
+               LEFT JOIN order_items oi ON oi.id = s.order_item_id
+               LEFT JOIN plan_versions pv ON pv.id = oi.plan_version_id
+               WHERE s.id = ae.resource_id
+             ) END AS service_name,
+             CASE WHEN ae.resource_type = 'service' THEN (
+               SELECT pv.name FROM services s
+               LEFT JOIN order_items oi ON oi.id = s.order_item_id
+               LEFT JOIN plan_versions pv ON pv.id = oi.plan_version_id
+               WHERE s.id = ae.resource_id
+             ) END AS service_plan,
+             CASE
+               WHEN ae.resource_type = 'ticket' THEN (SELECT subject FROM tickets WHERE id = ae.resource_id)
+               WHEN ae.resource_type = 'ticket_attachment' THEN (
+                 SELECT t.subject FROM ticket_attachments ta JOIN tickets t ON t.id = ta.ticket_id WHERE ta.id = ae.resource_id
+               )
+             END AS ticket_subject,
+             CASE
+               WHEN ae.resource_type = 'ticket' THEN ae.resource_id
+               WHEN ae.resource_type = 'ticket_attachment' THEN (SELECT ticket_id FROM ticket_attachments WHERE id = ae.resource_id)
+             END AS ticket_id
       FROM audit_events ae
       LEFT JOIN users u ON u.id = ae.actor_user_id
       WHERE ae.account_id = ?
@@ -1957,6 +2440,13 @@ export function buildServer(): FastifyInstance {
     return listAdminServices(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
   });
 
+  app.get('/api/v1/admin/services/:id', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const data = getAdminServiceDetail(id, getDatabase());
+    if (!data) return reply.status(404).send({ error: 'Service not found.' });
+    return data;
+  });
+
   app.get('/api/v1/admin/orders', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
@@ -1984,7 +2474,7 @@ export function buildServer(): FastifyInstance {
     reason: z.string().trim().min(3).max(300),
   });
 
-  app.post('/api/v1/admin/services/:id/suspend', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/services/:id/suspend', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parse = adminServiceActionSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
@@ -2002,7 +2492,7 @@ export function buildServer(): FastifyInstance {
   });
 
   // Admin Services: Unsuspend
-  app.post('/api/v1/admin/services/:id/unsuspend', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/services/:id/unsuspend', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
       await unsuspendService({
@@ -2017,7 +2507,7 @@ export function buildServer(): FastifyInstance {
   });
 
   // Admin Services: Terminate
-  app.post('/api/v1/admin/services/:id/terminate', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/services/:id/terminate', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parse = adminServiceActionSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
@@ -2118,6 +2608,20 @@ export function buildServer(): FastifyInstance {
     return listAdminAudit(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
   });
 
+  app.get('/api/v1/admin/audit/export', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (_req, reply) => {
+    const rows = getDatabase().prepare(`
+      SELECT id, account_id, actor_user_id, actor_type, action, resource_type,
+             resource_id, ip_address, correlation_id, created_at
+      FROM audit_events ORDER BY created_at DESC, id DESC LIMIT 10000
+    `).all() as Array<Record<string, unknown>>;
+    const columns = ['id', 'account_id', 'actor_user_id', 'actor_type', 'action', 'resource_type', 'resource_id', 'ip_address', 'correlation_id', 'created_at'];
+    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [columns.join(','), ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(','))].join('\n');
+    return reply.header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="fortless-audit.csv"')
+      .send(csv);
+  });
+
   app.get('/api/v1/admin/staff', { preHandler: [requireAuth, requireStaffPermission('staff:read')] }, async (req, reply) => {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
@@ -2184,7 +2688,7 @@ export function buildServer(): FastifyInstance {
     affectedComponentStatus: z.enum(['OPERATIONAL', 'DEGRADED', 'PARTIAL_OUTAGE', 'MAJOR_OUTAGE', 'MAINTENANCE']).optional(),
   });
 
-  app.post('/api/v1/admin/incidents', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/incidents', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const parsed = incidentCreateSchema.safeParse(req.body);
     if (!parsed.success) return reply.status(400).send({ error: 'Valid incident details required', details: parsed.error.issues });
     const incident = createIncident(parsed.data, req.auth!.user.id, getDatabase());
@@ -2197,7 +2701,7 @@ export function buildServer(): FastifyInstance {
     impact: z.enum(['NONE', 'MINOR', 'MAJOR', 'CRITICAL']).optional(),
   });
 
-  app.post('/api/v1/admin/incidents/:id/updates', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/incidents/:id/updates', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const params = z.object({ id: z.string() }).safeParse(req.params);
     const parsed = incidentUpdateSchema.safeParse(req.body);
     if (!params.success || !parsed.success) return reply.status(400).send({ error: 'Valid incident update details required' });
@@ -2213,7 +2717,7 @@ export function buildServer(): FastifyInstance {
     status: z.enum(['OPERATIONAL', 'DEGRADED', 'PARTIAL_OUTAGE', 'MAJOR_OUTAGE', 'MAINTENANCE']),
   });
 
-  app.patch('/api/v1/admin/components/:id', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
+  app.patch('/api/v1/admin/components/:id', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const params = z.object({ id: z.string() }).safeParse(req.params);
     const parsed = componentStatusSchema.safeParse(req.body);
     if (!params.success || !parsed.success) return reply.status(400).send({ error: 'Valid component status required' });
@@ -2229,6 +2733,187 @@ export function buildServer(): FastifyInstance {
   app.post('/api/v1/admin/billing/process-renewals', { preHandler: [requireAuth, requireStaffPermission('accounts:manage')] }, async (_req, reply) => {
     const result = await processSubscriptionRenewals(getDatabase());
     return reply.status(200).send(result);
+  });
+
+  // --- Staff Service Power Controls (Audited) ---
+  // Staff: point a service at a panel server that was recreated under another id
+  app.post('/api/v1/admin/services/:id/relink', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const adapter = getProviderAdapter();
+    if (!(adapter instanceof PterodactylHttpAdapter)) return reply.status(503).send({ error: 'Pterodactyl provider is not configured.', code: 'PROVIDER_NOT_CONFIGURED' });
+    try {
+      const result = await relinkService({ serviceId: id, panelServerId: ((req.body ?? {}) as { panelServerId?: unknown }).panelServerId, actorUserId: req.auth!.user.id, ipAddress: req.ip }, adapter, getDatabase());
+      recordCatalogAudit(req, 'admin.service_relinked', 'service', id, result);
+      return { success: true, ...result };
+    } catch (err: unknown) {
+      if (err instanceof RelinkError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      console.error('[Relink] failed:', (err as Error).name, (err as Error).message);
+      return reply.status(502).send({ error: 'The panel could not be reached.', code: 'PROVIDER_ERROR' });
+    }
+  });
+
+  app.post('/api/v1/admin/services/:id/power', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const powerSchema = z.object({
+      action: z.enum(['START', 'STOP', 'RESTART', 'KILL']),
+      reason: z.string().trim().min(3).max(300).optional(),
+    });
+    const parse = powerSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Valid power action is required.' });
+
+    const db = getDatabase();
+    const svc = db.prepare('SELECT account_id FROM services WHERE id = ?').get(id) as { account_id: string } | undefined;
+    if (!svc) return reply.status(404).send({ error: 'Service not found.' });
+
+    try {
+      const result = await executeServicePowerAction({
+        serviceId: id,
+        accountId: svc.account_id,
+        userId: req.auth!.user.id,
+        action: parse.data.action,
+        ipAddress: req.ip,
+      });
+
+      recordCatalogAudit(req, 'admin.service_power_action', 'service', id, {
+        action: parse.data.action,
+        reason: parse.data.reason || 'Staff console invocation',
+      }, db);
+
+      return reply.send({ success: true, serviceId: id, action: parse.data.action, runtimeState: result.runtimeState });
+    } catch (err: unknown) {
+      return reply.status(502).send({ error: (err as Error).message });
+    }
+  });
+
+  // --- Staff Service State Sync ---
+  app.post('/api/v1/admin/services/:id/sync', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const db = getDatabase();
+    const svc = db.prepare(`
+      SELECT s.id, s.account_id, s.external_id, COALESCE(sos.runtime_state, 'UNKNOWN') AS runtime_state
+      FROM services s
+      LEFT JOIN service_observed_states sos ON sos.service_id = s.id
+      WHERE s.id = ?
+    `).get(id) as { id: string; account_id: string; external_id: string | null; runtime_state: string } | undefined;
+    if (!svc) return reply.status(404).send({ error: 'Service not found.' });
+    if (!svc.external_id || config.PROVIDER_MODE !== 'pterodactyl_1' || !(config.PTERODACTYL_KEYMINT_SECRET || config.PTERODACTYL_CLIENT_API_KEY)) {
+      return reply.send({ success: true, serviceId: id, runtimeState: svc.runtime_state, synced: false });
+    }
+    try {
+      const adapter = new PterodactylHttpAdapter({
+        panelUrl: config.PTERODACTYL_PANEL_URL,
+        apiKey: config.PTERODACTYL_API_KEY,
+        clientApiKey: config.PTERODACTYL_CLIENT_API_KEY,
+        timeoutMs: 10000,
+      });
+      const usage = config.PTERODACTYL_KEYMINT_SECRET
+        ? await withAccountClientKey(svc.account_id, adapter, db, config.PTERODACTYL_KEYMINT_SECRET, (key) => adapter.getResourceUsage(svc.external_id!, key))
+        : await adapter.getResourceUsage(svc.external_id);
+      const runtimeState = usage.state === 'running' ? 'RUNNING' : usage.state === 'offline' ? 'STOPPED' : svc.runtime_state;
+      db.prepare(`
+        INSERT INTO service_observed_states (service_id, runtime_state, last_checked_at, raw_metrics)
+        VALUES (?, ?, datetime('now', 'utc'), ?)
+        ON CONFLICT(service_id) DO UPDATE SET
+          runtime_state = excluded.runtime_state,
+          last_checked_at = excluded.last_checked_at,
+          raw_metrics = excluded.raw_metrics
+      `).run(id, runtimeState, JSON.stringify(usage));
+      return reply.send({ success: true, serviceId: id, runtimeState, synced: true });
+    } catch (err: unknown) {
+      return reply.send({ success: true, serviceId: id, runtimeState: svc.runtime_state, synced: false, error: (err as Error).message });
+    }
+  });
+
+  // --- Admin Platform Settings & Diagnostic State ---
+  app.get('/api/v1/admin/settings', { preHandler: [requireAuth, requireStaffPermission('admin:access')] }, async () => {
+    const db = getDatabase();
+    const [accountsCount, servicesCount, staffCount, catalogCount] = await Promise.all([
+      db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number },
+      db.prepare('SELECT COUNT(*) as count FROM services').get() as { count: number },
+      db.prepare("SELECT COUNT(*) as count FROM staff_memberships WHERE status = 'ACTIVE'").get() as { count: number },
+      db.prepare('SELECT COUNT(*) as count FROM products').get() as { count: number },
+    ]);
+
+    return {
+      general: {
+        platformName: 'Fortless',
+        appOrigin: config.APP_ORIGIN,
+        nodeEnv: config.NODE_ENV,
+        currency: 'EUR',
+        currencyMinorUnits: 'Cents',
+      },
+      provider: {
+        type: 'PTERODACTYL',
+        mode: config.PROVIDER_MODE,
+        configured: Boolean(config.PTERODACTYL_PANEL_URL && config.PTERODACTYL_API_KEY),
+        panelUrl: config.PTERODACTYL_PANEL_URL ? config.PTERODACTYL_PANEL_URL.replace(/\/+$/, '') : null,
+        verificationTier: config.PROVIDER_VERIFICATION_TIER,
+      },
+      payments: {
+        mode: config.PAYMENTS_MODE,
+        configured: Boolean(config.STRIPE_SECRET_KEY && config.STRIPE_WEBHOOK_SECRET),
+        webhookSecretConfigured: Boolean(config.STRIPE_WEBHOOK_SECRET),
+        currency: 'EUR',
+      },
+      email: {
+        mode: config.EMAIL_MODE,
+        configured: Boolean(config.SMTP_PASSWORD),
+        host: config.SMTP_HOST,
+        port: config.SMTP_PORT,
+        user: config.SMTP_USER,
+        from: config.EMAIL_FROM,
+      },
+      security: {
+        staffMfaMandatory: true,
+        sessionTtlHours: 72,
+        stepUpTtlMinutes: 15,
+        antiSsrBlacklistActive: true,
+      },
+      counts: {
+        accounts: accountsCount.count,
+        services: servicesCount.count,
+        staff: staffCount.count,
+        products: catalogCount.count,
+      },
+    };
+  });
+
+  // --- Admin Test Provider Connection ---
+  app.post('/api/v1/admin/settings/test-provider', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (_req, reply) => {
+    if (config.PROVIDER_MODE !== 'pterodactyl_1' || !config.PTERODACTYL_PANEL_URL || !config.PTERODACTYL_API_KEY) {
+      return reply.status(503).send({
+        error: 'Pterodactyl provider is not configured. Set PTERODACTYL_PANEL_URL and PTERODACTYL_API_KEY in environment.',
+        code: 'PROVIDER_NOT_CONFIGURED',
+      });
+    }
+
+    const t0 = Date.now();
+    try {
+      const adapter = new PterodactylHttpAdapter({
+        panelUrl: config.PTERODACTYL_PANEL_URL,
+        apiKey: config.PTERODACTYL_API_KEY,
+        timeoutMs: 15000,
+      });
+      const inventory = await adapter.getInventory();
+      const latencyMs = Date.now() - t0;
+      return reply.send({
+        success: true,
+        latencyMs,
+        nodesCount: inventory.nodes.length,
+        eggsCount: inventory.eggs.length,
+        locationsCount: inventory.locations.length,
+        nestsCount: inventory.nests.length,
+      });
+    } catch (error: unknown) {
+      const latencyMs = Date.now() - t0;
+      const providerError = error instanceof ProviderError ? error : null;
+      return reply.status(502).send({
+        success: false,
+        latencyMs,
+        error: providerError?.message || 'Failed to connect to Pterodactyl panel.',
+        code: providerError?.code || 'PROVIDER_CONNECTION_FAILED',
+      });
+    }
   });
 
   return app;
