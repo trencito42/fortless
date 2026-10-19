@@ -24,7 +24,7 @@ import {
   openCreateProductFromEgg,
   submitProductFromEgg,
 } from './pages/catalog/index.js';
-import { renderTickets, openTicketDetail, getActiveTicketId } from './pages/tickets/index.js';
+import { renderTickets, openTicketDetail, renderTicketDetail, getActiveTicketId } from './pages/tickets/index.js';
 import { renderAudit } from './pages/audit/index.js';
 import { renderStaff, openStaffEditor } from './pages/staff/index.js';
 import { renderOrders, renderBilling, renderInfrastructure, renderStatus } from './pages/operations/index.js';
@@ -46,6 +46,7 @@ function updateAdminChrome(routeName: string) {
     infrastructure: ['Infrastructure', 'Capacity pools and provider readiness.'],
     catalog: ['Catalog & providers', 'Products stay private until plans are mapped to real provider inventory.'],
     tickets: ['Support queue', 'Real customer threads. Click a ticket to view and reply.'],
+    'admin-ticket-detail': ['Support ticket', 'Customer and service context, complete thread and staff actions.'],
     audit: ['Global audit trail', 'Security-relevant events across accounts.'],
     staff: ['Staff access', 'Persisted roles, access status and MFA readiness. Click to edit role.'],
     status: ['System status', 'Components and customer-visible incidents.'],
@@ -99,6 +100,11 @@ router.register('catalog', async () => {
 router.register('tickets', async () => {
   updateAdminChrome('tickets');
   await renderTickets();
+});
+
+router.register('admin-ticket-detail', async (match) => {
+  updateAdminChrome('admin-ticket-detail');
+  await renderTicketDetail(match.params.id!);
 });
 
 router.register('audit', async () => {
@@ -237,10 +243,6 @@ function bindAdminEvents() {
     }
 
     // Modal close buttons
-    if (target.closest('[data-close-ticket-modal]')) {
-      const m = document.getElementById('modalTicketDetail');
-      if (m) m.hidden = true;
-    }
     if (target.closest('[data-close-staff-modal]')) {
       const m = document.getElementById('modalStaffEditor');
       if (m) m.hidden = true;
@@ -373,7 +375,7 @@ function bindAdminEvents() {
       });
 
       (document.getElementById('adminReplyBody') as HTMLTextAreaElement).value = '';
-      await openTicketDetail(activeTicketId);
+      await renderTicketDetail(activeTicketId);
       renderTickets();
     } catch (err: any) {
       toast(`Error submitting reply: ${err.message}`, 'bad');

@@ -1670,7 +1670,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         capabilities: { payments: 'NOT_CONFIGURED', provisioning: 'MOCK_ONLY' },
       });
       expect(listAdminServices(db)).toMatchObject({ services: [], total: 0 });
-      expect(listAdminTickets(db).tickets).toEqual([]);
+      expect(listAdminTickets(db)).toMatchObject({ tickets: [], total: 0 });
       expect(listAdminAudit(db, { query: 'user.registration_pending' }).logs).toHaveLength(1);
     });
 

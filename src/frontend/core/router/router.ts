@@ -186,7 +186,7 @@ export class Router {
       ? 'services'
       : activeId === 'account-detail'
         ? 'accounts'
-        : activeId === 'ticket-detail' || activeId === 'ticket-new'
+        : activeId === 'ticket-detail' || activeId === 'ticket-new' || activeId === 'admin-ticket-detail'
           ? 'tickets'
           : activeId;
     document.querySelectorAll<HTMLElement>('[data-app-route], [data-route]').forEach((el) => {

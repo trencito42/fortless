@@ -150,7 +150,7 @@
       return null;
     }
     updateActiveLinks(activeId) {
-      const navId = activeId === "service-detail" || activeId === "admin-service-detail" ? "services" : activeId === "account-detail" ? "accounts" : activeId === "ticket-detail" || activeId === "ticket-new" ? "tickets" : activeId;
+      const navId = activeId === "service-detail" || activeId === "admin-service-detail" ? "services" : activeId === "account-detail" ? "accounts" : activeId === "ticket-detail" || activeId === "ticket-new" || activeId === "admin-ticket-detail" ? "tickets" : activeId;
       document.querySelectorAll("[data-app-route], [data-route]").forEach((el) => {
         const rId = el.dataset.appRoute || el.dataset.route;
         if (rId === navId) {
@@ -233,6 +233,13 @@
       path: "/admin/tickets",
       title: "Support Queue \xB7 FORTLESS",
       subtitle: "Real customer threads. Click a ticket to view and reply."
+    },
+    "admin-ticket-detail": {
+      id: "admin-ticket-detail",
+      path: "/admin/tickets/:id",
+      title: "Support Ticket \xB7 FORTLESS",
+      subtitle: "Customer and service context, complete thread and staff actions.",
+      pattern: /^\/admin\/tickets\/(?<id>[^/]+)$/
     },
     audit: {
       id: "audit",
@@ -2083,6 +2090,8 @@
   // src/frontend/admin/pages/tickets/index.ts
   var activeTicketId = null;
   var cachedTickets = [];
+  var adminTicketsTotal = 0;
+  var adminTicketsQuery = "";
   var adminTicketsPage = 1;
   var adminTicketsPageSize = 10;
   var adminTicketsListenersBound = false;
@@ -2100,12 +2109,12 @@
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
       return;
     }
-    const pagination = paginateItems(cachedTickets, adminTicketsPage, adminTicketsPageSize);
-    adminTicketsPage = pagination.page;
-    if (paginationRow) paginationRow.style.display = cachedTickets.length > adminTicketsPageSize ? "flex" : "none";
-    if (infoEl) infoEl.textContent = pagination.info;
-    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-    host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${esc(x.status === "WAITING_STAFF" ? "WAITING_STAFF" : "OPEN")}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
+    const pages = Math.max(1, Math.ceil(adminTicketsTotal / adminTicketsPageSize));
+    const start = (adminTicketsPage - 1) * adminTicketsPageSize;
+    if (paginationRow) paginationRow.style.display = adminTicketsTotal > adminTicketsPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = `Showing ${start + 1}\u2013${start + cachedTickets.length} of ${adminTicketsTotal}`;
+    if (pagerEl) pagerEl.innerHTML = renderPager(adminTicketsPage, pages);
+    host.innerHTML = cachedTickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === "WAITING_STAFF" ? "WAITING_STAFF" : "OPEN")}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
   }
   function bindAdminTicketsListeners() {
     if (adminTicketsListenersBound) return;
@@ -2117,31 +2126,37 @@
         const p = Number(btn.dataset.pg);
         if (p && p !== adminTicketsPage) {
           adminTicketsPage = p;
-          paintTicketsList();
+          renderTickets(adminTicketsQuery, p);
         }
       }
     });
   }
-  async function renderTickets(q = "") {
+  async function renderTickets(q = "", page = 1) {
     const host = document.querySelector("#ticketsList");
     if (!host) return;
     try {
-      const d = await api(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}`);
+      adminTicketsQuery = q;
+      adminTicketsPage = Math.max(1, page);
+      const offset = (adminTicketsPage - 1) * adminTicketsPageSize;
+      const d = await api(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}&limit=${adminTicketsPageSize}&offset=${offset}`);
       cachedTickets = d.tickets || [];
-      adminTicketsPage = 1;
+      adminTicketsTotal = Number(d.total || 0);
       paintTicketsList();
       bindAdminTicketsListeners();
     } catch (e) {
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
   }
-  async function openTicketDetail(ticketId) {
+  function openTicketDetail(ticketId) {
+    const path = `/admin/tickets/${encodeURIComponent(ticketId)}`;
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+  async function renderTicketDetail(ticketId) {
     activeTicketId = ticketId;
-    const modal = document.getElementById("modalTicketDetail");
     const msgBox = document.getElementById("adminTicketMessages");
-    if (!modal || !msgBox) return;
+    if (!msgBox) return;
     msgBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink2)">Loading ticket thread\u2026</div>';
-    modal.hidden = false;
     try {
       const d = await api(`/api/v1/admin/tickets/${encodeURIComponent(ticketId)}`);
       const subEl = document.getElementById("adminTicketSubject");
@@ -2151,6 +2166,10 @@
       if (metaEl)
         metaEl.textContent = `${d.ticket.account_name} \xB7 Customer: ${d.ticket.creator_name} (${d.ticket.creator_email}) \xB7 Created ${formatDate(d.ticket.created_at)}`;
       if (statusSelect) statusSelect.value = d.ticket.status;
+      const context = document.getElementById("adminTicketContext");
+      if (context) {
+        context.innerHTML = `<a class="btn s" href="/admin/accounts/${encodeURIComponent(d.ticket.account_id)}" data-route="account-detail">View customer account</a>${d.ticket.service_id ? `<a class="btn s" href="/admin/services/${encodeURIComponent(d.ticket.service_id)}" data-route="admin-service-detail">View related service</a>` : '<span class="pill">No related service</span>'}${badge(d.ticket.priority)}${badge(d.ticket.status)}`;
+      }
       msgBox.innerHTML = d.messages.map(
         (m) => `
         <div style="padding:10px 14px;border-radius:12px;background:${m.is_staff_internal_note ? "var(--warn-bg)" : m.is_staff_author ? "var(--accent-bg)" : "var(--s2)"};border:1px solid ${m.is_staff_internal_note ? "var(--warn)" : "transparent"}">
@@ -2584,6 +2603,7 @@
       infrastructure: ["Infrastructure", "Capacity pools and provider readiness."],
       catalog: ["Catalog & providers", "Products stay private until plans are mapped to real provider inventory."],
       tickets: ["Support queue", "Real customer threads. Click a ticket to view and reply."],
+      "admin-ticket-detail": ["Support ticket", "Customer and service context, complete thread and staff actions."],
       audit: ["Global audit trail", "Security-relevant events across accounts."],
       staff: ["Staff access", "Persisted roles, access status and MFA readiness. Click to edit role."],
       status: ["System status", "Components and customer-visible incidents."],
@@ -2637,6 +2657,10 @@
   router.register("tickets", async () => {
     updateAdminChrome("tickets");
     await renderTickets();
+  });
+  router.register("admin-ticket-detail", async (match) => {
+    updateAdminChrome("admin-ticket-detail");
+    await renderTicketDetail(match.params.id);
   });
   router.register("audit", async () => {
     updateAdminChrome("audit");
@@ -2773,10 +2797,6 @@
         if (m) m.hidden = false;
         return;
       }
-      if (target.closest("[data-close-ticket-modal]")) {
-        const m = document.getElementById("modalTicketDetail");
-        if (m) m.hidden = true;
-      }
       if (target.closest("[data-close-staff-modal]")) {
         const m = document.getElementById("modalStaffEditor");
         if (m) m.hidden = true;
@@ -2900,7 +2920,7 @@
           body: JSON.stringify({ status: newStatus })
         });
         document.getElementById("adminReplyBody").value = "";
-        await openTicketDetail(activeTicketId2);
+        await renderTicketDetail(activeTicketId2);
         renderTickets();
       } catch (err) {
         toast(`Error submitting reply: ${err.message}`, "bad");

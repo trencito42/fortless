@@ -176,6 +176,29 @@
         </div>
       </section>
 
+      <section class="page" id="page-admin-ticket-detail">
+        <div class="hd">
+          <div class="tx"><a class="eyebrow" href="/admin/tickets" data-route="tickets">← Support queue</a><h2 id="adminTicketSubject">Support ticket</h2><p id="adminTicketMeta">Loading customer and service context…</p></div>
+        </div>
+        <div id="adminTicketContext" class="row wrap" style="margin-bottom:12px"></div>
+        <article class="card">
+          <div id="adminTicketMessages" class="col" style="gap:10px"></div>
+          <div id="adminTicketAttachments" class="att-list" style="margin:12px 0"></div>
+        </article>
+        <form id="adminTicketReplyForm" class="card col" style="gap:12px;margin-top:14px" data-permission="tickets:manage">
+          <div class="ch"><div class="tx"><h3>Staff response</h3><p>Customer replies and private internal notes are stored separately.</p></div></div>
+          <div class="row wrap" style="gap:12px;align-items:center">
+            <label class="field" style="flex:1"><span>Status</span><div class="inp"><select id="adminTicketStatusSelect"><option value="OPEN">OPEN</option><option value="WAITING_CUSTOMER">WAITING CUSTOMER</option><option value="WAITING_STAFF">WAITING STAFF</option><option value="RESOLVED">RESOLVED</option><option value="CLOSED">CLOSED</option></select></div></label>
+            <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:650"><input type="checkbox" id="adminTicketInternalNote"> Private internal note</label>
+          </div>
+          <label class="field"><span>Response or note</span><div class="inp ta"><textarea id="adminReplyBody" required minlength="2" maxlength="10000" placeholder="Write a response using Markdown…"></textarea></div></label>
+          <div class="row wrap" style="justify-content:space-between">
+            <label class="btn s" style="cursor:pointer"><span class="ic" data-icon="support"></span>Attach file<input type="file" id="adminTicketFileInput" style="display:none"></label><span id="adminTicketFileLabel" class="muted" style="font-size:12px"></span>
+            <button type="submit" class="btn pri" id="adminSendReplyBtn">Submit reply</button>
+          </div>
+        </form>
+      </section>
+
       <section class="page" id="page-audit">
         <div class="hd"><div class="tx"><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><a class="btn" href="/api/v1/admin/audit/export"><span class="ic" data-icon="document"></span>Export</a></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action or resource" data-search="audit" aria-label="Search audit events"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>IP</th></tr></thead><tbody id="auditList"></tbody></table></div>
         <div class="row wrap" id="adminAuditPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
@@ -324,51 +347,6 @@
   </div>
 
   <!-- OPERATIONAL MODALS -->
-  <div id="modalTicketDetail" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminTicketSubject">
-    <span class="ov" aria-hidden="true"></span><div class="bx wide">
-      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
-        <div>
-          <h3 id="adminTicketSubject" style="margin:0;font:700 18px var(--font)">Ticket Details</h3>
-          <small id="adminTicketMeta" class="muted"></small>
-        </div>
-        <button class="btn ghost sq s" type="button" data-close-ticket-modal aria-label="Close">✕</button>
-      </div>
-      <div id="adminTicketMessages" style="max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:8px 0"></div>
-      <div id="adminTicketAttachments" class="att-list" style="margin:6px 0"></div>
-      <form id="adminTicketReplyForm" class="col" style="gap:12px;border-top:1px solid var(--s3);padding-top:12px">
-        <div style="display:flex;gap:12px;align-items:center">
-          <label style="font-size:13px;font-weight:600">Status:</label>
-          <select id="adminTicketStatusSelect" style="padding:4px 8px;border-radius:8px;border:1px solid var(--s3);background:var(--s1)">
-            <option value="OPEN">OPEN</option>
-            <option value="WAITING_CUSTOMER">WAITING CUSTOMER</option>
-            <option value="WAITING_STAFF">WAITING STAFF</option>
-            <option value="RESOLVED">RESOLVED</option>
-            <option value="CLOSED">CLOSED</option>
-          </select>
-          <label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-left:auto">
-            <input type="checkbox" id="adminTicketInternalNote"> Internal Note Only
-          </label>
-        </div>
-        <div class="field">
-          <label for="adminReplyBody">Response or Note (supports Markdown)</label>
-          <div class="inp ta"><textarea id="adminReplyBody" required minlength="2" placeholder="Write staff response or internal technical note… Supports **bold**, `code`, lists"></textarea></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <label class="btn sec s" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px">
-            <span class="ic" data-icon="support"></span>
-            <span>Attach file</span>
-            <input type="file" id="adminTicketFileInput" style="display:none">
-          </label>
-          <span id="adminTicketFileLabel" class="muted" style="font-size:12px"></span>
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:8px">
-          <button type="button" class="btn sec" data-close-ticket-modal>Close</button>
-          <button type="submit" class="btn" id="adminSendReplyBtn">Submit Reply</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <div id="modalCreateProductFromEgg" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="createProductFromEggTitle">
     <span class="ov" aria-hidden="true"></span><div class="bx wide" style="max-width:820px">
       <div class="modal-head">

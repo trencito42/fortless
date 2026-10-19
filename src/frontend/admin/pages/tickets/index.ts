@@ -8,10 +8,12 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { renderMarkdown } from '../../../core/utils/markdown.js';
 import { badge } from '../../shell/admin-shell.js';
-import { paginateItems, renderPager } from '../../../petal/index.js';
+import { renderPager } from '../../../petal/index.js';
 
 let activeTicketId: string | null = null;
 let cachedTickets: any[] = [];
+let adminTicketsTotal = 0;
+let adminTicketsQuery = '';
 let adminTicketsPage = 1;
 const adminTicketsPageSize = 10;
 let adminTicketsListenersBound = false;
@@ -37,14 +39,13 @@ function paintTicketsList(): void {
     return;
   }
 
-  const pagination = paginateItems(cachedTickets, adminTicketsPage, adminTicketsPageSize);
-  adminTicketsPage = pagination.page;
+  const pages = Math.max(1, Math.ceil(adminTicketsTotal / adminTicketsPageSize));
+  const start = (adminTicketsPage - 1) * adminTicketsPageSize;
+  if (paginationRow) paginationRow.style.display = adminTicketsTotal > adminTicketsPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = `Showing ${start + 1}–${start + cachedTickets.length} of ${adminTicketsTotal}`;
+  if (pagerEl) pagerEl.innerHTML = renderPager(adminTicketsPage, pages);
 
-  if (paginationRow) paginationRow.style.display = cachedTickets.length > adminTicketsPageSize ? 'flex' : 'none';
-  if (infoEl) infoEl.textContent = pagination.info;
-  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-
-  host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${esc(x.status === 'WAITING_STAFF' ? 'WAITING_STAFF' : 'OPEN')}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages · ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join('');
+  host.innerHTML = cachedTickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === 'WAITING_STAFF' ? 'WAITING_STAFF' : 'OPEN')}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages · ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join('');
 }
 
 function bindAdminTicketsListeners(): void {
@@ -58,20 +59,23 @@ function bindAdminTicketsListeners(): void {
       const p = Number(btn.dataset.pg);
       if (p && p !== adminTicketsPage) {
         adminTicketsPage = p;
-        paintTicketsList();
+        renderTickets(adminTicketsQuery, p);
       }
     }
   });
 }
 
-export async function renderTickets(q = ''): Promise<void> {
+export async function renderTickets(q = '', page = 1): Promise<void> {
   const host = document.querySelector<HTMLElement>('#ticketsList');
   if (!host) return;
 
   try {
-    const d = await api<{ tickets: any[] }>(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}`);
+    adminTicketsQuery = q;
+    adminTicketsPage = Math.max(1, page);
+    const offset = (adminTicketsPage - 1) * adminTicketsPageSize;
+    const d = await api<{ tickets: any[]; total: number }>(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}&limit=${adminTicketsPageSize}&offset=${offset}`);
     cachedTickets = d.tickets || [];
-    adminTicketsPage = 1;
+    adminTicketsTotal = Number(d.total || 0);
     paintTicketsList();
     bindAdminTicketsListeners();
   } catch (e: any) {
@@ -79,14 +83,18 @@ export async function renderTickets(q = ''): Promise<void> {
   }
 }
 
-export async function openTicketDetail(ticketId: string): Promise<void> {
+export function openTicketDetail(ticketId: string): void {
+  const path = `/admin/tickets/${encodeURIComponent(ticketId)}`;
+  if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+export async function renderTicketDetail(ticketId: string): Promise<void> {
   activeTicketId = ticketId;
-  const modal = document.getElementById('modalTicketDetail');
   const msgBox = document.getElementById('adminTicketMessages');
-  if (!modal || !msgBox) return;
+  if (!msgBox) return;
 
   msgBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink2)">Loading ticket thread…</div>';
-  modal.hidden = false;
 
   try {
     const d = await api<{
@@ -105,6 +113,14 @@ export async function openTicketDetail(ticketId: string): Promise<void> {
         d.ticket.creator_email
       }) · Created ${formatDate(d.ticket.created_at)}`;
     if (statusSelect) statusSelect.value = d.ticket.status;
+    const context = document.getElementById('adminTicketContext');
+    if (context) {
+      context.innerHTML = `<a class="btn s" href="/admin/accounts/${encodeURIComponent(d.ticket.account_id)}" data-route="account-detail">View customer account</a>${
+        d.ticket.service_id
+          ? `<a class="btn s" href="/admin/services/${encodeURIComponent(d.ticket.service_id)}" data-route="admin-service-detail">View related service</a>`
+          : '<span class="pill">No related service</span>'
+      }${badge(d.ticket.priority)}${badge(d.ticket.status)}`;
+    }
 
     msgBox.innerHTML = d.messages
       .map(

@@ -74,6 +74,7 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(ADMIN_ROUTES.settings!.path).toBe('/admin/settings');
       expect(ADMIN_ROUTES['account-detail']!.pattern?.test('/admin/accounts/acc_123')).toBe(true);
       expect(ADMIN_ROUTES['admin-service-detail']!.pattern?.test('/admin/services/svc_123')).toBe(true);
+      expect(ADMIN_ROUTES['admin-ticket-detail']!.pattern?.test('/admin/tickets/tkt_123')).toBe(true);
     });
 
     it('Router registers handlers and matches static and parameterized paths', () => {
@@ -296,7 +297,9 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       const adminHtml = readFileSync('public/admin.html', 'utf8');
       expect(adminHtml).toContain('id="page-admin-service-detail"');
       expect(adminHtml).toContain('id="page-account-detail"');
+      expect(adminHtml).toContain('id="page-admin-ticket-detail"');
       expect(adminHtml).not.toContain('id="modalAdminServiceDetail"');
+      expect(adminHtml).not.toContain('id="modalTicketDetail"');
       expect(adminHtml).toContain('id="modalCreateProductFromEgg"');
       expect(adminHtml).toContain('id="page-settings"');
       expect(adminHtml).toContain('id="nav-settings"');

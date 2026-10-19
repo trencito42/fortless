@@ -129,8 +129,16 @@ export function listAdminTickets(db: Database.Database, options: AdminListOption
              t.updated_at DESC, t.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, like, like, limit, offset);
+  const total = (db.prepare(`
+    SELECT count(*) AS count
+    FROM tickets t
+    JOIN accounts a ON a.id = t.account_id
+    JOIN users creator ON creator.id = t.created_by_user_id
+    WHERE (? = '' OR t.id LIKE ? ESCAPE '\\' OR t.subject LIKE ? ESCAPE '\\'
+      OR a.name LIKE ? ESCAPE '\\' OR creator.name LIKE ? ESCAPE '\\' OR creator.email LIKE ? ESCAPE '\\')
+  `).get(query, like, like, like, like, like) as { count: number }).count;
 
-  return { tickets: rows, limit, offset };
+  return { tickets: rows, total, limit, offset };
 }
 
 export function listAdminAudit(db: Database.Database, options: AdminListOptions = {}) {

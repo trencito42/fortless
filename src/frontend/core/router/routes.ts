@@ -136,6 +136,13 @@ export const ADMIN_ROUTES: Record<string, RouteDefinition> = {
     title: 'Support Queue · FORTLESS',
     subtitle: 'Real customer threads. Click a ticket to view and reply.',
   },
+  'admin-ticket-detail': {
+    id: 'admin-ticket-detail',
+    path: '/admin/tickets/:id',
+    title: 'Support Ticket · FORTLESS',
+    subtitle: 'Customer and service context, complete thread and staff actions.',
+    pattern: /^\/admin\/tickets\/(?<id>[^/]+)$/,
+  },
   audit: {
     id: 'audit',
     path: '/admin/audit',

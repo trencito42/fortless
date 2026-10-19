@@ -548,6 +548,7 @@ export function buildServer(): FastifyInstance {
     const viewPermissions: Record<string, StaffPermission> = {
       accounts: 'accounts:read',
       services: 'services:read',
+      tickets: 'tickets:read',
     };
     if (!viewPermissions[view] || !id) return reply.redirect('/admin');
     const destination = `/admin/${view}/${encodeURIComponent(id)}`;
