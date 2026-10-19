@@ -838,4 +838,31 @@ CREATE TABLE IF NOT EXISTS fastdl_sync_jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_fastdl_sync_jobs_svc ON fastdl_sync_jobs(service_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fastdl_sync_jobs_status ON fastdl_sync_jobs(status);
+
+CREATE TABLE IF NOT EXISTS player_moderation_log (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  actor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  action TEXT NOT NULL CHECK(action IN ('KICK', 'BAN', 'UNBAN')),
+  target_identifier TEXT NOT NULL,
+  target_name TEXT NOT NULL,
+  reason TEXT,
+  duration_minutes INTEGER,
+  rcon_response TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+CREATE INDEX IF NOT EXISTS idx_player_mod_log_svc ON player_moderation_log(service_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS console_command_history (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  actor_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  actor_role TEXT,
+  command_hash TEXT NOT NULL,
+  command_redacted TEXT NOT NULL,
+  delivered INTEGER NOT NULL DEFAULT 1 CHECK(delivered IN (0, 1)),
+  delivery_status TEXT NOT NULL DEFAULT 'DELIVERED',
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+CREATE INDEX IF NOT EXISTS idx_console_cmd_hist_svc ON console_command_history(service_id, created_at DESC);
 `;

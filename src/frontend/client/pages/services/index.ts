@@ -15,6 +15,7 @@ import { initServiceFiles } from './files.js';
 import { initServiceActivity } from './activity.js';
 import { initGame } from './game.js';
 import { initFastDl } from './fastdl.js';
+import { initPlayers } from './players.js';
 import { mountLiveTiles } from './live-usage.js';
 import { bindTabUrls } from '../../../core/router/tab-url.js';
 import { serviceState, liveState } from './status.js';
@@ -108,6 +109,7 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
     const fastDlSupported = fastDlCtl ? await fastDlCtl.checkSupported() : false;
     const show = {
       c: caps.console && can('websocket.connect'),
+      p: caps.game && (can('player.read') || can('control.console')),
       f: caps.files && can('file.read'),
       m: caps.game && can('file.read-content'),
       l: fastDlSupported,
@@ -152,7 +154,7 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
 
       <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:24px 0 20px">
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true" data-t="o">Overview</button>
-        ${([['c', 'Console', 'dtlPaneConsole'], ['f', 'Files', 'dtlPaneFiles'], ['m', 'Game', 'dtlPaneGame'], ['l', 'FastDL', 'dtlPaneFastdl'], ['d', 'Databases', 'dtlPaneDatabases'], ['h', 'Schedules', 'dtlPaneSchedules'], ['b', 'Backups', 'dtlPaneBackups'], ['n', 'Network', 'dtlPaneNetwork'], ['s', 'Startup', 'dtlPaneStartup'], ['g', 'Settings', 'dtlPaneSettings'], ['u', 'Users', 'dtlPaneUsers']] as const).filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join('')}
+        ${([['c', 'Console', 'dtlPaneConsole'], ['p', 'Players', 'dtlPanePlayers'], ['f', 'Files', 'dtlPaneFiles'], ['m', 'Game', 'dtlPaneGame'], ['l', 'FastDL', 'dtlPaneFastdl'], ['d', 'Databases', 'dtlPaneDatabases'], ['h', 'Schedules', 'dtlPaneSchedules'], ['b', 'Backups', 'dtlPaneBackups'], ['n', 'Network', 'dtlPaneNetwork'], ['s', 'Startup', 'dtlPaneStartup'], ['g', 'Settings', 'dtlPaneSettings'], ['u', 'Users', 'dtlPaneUsers']] as const).filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join('')}
         ${show.n ? `<button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab('a')}>Allocation</button>` : ''}
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1" data-t="e">Activity</button>
       </div>
@@ -204,7 +206,7 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
         <section class="card"><div id="dtlFilesBody"></div></section>
       </div>` : ''}
 
-      ${([['m', 'dtlPaneGame', 'dtlGameBody'], ['l', 'dtlPaneFastdl', 'dtlFastdlBody'], ['d', 'dtlPaneDatabases', 'dtlDatabasesBody'], ['h', 'dtlPaneSchedules', 'dtlSchedulesBody'], ['b', 'dtlPaneBackups', 'dtlBackupsBody'], ['n', 'dtlPaneNetwork', 'dtlNetworkBody'], ['s', 'dtlPaneStartup', 'dtlStartupBody'], ['g', 'dtlPaneSettings', 'dtlSettingsBody'], ['u', 'dtlPaneUsers', 'dtlUsersBody']] as const).filter(([k]) => show[k]).map(([, p, b]) => `<div id="${p}" role="tabpanel" class="tp" hidden><section class="card" style="${p === 'dtlPaneFastdl' ? 'background:transparent;border:none;padding:0' : ''}"><div id="${b}"></div></section></div>`).join('')}
+      ${([['p', 'dtlPanePlayers', 'dtlPlayersBody'], ['m', 'dtlPaneGame', 'dtlGameBody'], ['l', 'dtlPaneFastdl', 'dtlFastdlBody'], ['d', 'dtlPaneDatabases', 'dtlDatabasesBody'], ['h', 'dtlPaneSchedules', 'dtlSchedulesBody'], ['b', 'dtlPaneBackups', 'dtlBackupsBody'], ['n', 'dtlPaneNetwork', 'dtlNetworkBody'], ['s', 'dtlPaneStartup', 'dtlStartupBody'], ['g', 'dtlPaneSettings', 'dtlSettingsBody'], ['u', 'dtlPaneUsers', 'dtlUsersBody']] as const).filter(([k]) => show[k]).map(([, p, b]) => `<div id="${p}" role="tabpanel" class="tp" hidden><section class="card" style="${p === 'dtlPaneFastdl' || p === 'dtlPanePlayers' ? 'background:transparent;border:none;padding:0' : ''}"><div id="${b}"></div></section></div>`).join('')}
 
       <div id="dtlPaneAllocation" role="tabpanel" class="tp" hidden>
         <div class="g g3 k2">
@@ -268,7 +270,9 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
         initServiceConsole(service.id, { onStatus: syncPowerButtons, onStats: liveHost ? mountLiveTiles(liveHost) : undefined }).connect();
       }
       const gameCtl = show.m ? initGame(service.id) : null;
+      const playersCtl = show.p ? initPlayers(service.id) : null;
       const openers: Record<string, () => void> = {
+        p: playersCtl?.open ?? (() => undefined),
         f: initServiceFiles(service.id).open,
         m: gameCtl?.open ?? (() => undefined),
         l: fastDlCtl?.open ?? (() => undefined),
@@ -295,7 +299,7 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
     if (tabsEl) {
       bindTabUrls({
         tabs: tabsEl, base: `/app/services/${encodeURIComponent(serviceId)}`, initial: tab, fallbackKey: 'o',
-        slugs: { o: 'overview', c: 'console', f: 'files', m: 'game', l: 'fastdl', d: 'databases', h: 'schedules', b: 'backups', n: 'network', s: 'startup', g: 'settings', u: 'users', a: 'allocation', e: 'activity' },
+        slugs: { o: 'overview', c: 'console', p: 'players', f: 'files', m: 'game', l: 'fastdl', d: 'databases', h: 'schedules', b: 'backups', n: 'network', s: 'startup', g: 'settings', u: 'users', a: 'allocation', e: 'activity' },
         keyOf: (b) => b.dataset['t'],
         select: (key) => {
           if (advancedKeys.has(key) && serviceMode !== 'advanced') applyServiceMode('advanced', false);

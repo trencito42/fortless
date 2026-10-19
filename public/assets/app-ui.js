@@ -1916,8 +1916,30 @@ ${selectedOr("code")}
     let active = false;
     let retries = 0;
     let retryTimer;
-    const history2 = [];
-    let historyPos = 0;
+    const storageKey = `fortless_cmd_history_${serviceId}`;
+    let history2 = [];
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) history2 = parsed.filter((x) => typeof x === "string").slice(-MAX_HISTORY);
+      }
+    } catch {
+    }
+    let historyPos = history2.length;
+    if (history2.length === 0) {
+      void api.get(`/api/v1/services/${encodeURIComponent(serviceId)}/console/history`).then((res) => {
+        if (res?.history && Array.isArray(res.history) && history2.length === 0) {
+          history2 = res.history.map((h) => h.command).reverse().slice(-MAX_HISTORY);
+          historyPos = history2.length;
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(history2));
+          } catch {
+          }
+        }
+      }).catch(() => {
+      });
+    }
     const setState = (text) => {
       if (state) state.textContent = text;
     };
@@ -2027,9 +2049,16 @@ ${selectedOr("code")}
         return;
       }
       if (e.key !== "Enter" || !input.value.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ event: "send command", args: [input.value] }));
-      if (history2[history2.length - 1] !== input.value) history2.push(input.value);
+      const cmd = input.value;
+      ws.send(JSON.stringify({ event: "send command", args: [cmd] }));
+      void api.post(`/api/v1/services/${encodeURIComponent(serviceId)}/console/history`, { command: cmd, delivered: true }).catch(() => {
+      });
+      if (history2[history2.length - 1] !== cmd) history2.push(cmd);
       if (history2.length > MAX_HISTORY) history2.shift();
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(history2));
+      } catch {
+      }
       historyPos = history2.length;
       input.value = "";
     });
@@ -3600,6 +3629,356 @@ ${selectedOr("code")}
     };
   }
 
+  // src/frontend/client/pages/services/players.ts
+  function formatDuration(seconds) {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    if (m < 60) return `${m}m ${s}s`;
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    return `${h}h ${remM}m`;
+  }
+  function formatTimeAgo(iso) {
+    try {
+      const diffSec = Math.floor((Date.now() - new Date(iso).getTime()) / 1e3);
+      if (diffSec < 60) return "just now";
+      if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+      if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+      return `${Math.floor(diffSec / 86400)}d ago`;
+    } catch {
+      return iso;
+    }
+  }
+  function initPlayers(serviceId) {
+    const host = document.getElementById("dtlPlayersBody");
+    const base = `/api/v1/services/${encodeURIComponent(serviceId)}`;
+    let pollTimer;
+    let filterText = "";
+    let statusData = null;
+    let historyData = null;
+    let canModerate = false;
+    async function checkPermissions() {
+      try {
+        const res = await api(base);
+        const perms = new Set(res.service?.access?.permissions ?? []);
+        canModerate = perms.has("player.moderate") || perms.has("ALL") || perms.has("control.console");
+      } catch {
+        canModerate = false;
+      }
+    }
+    async function loadData() {
+      try {
+        const [status, history2] = await Promise.all([
+          api.get(`${base}/players`),
+          api.get(`${base}/players/history?limit=10`).catch(() => ({ total: 0, records: [] }))
+        ]);
+        statusData = status;
+        historyData = history2;
+      } catch (err) {
+        if (!statusData) {
+          statusData = {
+            supported: true,
+            state: "ERROR",
+            gameType: "unknown",
+            adapter: "none",
+            players: [],
+            error: err.message || "Failed to query server status"
+          };
+        }
+      }
+    }
+    function render() {
+      if (!host) return;
+      if (!statusData) {
+        host.innerHTML = `<div class="sk" role="status" aria-label="Loading players"><i></i><i></i><i></i></div>`;
+        return;
+      }
+      if (!statusData.supported) {
+        host.innerHTML = `
+        <div class="es" data-c="Empty state">
+          <span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span>
+          <h4>Player administration is unsupported</h4>
+          <p>${esc(statusData.error || "This service does not support native player management.")}</p>
+        </div>`;
+        return;
+      }
+      if (statusData.state === "OFFLINE") {
+        host.innerHTML = `
+        <div class="col" style="gap:18px">
+          <div class="alert info">
+            <svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg>
+            <div><b>Server is offline</b><span>Start the server to query connected players and perform moderation actions.</span></div>
+          </div>
+          ${renderHistorySection()}
+        </div>`;
+        bindHistoryEvents();
+        return;
+      }
+      const info = statusData.info;
+      const players = statusData.players;
+      const filtered = players.filter((p) => {
+        if (!filterText) return true;
+        const q = filterText.toLowerCase();
+        return p.name.toLowerCase().includes(q) || p.steamId && p.steamId.toLowerCase().includes(q);
+      });
+      const infoBadges = info ? `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="pill good d">Online</span>
+          <span class="pill">${esc(info.game)}</span>
+          <span class="pill">${esc(info.map)}</span>
+          <span class="pill" title="Server latency">${info.pingMs} ms</span>
+          <span class="pill info">${players.length} / ${info.maxPlayers} players</span>
+        </div>` : `<span class="pill good d">Online (${players.length} online)</span>`;
+      const playersTable = filtered.length ? `<div class="tbl-wrap" style="margin-top:12px">
+          <table class="tbl" aria-label="Connected players">
+            <thead>
+              <tr>
+                <th scope="col">Player</th>
+                <th scope="col">Identifier</th>
+                <th scope="col" style="text-align:right">Score</th>
+                <th scope="col" style="text-align:right">Connected</th>
+                ${canModerate ? '<th scope="col" style="text-align:right">Actions</th>' : ""}
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(
+        (p) => `
+                <tr data-p-id="${esc(String(p.steamId || p.index))}" data-p-name="${esc(p.name)}">
+                  <td>
+                    <div class="row nw" style="gap:10px;align-items:center">
+                      <span class="tile neu sm"><svg class="ic xs" aria-hidden="true"><use href="#i-user"/></svg></span>
+                      <b style="font-weight:650">${esc(p.name)}</b>
+                    </div>
+                  </td>
+                  <td><code class="mono faint" style="font-size:12px">${esc(p.steamId || `#${p.index}`)}</code></td>
+                  <td style="text-align:right"><b class="faint">${p.score}</b></td>
+                  <td style="text-align:right"><span class="faint">${formatDuration(p.duration)}</span></td>
+                  ${canModerate ? `<td style="text-align:right">
+                      <div class="row" style="justify-content:flex-end;gap:6px">
+                        <button class="btn xs sec" type="button" data-act="kick" title="Disconnect player">Kick</button>
+                        <button class="btn xs badt" type="button" data-act="ban" title="Ban player">Ban</button>
+                      </div>
+                    </td>` : ""}
+                </tr>`
+      ).join("")}
+            </tbody>
+          </table>
+        </div>` : `<div class="es" style="padding:28px 0" data-c="Empty state">
+          <span class="tile neu"><svg class="ic" aria-hidden="true"><use href="#i-user"/></svg></span>
+          <h4>${filterText ? "No matching players" : "No players currently online"}</h4>
+          <p>${filterText ? "Try adjusting your search filter." : "When players connect to this server, they will appear here in real time."}</p>
+        </div>`;
+      host.innerHTML = `
+      <div class="col" style="gap:18px">
+        <section class="card">
+          <div class="ch">
+            <div class="tx">
+              <h3>Live Players</h3>
+              <p>Real-time game server status and connected player administration.</p>
+            </div>
+            <div class="row" style="gap:8px">
+              <button class="btn s sec" id="dtlPlayersRefreshBtn" type="button" title="Refresh player list">
+                <svg class="ic xs" aria-hidden="true"><use href="#i-refresh"/></svg>Refresh
+              </button>
+            </div>
+          </div>
+
+          <div class="row" style="justify-content:space-between;align-items:center;gap:12px;margin:12px 0 16px;flex-wrap:wrap">
+            ${infoBadges}
+            <div class="inp s pill" style="min-width:200px;max-width:280px">
+              <svg class="ic s" aria-hidden="true"><use href="#i-search"/></svg>
+              <input id="dtlPlayersFilter" type="text" placeholder="Filter players\u2026" value="${esc(filterText)}" aria-label="Filter players">
+            </div>
+          </div>
+
+          ${playersTable}
+        </section>
+
+        ${renderHistorySection()}
+      </div>`;
+      bindTableEvents();
+      bindHistoryEvents();
+    }
+    function renderHistorySection() {
+      const records = historyData?.records ?? [];
+      if (!records.length) {
+        return `
+        <section class="card">
+          <div class="ch">
+            <div class="tx">
+              <h3>Moderation History</h3>
+              <p>Recent kicks and bans executed through Fortless.</p>
+            </div>
+          </div>
+          <div class="es" style="padding:20px 0">
+            <span class="tile neu sm"><svg class="ic xs" aria-hidden="true"><use href="#i-shield"/></svg></span>
+            <h4>No moderation records</h4>
+            <p>Disciplinary actions taken against players will be recorded here.</p>
+          </div>
+        </section>`;
+      }
+      return `
+      <section class="card">
+        <div class="ch">
+          <div class="tx">
+            <h3>Moderation History</h3>
+            <p>Recent kicks and bans executed through Fortless.</p>
+          </div>
+        </div>
+        <div class="tbl-wrap" style="margin-top:12px">
+          <table class="tbl" aria-label="Moderation history">
+            <thead>
+              <tr>
+                <th scope="col">Action</th>
+                <th scope="col">Target</th>
+                <th scope="col">Reason</th>
+                <th scope="col" style="text-align:right">When</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${records.map((r) => {
+        const badgeClass = r.action === "BAN" ? "bad" : r.action === "KICK" ? "warn" : "good";
+        const durationStr = r.durationMinutes ? ` (${r.durationMinutes}m)` : "";
+        return `
+                  <tr>
+                    <td><span class="pill ${badgeClass} d">${esc(r.action)}${durationStr}</span></td>
+                    <td>
+                      <div>
+                        <b>${esc(r.targetName)}</b>
+                        <small class="faint mono" style="display:block">${esc(r.targetIdentifier)}</small>
+                      </div>
+                    </td>
+                    <td><span class="faint">${esc(r.reason || "\u2014")}</span></td>
+                    <td style="text-align:right"><span class="faint" title="${esc(r.createdAt)}">${formatTimeAgo(r.createdAt)}</span></td>
+                  </tr>`;
+      }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </section>`;
+    }
+    function bindTableEvents() {
+      const filterInput = document.getElementById("dtlPlayersFilter");
+      filterInput?.addEventListener("input", () => {
+        filterText = filterInput.value.trim();
+        render();
+        const nextInput = document.getElementById("dtlPlayersFilter");
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.selectionStart = nextInput.selectionEnd = nextInput.value.length;
+        }
+      });
+      document.getElementById("dtlPlayersRefreshBtn")?.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        try {
+          await loadData();
+          render();
+          toast("Player list refreshed", "good");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      host?.querySelectorAll("[data-act]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          const tr = e.target.closest("tr");
+          if (!tr) return;
+          const targetId = tr.dataset["pId"] || "";
+          const targetName = tr.dataset["pName"] || targetId;
+          const act = btn.dataset["act"];
+          if (act === "kick") {
+            const res = await formDialog({
+              title: "Kick Player",
+              message: `Are you sure you want to disconnect "${targetName}" from this server?`,
+              confirmLabel: "Kick player",
+              danger: true,
+              fields: [
+                { key: "reason", label: "Reason (optional)", placeholder: "e.g. Inappropriate behavior" }
+              ]
+            });
+            if (!res) return;
+            btn.disabled = true;
+            try {
+              await api.post(`${base}/players/kick`, {
+                targetIdentifier: targetId,
+                targetName,
+                reason: res["reason"] ? String(res["reason"]) : void 0
+              });
+              toast(`Kicked "${targetName}"`, "good");
+              await loadData();
+              render();
+            } catch (err) {
+              toast(err.message || "Kick failed", "bad");
+            } finally {
+              btn.disabled = false;
+            }
+          } else if (act === "ban") {
+            const res = await formDialog({
+              title: "Ban Player",
+              message: `Ban "${targetName}" from this server? They will be immediately disconnected and prevented from reconnecting.`,
+              confirmLabel: "Ban player",
+              danger: true,
+              fields: [
+                {
+                  key: "duration",
+                  label: "Duration",
+                  type: "select",
+                  value: "0",
+                  options: [
+                    ["0", "Permanent"],
+                    ["60", "1 hour"],
+                    ["360", "6 hours"],
+                    ["1440", "1 day (24 hours)"],
+                    ["10080", "7 days"],
+                    ["43200", "30 days"]
+                  ]
+                },
+                { key: "reason", label: "Reason (optional)", placeholder: "e.g. Cheating or violating rules" }
+              ]
+            });
+            if (!res) return;
+            btn.disabled = true;
+            try {
+              await api.post(`${base}/players/ban`, {
+                targetIdentifier: targetId,
+                targetName,
+                durationMinutes: Number(res["duration"] || 0),
+                reason: res["reason"] ? String(res["reason"]) : void 0
+              });
+              toast(`Banned "${targetName}"`, "good");
+              await loadData();
+              render();
+            } catch (err) {
+              toast(err.message || "Ban failed", "bad");
+            } finally {
+              btn.disabled = false;
+            }
+          }
+        });
+      });
+    }
+    function bindHistoryEvents() {
+    }
+    return {
+      open: () => {
+        void checkPermissions();
+        void loadData().then(() => render());
+        if (pollTimer) window.clearInterval(pollTimer);
+        pollTimer = window.setInterval(() => {
+          if (!document.getElementById("dtlPlayersBody")) {
+            window.clearInterval(pollTimer);
+            return;
+          }
+          void loadData().then(() => render());
+        }, 6e3);
+      },
+      refresh: async () => {
+        await loadData();
+        render();
+      }
+    };
+  }
+
   // src/frontend/client/pages/services/live-usage.ts
   var HISTORY = 40;
   var duration = (ms) => {
@@ -4211,6 +4590,7 @@ ${selectedOr("code")}
       const fastDlSupported = fastDlCtl ? await fastDlCtl.checkSupported() : false;
       const show = {
         c: caps.console && can("websocket.connect"),
+        p: caps.game && (can("player.read") || can("control.console")),
         f: caps.files && can("file.read"),
         m: caps.game && can("file.read-content"),
         l: fastDlSupported,
@@ -4254,7 +4634,7 @@ ${selectedOr("code")}
 
       <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:24px 0 20px">
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true" data-t="o">Overview</button>
-        ${[["c", "Console", "dtlPaneConsole"], ["f", "Files", "dtlPaneFiles"], ["m", "Game", "dtlPaneGame"], ["l", "FastDL", "dtlPaneFastdl"], ["d", "Databases", "dtlPaneDatabases"], ["h", "Schedules", "dtlPaneSchedules"], ["b", "Backups", "dtlPaneBackups"], ["n", "Network", "dtlPaneNetwork"], ["s", "Startup", "dtlPaneStartup"], ["g", "Settings", "dtlPaneSettings"], ["u", "Users", "dtlPaneUsers"]].filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join("")}
+        ${[["c", "Console", "dtlPaneConsole"], ["p", "Players", "dtlPanePlayers"], ["f", "Files", "dtlPaneFiles"], ["m", "Game", "dtlPaneGame"], ["l", "FastDL", "dtlPaneFastdl"], ["d", "Databases", "dtlPaneDatabases"], ["h", "Schedules", "dtlPaneSchedules"], ["b", "Backups", "dtlPaneBackups"], ["n", "Network", "dtlPaneNetwork"], ["s", "Startup", "dtlPaneStartup"], ["g", "Settings", "dtlPaneSettings"], ["u", "Users", "dtlPaneUsers"]].filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join("")}
         ${show.n ? `<button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab("a")}>Allocation</button>` : ""}
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1" data-t="e">Activity</button>
       </div>
@@ -4304,7 +4684,7 @@ ${selectedOr("code")}
         <section class="card"><div id="dtlFilesBody"></div></section>
       </div>` : ""}
 
-      ${[["m", "dtlPaneGame", "dtlGameBody"], ["l", "dtlPaneFastdl", "dtlFastdlBody"], ["d", "dtlPaneDatabases", "dtlDatabasesBody"], ["h", "dtlPaneSchedules", "dtlSchedulesBody"], ["b", "dtlPaneBackups", "dtlBackupsBody"], ["n", "dtlPaneNetwork", "dtlNetworkBody"], ["s", "dtlPaneStartup", "dtlStartupBody"], ["g", "dtlPaneSettings", "dtlSettingsBody"], ["u", "dtlPaneUsers", "dtlUsersBody"]].filter(([k]) => show[k]).map(([, p, b]) => `<div id="${p}" role="tabpanel" class="tp" hidden><section class="card" style="${p === "dtlPaneFastdl" ? "background:transparent;border:none;padding:0" : ""}"><div id="${b}"></div></section></div>`).join("")}
+      ${[["p", "dtlPanePlayers", "dtlPlayersBody"], ["m", "dtlPaneGame", "dtlGameBody"], ["l", "dtlPaneFastdl", "dtlFastdlBody"], ["d", "dtlPaneDatabases", "dtlDatabasesBody"], ["h", "dtlPaneSchedules", "dtlSchedulesBody"], ["b", "dtlPaneBackups", "dtlBackupsBody"], ["n", "dtlPaneNetwork", "dtlNetworkBody"], ["s", "dtlPaneStartup", "dtlStartupBody"], ["g", "dtlPaneSettings", "dtlSettingsBody"], ["u", "dtlPaneUsers", "dtlUsersBody"]].filter(([k]) => show[k]).map(([, p, b]) => `<div id="${p}" role="tabpanel" class="tp" hidden><section class="card" style="${p === "dtlPaneFastdl" || p === "dtlPanePlayers" ? "background:transparent;border:none;padding:0" : ""}"><div id="${b}"></div></section></div>`).join("")}
 
       <div id="dtlPaneAllocation" role="tabpanel" class="tp" hidden>
         <div class="g g3 k2">
@@ -4369,7 +4749,9 @@ ${selectedOr("code")}
           initServiceConsole(service.id, { onStatus: syncPowerButtons, onStats: liveHost ? mountLiveTiles(liveHost) : void 0 }).connect();
         }
         const gameCtl = show.m ? initGame(service.id) : null;
+        const playersCtl = show.p ? initPlayers(service.id) : null;
         const openers = {
+          p: playersCtl?.open ?? (() => void 0),
           f: initServiceFiles(service.id).open,
           m: gameCtl?.open ?? (() => void 0),
           l: fastDlCtl?.open ?? (() => void 0),
@@ -4398,7 +4780,7 @@ ${selectedOr("code")}
           base: `/app/services/${encodeURIComponent(serviceId)}`,
           initial: tab,
           fallbackKey: "o",
-          slugs: { o: "overview", c: "console", f: "files", m: "game", l: "fastdl", d: "databases", h: "schedules", b: "backups", n: "network", s: "startup", g: "settings", u: "users", a: "allocation", e: "activity" },
+          slugs: { o: "overview", c: "console", p: "players", f: "files", m: "game", l: "fastdl", d: "databases", h: "schedules", b: "backups", n: "network", s: "startup", g: "settings", u: "users", a: "allocation", e: "activity" },
           keyOf: (b) => b.dataset["t"],
           select: (key) => {
             if (advancedKeys.has(key) && serviceMode !== "advanced") applyServiceMode("advanced", false);

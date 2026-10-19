@@ -61,8 +61,28 @@ export function initServiceConsole(serviceId: string, hooks: { onStatus?: (state
   let active = false;
   let retries = 0;
   let retryTimer: number | undefined;
-  const history: string[] = [];
-  let historyPos = 0;
+  const storageKey = `fortless_cmd_history_${serviceId}`;
+  let history: string[] = [];
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) history = parsed.filter((x: unknown) => typeof x === 'string').slice(-MAX_HISTORY);
+    }
+  } catch { /* ignore localStorage issues */ }
+  let historyPos = history.length;
+
+  if (history.length === 0) {
+    void api.get<{ history: Array<{ command: string }> }>(`/api/v1/services/${encodeURIComponent(serviceId)}/console/history`)
+      .then((res) => {
+        if (res?.history && Array.isArray(res.history) && history.length === 0) {
+          history = res.history.map((h) => h.command).reverse().slice(-MAX_HISTORY);
+          historyPos = history.length;
+          try { localStorage.setItem(storageKey, JSON.stringify(history)); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => { /* non-blocking */ });
+  }
 
   const setState = (text: string) => { if (state) state.textContent = text; };
   const append = (line: string) => {
@@ -138,9 +158,12 @@ export function initServiceConsole(serviceId: string, hooks: { onStatus?: (state
       return;
     }
     if (e.key !== 'Enter' || !input.value.trim() || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ event: 'send command', args: [input.value] }));
-    if (history[history.length - 1] !== input.value) history.push(input.value);
+    const cmd = input.value;
+    ws.send(JSON.stringify({ event: 'send command', args: [cmd] }));
+    void api.post(`/api/v1/services/${encodeURIComponent(serviceId)}/console/history`, { command: cmd, delivered: true }).catch(() => { /* non-blocking */ });
+    if (history[history.length - 1] !== cmd) history.push(cmd);
     if (history.length > MAX_HISTORY) history.shift();
+    try { localStorage.setItem(storageKey, JSON.stringify(history)); } catch { /* ignore */ }
     historyPos = history.length;
     input.value = '';
   });

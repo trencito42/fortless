@@ -4,11 +4,12 @@ import type Database from 'better-sqlite3';
 export const PERMISSION_PRESETS = {
   // NEW-404: a viewer watches. control.console would let them type commands and file.read-content would expose config
   // files that hold credentials, so neither is part of this preset.
-  viewer: ['websocket.connect', 'file.read', 'backup.read', 'allocation.read', 'startup.read', 'database.read', 'schedule.read', 'activity.read'],
+  viewer: ['websocket.connect', 'file.read', 'backup.read', 'allocation.read', 'startup.read', 'database.read', 'schedule.read', 'activity.read', 'player.read'],
   operator: [
     'websocket.connect', 'control.console', 'control.start', 'control.stop', 'control.restart',
     'file.read', 'file.read-content', 'file.create', 'file.update', 'file.delete', 'file.archive',
     'backup.read', 'backup.create', 'backup.download', 'allocation.read', 'startup.read', 'database.read', 'schedule.read', 'activity.read',
+    'player.read', 'player.moderate',
   ],
   admin: [
     'websocket.connect', 'control.console', 'control.start', 'control.stop', 'control.restart',
@@ -18,6 +19,7 @@ export const PERMISSION_PRESETS = {
     'startup.read', 'startup.update', 'startup.docker-image', 'settings.rename', 'settings.reinstall',
     'database.read', 'database.create', 'database.update', 'database.delete', 'database.view_password',
     'schedule.read', 'schedule.create', 'schedule.update', 'schedule.delete', 'activity.read',
+    'player.read', 'player.moderate',
   ],
 } as const;
 export type Preset = keyof typeof PERMISSION_PRESETS;

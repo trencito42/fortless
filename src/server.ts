@@ -14,6 +14,7 @@ import {
   getGlobalSettings,
   updateGlobalSettings,
 } from './modules/fastdl/index.js';
+import { createPlayerManagerService } from './modules/player-manager/index.js';
 import { getServiceConsoleCredentials, ConsoleAccessError, withAccountClientKey } from './modules/provisioning/console.js';
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
@@ -447,7 +448,7 @@ export function buildServer(): FastifyInstance {
     return reply.redirect('/');
   });
 
-  const SERVICE_TABS = new Set(['overview', 'console', 'files', 'game', 'databases', 'schedules', 'backups', 'network', 'startup', 'settings', 'users', 'allocation', 'activity']);
+  const SERVICE_TABS = new Set(['overview', 'console', 'files', 'game', 'players', 'fastdl', 'databases', 'schedules', 'backups', 'network', 'startup', 'settings', 'users', 'allocation', 'activity']);
   const SETTINGS_TABS = new Set(['profile', 'security', 'team', 'sessions']);
   const serveServicePage = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
@@ -1842,6 +1843,7 @@ export function buildServer(): FastifyInstance {
       return await fn(req);
     } catch (err: unknown) {
       if (err instanceof ConsoleAccessError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      if ((err as any)?.name === 'RconError') return reply.status((err as any).statusCode || 502).send({ error: (err as any).message, code: (err as any).code || 'RCON_ERROR' });
       const status = (err as { statusCode?: number }).statusCode;
       if (status === 404) return reply.status(404).send({ error: 'Not found on the server.', code: 'NOT_FOUND' });
       // The panel's own refusals (limit reached, server must be offline...) are the useful message for the customer.
@@ -1954,6 +1956,41 @@ export function buildServer(): FastifyInstance {
   }));
   app.post('/api/v1/services/:id/fastdl/configure-cvar', filesGuard, filesHandler((req) => fastDlService.configureCvar(filesCtx(req))));
   app.put('/api/v1/services/:id/fastdl/settings', filesGuard, filesHandler((req) => fastDlService.updateConfig(filesCtx(req), b(req) as any)));
+
+  // Player Manager & Console Command History
+  const playerManager = createPlayerManagerService();
+  app.get('/api/v1/services/:id/players', filesGuard, filesHandler((req) => playerManager.getServerStatus(filesCtx(req))));
+  app.post('/api/v1/services/:id/players/kick', filesGuard, filesHandler(async (req) => {
+    const body = b(req);
+    const targetIdentifier = String(body['targetIdentifier'] ?? '');
+    const targetName = String(body['targetName'] ?? targetIdentifier);
+    const reason = body['reason'] ? String(body['reason']) : undefined;
+    return playerManager.kickPlayer(filesCtx(req), { targetIdentifier, targetName, reason });
+  }));
+  app.post('/api/v1/services/:id/players/ban', filesGuard, filesHandler(async (req) => {
+    const body = b(req);
+    const targetIdentifier = String(body['targetIdentifier'] ?? '');
+    const targetName = String(body['targetName'] ?? targetIdentifier);
+    const durationMinutes = body['durationMinutes'] ? Number(body['durationMinutes']) : 0;
+    const reason = body['reason'] ? String(body['reason']) : undefined;
+    return playerManager.banPlayer(filesCtx(req), { targetIdentifier, targetName, durationMinutes, reason });
+  }));
+  app.get('/api/v1/services/:id/players/history', filesGuard, filesHandler((req) => {
+    const page = Number(q(req)['page'] ?? 0);
+    const limit = Number(q(req)['limit'] ?? 25);
+    return playerManager.getModerationHistory(filesCtx(req), page, limit);
+  }));
+  app.get('/api/v1/services/:id/console/history', filesGuard, filesHandler((req) => {
+    const limit = Number(q(req)['limit'] ?? 50);
+    return { history: playerManager.getCommandHistory(filesCtx(req), limit) };
+  }));
+  app.post('/api/v1/services/:id/console/history', filesGuard, filesHandler(async (req) => {
+    const body = b(req);
+    const command = String(body['command'] ?? '');
+    const delivered = body['delivered'] !== false;
+    const deliveryStatus = body['deliveryStatus'] ? String(body['deliveryStatus']) : 'DELIVERED';
+    return playerManager.recordCommand(filesCtx(req), command, delivered, deliveryStatus);
+  }));
 
   // Staff: game profiles are data, managed here instead of in code
   const profileAudit = (req: FastifyRequest, action: string, id: string, metadata: Record<string, unknown>) =>
