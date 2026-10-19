@@ -126,6 +126,7 @@ import {
   getAdminInvoiceDetail,
   listAdminCreditNotes,
   getAdminCapacityPools,
+  listAdminJobs,
 } from './modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
 import {
@@ -535,7 +536,7 @@ export function buildServer(): FastifyInstance {
     const viewPermissions: Record<string, StaffPermission> = {
       accounts: 'accounts:read', services: 'services:read', orders: 'accounts:read', billing: 'accounts:read',
       infrastructure: 'services:read', catalog: 'catalog:read', tickets: 'tickets:read', audit: 'audit:read',
-      staff: 'staff:read', status: 'services:read', settings: 'admin:access',
+      jobs: 'audit:read', staff: 'staff:read', status: 'services:read', settings: 'admin:access',
     };
     if (!viewPermissions[view]) return reply.redirect('/admin');
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(`/admin/${view}`)}`);
@@ -2723,6 +2724,21 @@ export function buildServer(): FastifyInstance {
 
   app.get('/api/v1/admin/capacity', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async () => {
     return getAdminCapacityPools(getDatabase());
+  });
+
+  app.get('/api/v1/admin/jobs', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (req, reply) => {
+    const parsed = adminListSchema.extend({
+      type: z.enum(['PROVISIONING', 'OUTBOX', 'EMAIL', 'WEBHOOK']).optional(),
+      status: z.string().trim().max(40).optional(),
+    }).safeParse(req.query);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid jobs query.' });
+    return listAdminJobs(getDatabase(), {
+      query: parsed.data.q,
+      limit: parsed.data.limit,
+      offset: parsed.data.offset,
+      type: parsed.data.type,
+      status: parsed.data.status,
+    });
   });
 
   // Admin Services: Suspend

@@ -159,6 +159,10 @@ export const ADMIN_ROUTES: Record<string, RouteDefinition> = {
     title: 'Global Audit Trail · FORTLESS',
     subtitle: 'Security-relevant events across accounts.',
   },
+  jobs: {
+    id: 'jobs', path: '/admin/jobs', title: 'Operational Jobs · FORTLESS',
+    subtitle: 'Provisioning, outbox, email and webhook workflow state.',
+  },
   staff: {
     id: 'staff',
     path: '/admin/staff',

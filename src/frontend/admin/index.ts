@@ -26,6 +26,7 @@ import {
 } from './pages/catalog/index.js';
 import { renderTickets, openTicketDetail, renderTicketDetail, getActiveTicketId } from './pages/tickets/index.js';
 import { renderAudit } from './pages/audit/index.js';
+import { renderJobs } from './pages/jobs/index.js';
 import { renderStaff, openStaffEditor } from './pages/staff/index.js';
 import { renderOrders, renderOrderDetail, renderBilling, renderInvoiceDetail, renderInfrastructure, renderStatus } from './pages/operations/index.js';
 import { renderSettings, testProviderConnection } from './pages/settings/index.js';
@@ -50,6 +51,7 @@ function updateAdminChrome(routeName: string) {
     tickets: ['Support queue', 'Real customer threads. Click a ticket to view and reply.'],
     'admin-ticket-detail': ['Support ticket', 'Customer and service context, complete thread and staff actions.'],
     audit: ['Global audit trail', 'Security-relevant events across accounts.'],
+    jobs: ['Operational jobs', 'Provisioning, outbox, email and webhook workflow state.'],
     staff: ['Staff access', 'Persisted roles, access status and MFA readiness. Click to edit role.'],
     status: ['System status', 'Components and customer-visible incidents.'],
     settings: ['Platform settings & integrations', 'Environment configuration, payment modes, transactional mail, and hypervisor API diagnostics.'],
@@ -115,6 +117,7 @@ router.register('audit', async () => {
   updateAdminChrome('audit');
   await renderAudit();
 });
+router.register('jobs', async () => { updateAdminChrome('jobs'); await renderJobs(); });
 
 router.register('staff', async () => {
   updateAdminChrome('staff');
@@ -320,6 +323,7 @@ function bindAdminEvents() {
         if (searchTarget === 'billing') renderBilling(input.value);
         if (searchTarget === 'tickets') renderTickets(input.value);
         if (searchTarget === 'audit') renderAudit(input.value);
+        if (searchTarget === 'jobs') renderJobs(input.value);
         if (searchTarget === 'staff') renderStaff(input.value);
         if (searchTarget === 'catalog') filterCatalog(input.value);
       }, 220);

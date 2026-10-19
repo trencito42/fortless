@@ -11,6 +11,11 @@ export interface AdminListOptions {
   offset?: number;
 }
 
+export interface AdminJobListOptions extends AdminListOptions {
+  type?: string;
+  status?: string;
+}
+
 function page(options: AdminListOptions) {
   return {
     query: (options.query || '').trim().slice(0, 100),
@@ -742,4 +747,33 @@ export function getAdminCapacityPools(db: Database.Database) {
   `).all() as any[];
 
   return { regions, nodes };
+}
+
+export function listAdminJobs(db: Database.Database, options: AdminJobListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const type = String(options.type || '').trim().toUpperCase();
+  const status = String(options.status || '').trim().toUpperCase();
+  const like = search(query);
+  const union = `
+    SELECT 'PROVISIONING' AS job_type, id, status, service_id AS resource_id,
+           operation_type AS subject, attempt_count, last_error, created_at, updated_at
+    FROM provision_operations
+    UNION ALL
+    SELECT 'OUTBOX', id, status, aggregate_id, event_type, retry_count, last_error, created_at, scheduled_at
+    FROM outbox_events
+    UNION ALL
+    SELECT 'EMAIL', id, status, NULL, template || ' → ' || recipient, attempts, last_error, created_at, scheduled_at
+    FROM email_outbox
+    UNION ALL
+    SELECT 'WEBHOOK', id, status, event_id, event_type, 0, NULL, created_at, coalesce(processed_at, created_at)
+    FROM psp_inbox_events
+  `;
+  const where = `WHERE (? = '' OR job_type = ?) AND (? = '' OR status = ?)
+    AND (? = '' OR id LIKE ? ESCAPE '\\' OR coalesce(resource_id, '') LIKE ? ESCAPE '\\'
+      OR subject LIKE ? ESCAPE '\\' OR coalesce(last_error, '') LIKE ? ESCAPE '\\')`;
+  const args = [type, type, status, status, query, like, like, like, like];
+  const jobs = db.prepare(`SELECT * FROM (${union}) ${where} ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?`)
+    .all(...args, limit, offset) as any[];
+  const total = (db.prepare(`SELECT count(*) AS count FROM (${union}) ${where}`).get(...args) as { count: number }).count;
+  return { jobs, total, limit, offset };
 }

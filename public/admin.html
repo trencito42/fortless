@@ -36,6 +36,7 @@
         <a class="nv" href="/admin/catalog" data-route="catalog" id="nav-catalog"><span class="ic" data-icon="servers"></span>Catalog & providers</a>
         <a class="nv" href="/admin/tickets" data-route="tickets" id="nav-tickets"><span class="ic" data-icon="support"></span>Tickets</a>
         <a class="nv" href="/admin/audit" data-route="audit" id="nav-audit"><span class="ic" data-icon="shield"></span>Audit</a>
+        <a class="nv" href="/admin/jobs" data-route="jobs" id="nav-jobs"><span class="ic" data-icon="refresh"></span>Jobs</a>
         <a class="nv" href="/admin/staff" data-route="staff" id="nav-staff"><span class="ic" data-icon="users"></span>Staff access</a>
         <a class="nv" href="/admin/status" data-route="status" id="nav-status"><span class="ic" data-icon="refresh"></span>System status</a>
         <a class="nv" href="/admin/settings" data-route="settings" id="nav-settings"><span class="ic" data-icon="settings"></span>Platform settings</a>
@@ -218,6 +219,16 @@
           <div class="pager" id="adminAuditPager" data-c="Pagination"></div>
         </div>
         </div>
+      </section>
+
+      <section class="page" id="page-jobs">
+        <div class="hd"><div class="tx"><h2>Operational jobs</h2><p>Provisioning, worker outbox, transactional email and PSP webhook records.</p></div></div>
+        <div class="row wrap" style="margin-bottom:12px">
+          <label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search job, resource or error" data-search="jobs" aria-label="Search operational jobs"></label>
+          <label class="field" style="min-width:170px"><span class="sr-only">Job type</span><div class="inp"><select id="jobsTypeFilter"><option value="">All workflows</option><option>PROVISIONING</option><option>OUTBOX</option><option>EMAIL</option><option>WEBHOOK</option></select></div></label>
+          <label class="field" style="min-width:170px"><span class="sr-only">Job status</span><div class="inp"><select id="jobsStatusFilter"><option value="">All statuses</option><option>PENDING</option><option>PROCESSING</option><option>IN_PROGRESS</option><option>VERIFYING</option><option>FAILED</option><option>NEEDS_MANUAL_REVIEW</option><option>DEAD_LETTER</option><option>COMPLETED</option><option>SUCCEEDED</option><option>SENT</option><option>ANOMALY</option></select></div></label>
+        </div>
+        <article class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Type</th><th>Job</th><th>Resource</th><th>Status</th><th>Attempts</th><th>Last error</th><th>Updated</th></tr></thead><tbody id="jobsList"></tbody></table></div><div class="row wrap" id="adminJobsPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none"><span class="muted" id="adminJobsPageInfo"></span><div class="pager" id="adminJobsPager"></div></div></article>
       </section>
 
       <section class="page" id="page-staff">

@@ -69,6 +69,7 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(ADMIN_ROUTES.catalog!.path).toBe('/admin/catalog');
       expect(ADMIN_ROUTES.tickets!.path).toBe('/admin/tickets');
       expect(ADMIN_ROUTES.audit!.path).toBe('/admin/audit');
+      expect(ADMIN_ROUTES.jobs!.path).toBe('/admin/jobs');
       expect(ADMIN_ROUTES.staff!.path).toBe('/admin/staff');
       expect(ADMIN_ROUTES.status!.path).toBe('/admin/status');
       expect(ADMIN_ROUTES.settings!.path).toBe('/admin/settings');
@@ -302,6 +303,7 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(adminHtml).toContain('id="page-admin-ticket-detail"');
       expect(adminHtml).toContain('id="page-order-detail"');
       expect(adminHtml).toContain('id="page-invoice-detail"');
+      expect(adminHtml).toContain('id="page-jobs"');
       expect(adminHtml).not.toContain('id="modalAdminServiceDetail"');
       expect(adminHtml).not.toContain('id="modalTicketDetail"');
       expect(adminHtml).toContain('id="modalCreateProductFromEgg"');

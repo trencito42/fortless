@@ -261,6 +261,12 @@
       title: "Global Audit Trail \xB7 FORTLESS",
       subtitle: "Security-relevant events across accounts."
     },
+    jobs: {
+      id: "jobs",
+      path: "/admin/jobs",
+      title: "Operational Jobs \xB7 FORTLESS",
+      subtitle: "Provisioning, outbox, email and webhook workflow state."
+    },
     staff: {
       id: "staff",
       path: "/admin/staff",
@@ -601,6 +607,7 @@
           { category: "Navigate", title: "Managed Instances", icon: "server", kbd: "G S", action: () => spaNavigate("/admin/services") },
           { category: "Navigate", title: "Support Helpdesk", icon: "message-01", kbd: "G T", action: () => spaNavigate("/admin/tickets") },
           { category: "Navigate", title: "Security Audit Trail", icon: "history", action: () => spaNavigate("/admin/audit") },
+          { category: "Navigate", title: "Operational Jobs", icon: "refresh", action: () => spaNavigate("/admin/jobs") },
           { category: "Navigate", title: "Staff Directory", icon: "user-group", action: () => spaNavigate("/admin/staff") },
           { category: "Switch", title: "Back to Client App", icon: "arrow-right-01", action: () => spaNavigate("/app") }
         ];
@@ -801,19 +808,19 @@
   };
 
   // src/frontend/petal/components/pagination.ts
-  function paginateItems(items, page, pageSize) {
-    const total = items.length;
-    const pages = Math.max(1, Math.ceil(total / pageSize));
-    const currentPage = Math.max(1, Math.min(page, pages));
-    const start = (currentPage - 1) * pageSize;
-    const sliced = items.slice(start, start + pageSize);
-    const info = total === 0 ? "0 items" : `Showing ${start + 1}\u2013${start + sliced.length} of ${total}`;
+  function paginateItems(items, page, pageSize2) {
+    const total2 = items.length;
+    const pages = Math.max(1, Math.ceil(total2 / pageSize2));
+    const currentPage2 = Math.max(1, Math.min(page, pages));
+    const start = (currentPage2 - 1) * pageSize2;
+    const sliced = items.slice(start, start + pageSize2);
+    const info = total2 === 0 ? "0 items" : `Showing ${start + 1}\u2013${start + sliced.length} of ${total2}`;
     return {
       items: sliced,
-      total,
-      page: currentPage,
+      total: total2,
+      page: currentPage2,
       pages,
-      pageSize,
+      pageSize: pageSize2,
       info
     };
   }
@@ -895,6 +902,7 @@
           catalog: "catalog:read",
           tickets: "tickets:read",
           audit: "audit:read",
+          jobs: "audit:read",
           staff: "staff:read",
           status: "services:read"
         };
@@ -2260,6 +2268,65 @@
     }
   }
 
+  // src/frontend/admin/pages/jobs/index.ts
+  var currentQuery = "";
+  var currentPage = 1;
+  var total = 0;
+  var pageSize = 20;
+  var listenersBound = false;
+  function filters() {
+    return {
+      type: document.getElementById("jobsTypeFilter")?.value || "",
+      status: document.getElementById("jobsStatusFilter")?.value || ""
+    };
+  }
+  function bindListeners() {
+    if (listenersBound) return;
+    listenersBound = true;
+    document.getElementById("adminJobsPager")?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-pg]");
+      if (button && !button.disabled) renderJobs(currentQuery, Number(button.dataset.pg) || 1);
+    });
+    for (const id of ["jobsTypeFilter", "jobsStatusFilter"]) {
+      document.getElementById(id)?.addEventListener("change", () => renderJobs(currentQuery, 1));
+    }
+  }
+  async function renderJobs(query = "", page = 1) {
+    const host = document.getElementById("jobsList");
+    if (!host) return;
+    currentQuery = query;
+    currentPage = Math.max(1, page);
+    const { type, status } = filters();
+    const params = new URLSearchParams({ q: query, limit: String(pageSize), offset: String((currentPage - 1) * pageSize) });
+    if (type) params.set("type", type);
+    if (status) params.set("status", status);
+    host.innerHTML = '<tr><td colspan="7"><div class="sk"><i></i><i></i></div></td></tr>';
+    try {
+      const data = await api(`/api/v1/admin/jobs?${params}`);
+      total = Number(data.total || 0);
+      host.innerHTML = data.jobs.length ? data.jobs.map((job) => `<tr>
+      <td data-l="Type">${badge(job.job_type)}</td>
+      <td data-l="Job"><b class="mono">${esc(job.id)}</b><small>${esc(job.subject)}</small></td>
+      <td data-l="Resource">${job.job_type === "PROVISIONING" && job.resource_id ? `<a class="btn xs" href="/admin/services/${encodeURIComponent(job.resource_id)}" data-route="admin-service-detail">${esc(job.resource_id)}</a>` : `<span class="mono">${esc(job.resource_id || "\u2014")}</span>`}</td>
+      <td data-l="Status">${badge(job.status)}</td>
+      <td data-l="Attempts">${Number(job.attempt_count || 0)}</td>
+      <td data-l="Last error"><span class="muted">${esc(job.last_error || "\u2014")}</span></td>
+      <td data-l="Updated">${formatDate(job.updated_at)}</td>
+    </tr>`).join("") : '<tr><td colspan="7"><div class="es"><h4>No matching workflow records</h4><p>Nothing persisted for the selected filters.</p></div></td></tr>';
+      const pages = Math.max(1, Math.ceil(total / pageSize));
+      const start = (currentPage - 1) * pageSize;
+      const info = document.getElementById("adminJobsPageInfo");
+      const pager = document.getElementById("adminJobsPager");
+      const row2 = document.getElementById("adminJobsPaginationRow");
+      if (info) info.textContent = total ? `Showing ${start + 1}\u2013${start + data.jobs.length} of ${total}` : "0 jobs";
+      if (pager) pager.innerHTML = renderPager(currentPage, pages);
+      if (row2) row2.style.display = total > pageSize ? "flex" : "none";
+      bindListeners();
+    } catch (error) {
+      host.innerHTML = `<tr><td colspan="7"><div class="alert bad"><div><b>Jobs unavailable</b><span>${esc(error.message)}</span></div></div></td></tr>`;
+    }
+  }
+
   // src/frontend/admin/pages/staff/index.ts
   async function renderStaff(q = "") {
     const host = document.querySelector("#staffList");
@@ -2685,6 +2752,7 @@
       tickets: ["Support queue", "Real customer threads. Click a ticket to view and reply."],
       "admin-ticket-detail": ["Support ticket", "Customer and service context, complete thread and staff actions."],
       audit: ["Global audit trail", "Security-relevant events across accounts."],
+      jobs: ["Operational jobs", "Provisioning, outbox, email and webhook workflow state."],
       staff: ["Staff access", "Persisted roles, access status and MFA readiness. Click to edit role."],
       status: ["System status", "Components and customer-visible incidents."],
       settings: ["Platform settings & integrations", "Environment configuration, payment modes, transactional mail, and hypervisor API diagnostics."]
@@ -2753,6 +2821,10 @@
   router.register("audit", async () => {
     updateAdminChrome("audit");
     await renderAudit();
+  });
+  router.register("jobs", async () => {
+    updateAdminChrome("jobs");
+    await renderJobs();
   });
   router.register("staff", async () => {
     updateAdminChrome("staff");
@@ -2958,6 +3030,7 @@
           if (searchTarget === "billing") renderBilling(input.value);
           if (searchTarget === "tickets") renderTickets(input.value);
           if (searchTarget === "audit") renderAudit(input.value);
+          if (searchTarget === "jobs") renderJobs(input.value);
           if (searchTarget === "staff") renderStaff(input.value);
           if (searchTarget === "catalog") filterCatalog(input.value);
         }, 220);

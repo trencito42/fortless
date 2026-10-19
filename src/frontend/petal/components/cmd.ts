@@ -66,6 +66,7 @@ export class CommandPaletteController {
         { category: 'Navigate', title: 'Managed Instances', icon: 'server', kbd: 'G S', action: () => spaNavigate('/admin/services') },
         { category: 'Navigate', title: 'Support Helpdesk', icon: 'message-01', kbd: 'G T', action: () => spaNavigate('/admin/tickets') },
         { category: 'Navigate', title: 'Security Audit Trail', icon: 'history', action: () => spaNavigate('/admin/audit') },
+         { category: 'Navigate', title: 'Operational Jobs', icon: 'refresh', action: () => spaNavigate('/admin/jobs') },
         { category: 'Navigate', title: 'Staff Directory', icon: 'user-group', action: () => spaNavigate('/admin/staff') },
         { category: 'Switch', title: 'Back to Client App', icon: 'arrow-right-01', action: () => spaNavigate('/app') },
       ];

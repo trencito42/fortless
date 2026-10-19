@@ -134,6 +134,7 @@ import {
   listAdminInvoices,
   getAdminInvoiceDetail,
   listAdminCreditNotes,
+  listAdminJobs,
 } from '../src/modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission } from '../src/modules/admin/access.js';
 import { listTickets, createTicket, getTicketThread, addCustomerReply, addTicketAttachment, listTicketAttachments, getTicketAttachment, sanitizeFilename } from '../src/modules/support/tickets.js';
@@ -1683,6 +1684,10 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(listAdminCreditNotes(db)).toMatchObject({ creditNotes: [], total: 0, summary: [] });
       expect(getAdminOrderDetail('ord_missing', db)).toBeNull();
       expect(getAdminInvoiceDetail('inv_missing', db)).toBeNull();
+      expect(listAdminJobs(db)).toMatchObject({
+        total: 1,
+        jobs: [{ job_type: 'EMAIL', status: 'PENDING', subject: 'email_verification → operations@example.com' }],
+      });
       expect(listAdminAudit(db, { query: 'user.registration_pending' }).logs).toHaveLength(1);
     });
 

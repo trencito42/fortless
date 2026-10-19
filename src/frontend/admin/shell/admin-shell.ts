@@ -80,6 +80,7 @@ export class AdminShell {
         catalog: 'catalog:read',
         tickets: 'tickets:read',
         audit: 'audit:read',
+        jobs: 'audit:read',
         staff: 'staff:read',
         status: 'services:read',
       };
