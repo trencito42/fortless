@@ -476,6 +476,38 @@ export function updateAccountStatus(
     trx.prepare("UPDATE accounts SET status = ?, updated_at = datetime('now', 'utc') WHERE id = ?")
       .run(data.status, data.accountId);
 
+    // NEW-409: a lock or fraud flag has to contain the account, not only end its Fortless login.
+    const affected = { suspended: 0, restored: 0 };
+    if (data.status !== 'ACTIVE') {
+      const live = trx.prepare("SELECT id, external_id, provider_type FROM services WHERE account_id = ? AND contract_status = 'ACTIVE'")
+        .all(data.accountId) as Array<{ id: string; external_id: string | null; provider_type: string }>;
+      for (const svc of live) {
+        trx.prepare("UPDATE services SET contract_status = 'SUSPENDED', suspension_reason = 'ACCOUNT_LOCK', updated_at = datetime('now', 'utc') WHERE id = ?").run(svc.id);
+        trx.prepare(`
+          INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+          VALUES (?, 'service.suspend.v1', 'service', ?, ?, 'PENDING')
+        `).run(generateId('obx'), svc.id, JSON.stringify({ serviceId: svc.id, providerType: svc.provider_type, externalId: svc.external_id, reason: `ACCOUNT_${data.status}` }));
+        affected.suspended++;
+      }
+      // Shared access and stored panel keys are cut; invitations that are still open can no longer be accepted.
+      const hasTable = (name: string) => Boolean(trx.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+      if (hasTable('service_members')) trx.prepare('DELETE FROM service_members WHERE service_id IN (SELECT id FROM services WHERE account_id = ?)').run(data.accountId);
+      if (hasTable('service_invitations')) trx.prepare("UPDATE service_invitations SET revoked_at = datetime('now', 'utc') WHERE accepted_at IS NULL AND revoked_at IS NULL AND service_id IN (SELECT id FROM services WHERE account_id = ?)").run(data.accountId);
+      if (hasTable('panel_client_keys')) trx.prepare('DELETE FROM panel_client_keys WHERE account_id = ?').run(data.accountId);
+      trx.prepare("UPDATE account_invitations SET expires_at = '1970-01-01T00:00:00.000Z' WHERE account_id = ? AND accepted_at IS NULL").run(data.accountId);
+    } else {
+      const held = trx.prepare("SELECT id, external_id, provider_type FROM services WHERE account_id = ? AND contract_status = 'SUSPENDED' AND suspension_reason = 'ACCOUNT_LOCK'")
+        .all(data.accountId) as Array<{ id: string; external_id: string | null; provider_type: string }>;
+      for (const svc of held) {
+        trx.prepare("UPDATE services SET contract_status = 'ACTIVE', suspension_reason = NULL, updated_at = datetime('now', 'utc') WHERE id = ?").run(svc.id);
+        trx.prepare(`
+          INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+          VALUES (?, 'service.unsuspend.v1', 'service', ?, ?, 'PENDING')
+        `).run(generateId('obx'), svc.id, JSON.stringify({ serviceId: svc.id, providerType: svc.provider_type, externalId: svc.external_id, reason: 'ACCOUNT_UNLOCKED', actorType: 'STAFF' }));
+        affected.restored++;
+      }
+    }
+
     trx.prepare(`
       INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
       VALUES (?, ?, ?, 'STAFF', 'account.status_changed', 'account', ?, ?, ?, ?)
@@ -486,7 +518,7 @@ export function updateAccountStatus(
       data.accountId,
       data.ipAddress,
       generateId('cor'),
-      JSON.stringify({ from: account.status, to: data.status, reason: data.reason })
+      JSON.stringify({ from: account.status, to: data.status, reason: data.reason, ...affected })
     );
   }, db);
 }

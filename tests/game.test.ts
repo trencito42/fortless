@@ -156,13 +156,13 @@ describe('Game tools', () => {
     await expect(tools.acceptEula(ctx(1))).rejects.toMatchObject({ code: 'EULA_NOT_REQUIRED' });
   });
 
-  it('GAM-06: a shared viewer can read settings but not save them', async () => {
+  it('GAM-06: a shared viewer can neither read the config file (it may hold credentials) nor save settings (NEW-404)', async () => {
     seed(1); seed(2);
     db.prepare("INSERT INTO service_members (id, service_id, user_id, preset) VALUES ('m1', 'svc_1', 'usr_2', 'viewer')").run();
     const ad = new FakeAdapter();
     const tools = createGameTools({ adapter: ad, db, secret: SECRET });
     const viewer = { serviceId: 'svc_1', accountId: 'acc_2', userId: 'usr_2', role: 'OWNER' };
-    expect((await tools.info(viewer) as any).profile.slug).toBe('minecraft-java');
+    await expect(tools.info(viewer)).rejects.toMatchObject({ statusCode: 403 });
     await expect(tools.saveConfig(viewer, { values: { pvp: false } })).rejects.toMatchObject({ statusCode: 403 });
     await expect(tools.installMod(viewer, { source: 0, projectId: 'hXiIvTyT' })).rejects.toMatchObject({ statusCode: 403 });
   });

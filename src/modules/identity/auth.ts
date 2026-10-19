@@ -246,7 +246,7 @@ export function registerUser(
 }
 
 export function verifyEmail(
-  token: string, context: { ipAddress: string; userAgent: string; deviceId?: string }, db: Database.Database = getDatabase()
+  token: string, context: { ipAddress: string; userAgent: string; deviceId?: string; issueSession?: boolean }, db: Database.Database = getDatabase()
 ): SessionResult {
   return runInTransaction((trx) => {
     const row = trx.prepare(`SELECT evt.user_id, u.* FROM email_verification_tokens evt JOIN users u ON u.id = evt.user_id
@@ -257,7 +257,9 @@ export function verifyEmail(
     trx.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc'), updated_at = datetime('now', 'utc') WHERE id = ?").run(row.user_id);
     trx.prepare("UPDATE email_verification_tokens SET consumed_at = datetime('now', 'utc') WHERE user_id = ? AND consumed_at IS NULL").run(row.user_id);
     const account = getPrimaryAccount(row.user_id, trx);
-    const sessionToken = createSessionForUser(row.user_id, context.ipAddress, context.userAgent, true, trx, context.deviceId);
+    // NEW-363: following the link proves the mailbox, not who registered. Browsers call this with issueSession:false so the
+    // person who clicks the link is never signed in to an account whose password someone else chose.
+    const sessionToken = context.issueSession === false ? '' : createSessionForUser(row.user_id, context.ipAddress, context.userAgent, true, trx, context.deviceId);
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.email_verified', 'user', ?, ?, ?)`)
       .run(generateId('aud'), account.id, row.user_id, row.user_id, context.ipAddress, generateId('cor'));
@@ -446,19 +448,27 @@ export function changePassword(
 }
 
 export function authenticateSession(token: string, db: Database.Database = getDatabase(), clientIp?: string): AuthContext | null {
-  const session = db.prepare(`SELECT s.id, s.ip_address, s.expires_at, s.mfa_verified_at, s.step_up_verified_at, u.id AS user_id, u.email, u.email_verified_at,
+  const session = db.prepare(`SELECT s.id, s.ip_address, s.expires_at, s.mfa_verified_at, s.step_up_verified_at, s.account_id AS pinned_account_id, u.id AS user_id, u.email, u.email_verified_at,
     u.name AS user_name, u.status AS user_status, u.is_staff, u.created_at, u.updated_at FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ? AND s.expires_at > datetime('now', 'utc')`).get(tokenDigest(token)) as ({
-      id: string; ip_address: string; expires_at: string; mfa_verified_at: string | null; step_up_verified_at: string | null; user_id: string; email: string; email_verified_at: string | null;
+      id: string; ip_address: string; expires_at: string; mfa_verified_at: string | null; step_up_verified_at: string | null; pinned_account_id: string | null; user_id: string; email: string; email_verified_at: string | null;
       user_name: string; user_status: User['status']; is_staff: number; created_at: string; updated_at: string;
     }) | undefined;
   if (!session || session.user_status !== 'ACTIVE' || !session.email_verified_at) return null;
   if (confirmedMfa(session.user_id, db) && !session.mfa_verified_at) return null;
-  const accountAndRole = db.prepare(`SELECT a.*, m.id AS membership_id, m.role, m.created_at AS membership_created_at
-    FROM memberships m JOIN accounts a ON a.id = m.account_id WHERE m.user_id = ? AND a.status = 'ACTIVE'
-    ORDER BY a.created_at ASC LIMIT 1`).get(session.user_id) as (Account & {
-      membership_id: string; role: Membership['role']; membership_created_at: string;
-    }) | undefined;
+  // NEW-368: the workspace belongs to the session. It is the one chosen at sign-in or through switchWorkspace(); joining
+  // another workspace never changes it. A session without a pin (or whose workspace is no longer usable) is pinned to
+  // the user's oldest active workspace, which keeps the earlier behaviour for existing sessions.
+  const membershipSql = `SELECT a.*, m.id AS membership_id, m.role, m.created_at AS membership_created_at
+    FROM memberships m JOIN accounts a ON a.id = m.account_id WHERE m.user_id = ? AND a.status = 'ACTIVE'`;
+  type AccountAndRole = Account & { membership_id: string; role: Membership['role']; membership_created_at: string };
+  let accountAndRole = session.pinned_account_id
+    ? db.prepare(`${membershipSql} AND a.id = ? LIMIT 1`).get(session.user_id, session.pinned_account_id) as AccountAndRole | undefined
+    : undefined;
+  if (!accountAndRole) {
+    accountAndRole = db.prepare(`${membershipSql} ORDER BY a.created_at ASC LIMIT 1`).get(session.user_id) as AccountAndRole | undefined;
+    if (accountAndRole) db.prepare('UPDATE sessions SET account_id = ? WHERE id = ?').run(accountAndRole.id, session.id);
+  }
   if (!accountAndRole) return null;
   if (clientIp && clientIp !== session.ip_address) {
     db.prepare("UPDATE sessions SET last_active_at = datetime('now', 'utc'), ip_address = ? WHERE id = ?").run(clientIp, session.id);
@@ -474,6 +484,31 @@ export function authenticateSession(token: string, db: Database.Database = getDa
       role: accountAndRole.role, created_at: accountAndRole.membership_created_at },
     session: { id: session.id, mfaVerifiedAt: session.mfa_verified_at, stepUpVerifiedAt: session.step_up_verified_at, expiresAt: session.expires_at },
   };
+}
+
+export interface WorkspaceChoice { accountId: string; name: string; role: string; current: boolean }
+
+export function listUserWorkspaces(userId: string, currentAccountId: string, db: Database.Database = getDatabase()): WorkspaceChoice[] {
+  const rows = db.prepare(`SELECT a.id, a.name, m.role FROM memberships m JOIN accounts a ON a.id = m.account_id
+    WHERE m.user_id = ? AND a.status = 'ACTIVE' ORDER BY a.created_at ASC`).all(userId) as Array<{ id: string; name: string; role: string }>;
+  return rows.map((r) => ({ accountId: r.id, name: r.name, role: r.role, current: r.id === currentAccountId }));
+}
+
+/** NEW-368: an explicit, audited switch of the session's workspace. Only workspaces the user belongs to can be chosen. */
+export function switchWorkspace(
+  data: { userId: string; sessionId: string; accountId: string; ipAddress: string },
+  db: Database.Database = getDatabase()
+): boolean {
+  return runInTransaction((trx) => {
+    const member = trx.prepare("SELECT 1 FROM memberships m JOIN accounts a ON a.id = m.account_id WHERE m.user_id = ? AND m.account_id = ? AND a.status = 'ACTIVE'").get(data.userId, data.accountId);
+    if (!member) return false;
+    const updated = trx.prepare('UPDATE sessions SET account_id = ?, step_up_verified_at = NULL WHERE id = ? AND user_id = ?').run(data.accountId, data.sessionId, data.userId);
+    if (!updated.changes) return false;
+    trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+      VALUES (?, ?, ?, 'USER', 'session.workspace_switched', 'session', ?, ?, ?)`)
+      .run(generateId('aud'), data.accountId, data.userId, data.sessionId, data.ipAddress, generateId('cor'));
+    return true;
+  }, db);
 }
 
 export function completeStepUp(

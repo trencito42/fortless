@@ -1,4 +1,6 @@
 import net from 'node:net';
+import crypto from 'node:crypto';
+import dnsPromises from 'node:dns/promises';
 import type Database from 'better-sqlite3';
 import { generateId } from '../identity/auth.js';
 
@@ -44,9 +46,28 @@ export interface DomainZoneRecord {
   nameservers: string;
   whois_privacy: number;
   delegation_verified?: number;
+  ownership_token?: string | null;
+  ownership_verified_at?: string | null;
   created_at: string;
   expires_at: string;
 }
+
+export const OWNERSHIP_LABEL = '_fortless-challenge';
+export const MAX_ZONES_PER_ACCOUNT = 25;
+export const MAX_RECORDS_PER_ZONE = 200;
+export const FORTLESS_NAMESERVERS = ['ns1.fortless.net', 'ns2.fortless.net'];
+
+/** The public DNS lookups used to prove control of a domain. Injected in tests; the system resolver in production. */
+export interface DnsLookup {
+  resolveTxt(name: string): Promise<string[][]>;
+  resolveNs(name: string): Promise<string[]>;
+}
+const systemLookup: DnsLookup = {
+  resolveTxt: (name) => dnsPromises.resolveTxt(name),
+  resolveNs: (name) => dnsPromises.resolveNs(name),
+};
+
+export const ownershipChallenge = (domain: string, token: string) => ({ recordName: `${OWNERSHIP_LABEL}.${domain}`, recordType: 'TXT' as const, recordValue: `fortless-verify=${token}` });
 
 export interface DnsRecordEntry {
   id: string;
@@ -218,6 +239,14 @@ export function validateDnsRecordLabel(label: string): boolean {
 export function validateDnsRecordPayload(input: DnsRecordInput): { valid: boolean; error?: string } {
   const { recordType, name, content, ttl = 3600, priority, weight, port } = input;
 
+  // NEW-384: numeric fields must be whole numbers wherever they are present.
+  for (const [label, value] of [['priority', priority], ['weight', weight], ['port', port]] as const) {
+    if (value !== undefined && value !== null && !Number.isInteger(value)) {
+      return { valid: false, error: `${label} must be a whole number` };
+    }
+  }
+  if (!Number.isInteger(ttl)) return { valid: false, error: 'TTL must be an integer between 60 and 86400 seconds' };
+
   if (!name || typeof name !== 'string') {
     return { valid: false, error: 'Record name is required' };
   }
@@ -316,7 +345,6 @@ export function createDomainZone(
     periodYears?: number;
     actorUserId?: string;
     ipAddress?: string;
-    verifiedDelegation?: boolean;
   }
 ): DomainZoneRecord {
   const norm = normalizeDomainName(input.domainName);
@@ -332,34 +360,45 @@ export function createDomainZone(
     throw new Error(`Domain "${norm}" is a reserved system domain and cannot be registered as a custom zone.`);
   }
 
-  const existing = db.prepare('SELECT id FROM domain_zones WHERE domain_name = ?').get(norm);
+  // NEW-370: a name is never handed to a second workspace once it is proven, and an unproven claim can only be taken
+  // over by someone who proves control through a DNS challenge (see startDomainClaim / completeDomainClaim).
+  const existing = db.prepare('SELECT id, account_id, ownership_verified_at FROM domain_zones WHERE domain_name = ?').get(norm) as
+    { id: string; account_id: string; ownership_verified_at: string | null } | undefined;
   if (existing) {
-    throw new Error(`Domain "${norm}" is already registered or active in Fortless DNS.`);
+    if (existing.account_id === input.accountId) throw new Error(`Domain "${norm}" is already in your workspace.`);
+    if (existing.ownership_verified_at) throw new Error(`DOMAIN_VERIFIED_ELSEWHERE: "${norm}" already belongs to another verified workspace.`);
+    throw new Error(`DOMAIN_CLAIMED_UNVERIFIED: "${norm}" was added by another workspace that has not proven control. Start a claim and publish the verification TXT record to take it over.`);
+  }
+  const zoneCount = (db.prepare('SELECT COUNT(*) AS c FROM domain_zones WHERE account_id = ?').get(input.accountId) as { c: number }).c;
+  if (zoneCount >= MAX_ZONES_PER_ACCOUNT) {
+    throw new Error(`LIMIT_REACHED: a workspace can hold at most ${MAX_ZONES_PER_ACCOUNT} DNS zones.`);
   }
 
   const zoneId = generateId('zone');
   const period = input.periodYears || 1;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + period * 365.25 * 24 * 60 * 60 * 1000).toISOString();
-  const isDelegated = Boolean(input.verifiedDelegation);
+  const ownershipToken = crypto.randomBytes(16).toString('hex');
 
   const zone: DomainZoneRecord = {
     id: zoneId,
     account_id: input.accountId,
     domain_name: norm,
-    status: isDelegated ? 'ACTIVE' : 'PENDING_DELEGATION',
+    status: 'PENDING_DELEGATION',
     auto_renew: input.autoRenew !== false ? 1 : 0,
-    nameservers: JSON.stringify(['ns1.fortless.net', 'ns2.fortless.net']),
+    nameservers: JSON.stringify(FORTLESS_NAMESERVERS),
     whois_privacy: input.whoisPrivacy !== false ? 1 : 0,
-    delegation_verified: isDelegated ? 1 : 0,
+    delegation_verified: 0,
+    ownership_token: ownershipToken,
+    ownership_verified_at: null,
     created_at: now.toISOString(),
     expires_at: expiresAt,
   };
 
   db.transaction(() => {
     db.prepare(`
-      INSERT INTO domain_zones (id, account_id, domain_name, status, auto_renew, nameservers, whois_privacy, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO domain_zones (id, account_id, domain_name, status, auto_renew, nameservers, whois_privacy, created_at, expires_at, ownership_token)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       zone.id,
       zone.account_id,
@@ -369,7 +408,8 @@ export function createDomainZone(
       zone.nameservers,
       zone.whois_privacy,
       zone.created_at,
-      zone.expires_at
+      zone.expires_at,
+      ownershipToken
     );
 
     // Seed default NS records
@@ -404,22 +444,126 @@ export function createDomainZone(
   return zone;
 }
 
-/**
- * Validates domain nameserver delegation against authoritative DNS before advertising active status.
- */
-export function verifyDomainDelegation(
+function loadZone(db: Database.Database, accountId: string, zoneId: string): DomainZoneRecord {
+  const zone = db.prepare('SELECT * FROM domain_zones WHERE id = ? AND account_id = ?').get(zoneId, accountId) as DomainZoneRecord | undefined;
+  if (!zone) throw new Error('NOT_FOUND: Domain zone does not exist or access is forbidden');
+  return zone;
+}
+
+const flattenTxt = (rows: string[][]) => rows.map((chunks) => chunks.join(''));
+
+async function txtProves(lookup: DnsLookup, domain: string, token: string): Promise<boolean> {
+  const { recordName, recordValue } = ownershipChallenge(domain, token);
+  try {
+    return flattenTxt(await lookup.resolveTxt(recordName)).some((value) => value.trim() === recordValue);
+  } catch {
+    return false; // NXDOMAIN, timeout or SERVFAIL: no proof
+  }
+}
+
+/** NEW-370: proves control of the domain by looking for the challenge TXT record in public DNS. */
+export async function verifyDomainOwnership(
   db: Database.Database,
   accountId: string,
   zoneId: string,
-  mockVerified = true
-): { verified: boolean; status: string } {
-  const zone = db.prepare('SELECT * FROM domain_zones WHERE id = ? AND account_id = ?').get(zoneId, accountId) as DomainZoneRecord | undefined;
-  if (!zone) throw new Error('Domain zone not found.');
-  if (mockVerified) {
-    db.prepare("UPDATE domain_zones SET status = 'ACTIVE', delegation_verified = 1 WHERE id = ?").run(zoneId);
-    return { verified: true, status: 'ACTIVE' };
+  lookup: DnsLookup = systemLookup,
+  actor: { userId?: string; ipAddress?: string } = {}
+): Promise<{ verified: boolean; challenge: ReturnType<typeof ownershipChallenge> }> {
+  const zone = loadZone(db, accountId, zoneId);
+  const token = zone.ownership_token;
+  if (!token) throw new Error('This zone has no ownership challenge. Delete and re-add it.');
+  const challenge = ownershipChallenge(zone.domain_name, token);
+  if (zone.ownership_verified_at) return { verified: true, challenge };
+  if (!(await txtProves(lookup, zone.domain_name, token))) return { verified: false, challenge };
+  db.transaction(() => {
+    db.prepare("UPDATE domain_zones SET ownership_verified_at = datetime('now', 'utc') WHERE id = ? AND ownership_verified_at IS NULL").run(zone.id);
+    db.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, ?, 'DOMAIN_OWNERSHIP_VERIFIED', 'domain_zone', ?, ?, ?, ?)
+    `).run(generateId('aud'), accountId, actor.userId || null, actor.userId ? 'USER' : 'SYSTEM', zone.id, actor.ipAddress || '127.0.0.1', zone.id, JSON.stringify({ domain: zone.domain_name }));
+  })();
+  return { verified: true, challenge };
+}
+
+/**
+ * Validates domain nameserver delegation against public DNS before the zone is reported ACTIVE. It needs proven
+ * ownership first and every returned name server must be a Fortless one (NEW-370, FTL-DNS-202).
+ */
+export async function verifyDomainDelegation(
+  db: Database.Database,
+  accountId: string,
+  zoneId: string,
+  lookup: DnsLookup = systemLookup
+): Promise<{ verified: boolean; status: string }> {
+  const zone = loadZone(db, accountId, zoneId);
+  if (!zone.ownership_verified_at) return { verified: false, status: zone.status };
+  let ns: string[];
+  try {
+    ns = (await lookup.resolveNs(zone.domain_name)).map((n) => n.toLowerCase().replace(/\.$/, ''));
+  } catch {
+    return { verified: false, status: zone.status };
   }
-  return { verified: false, status: zone.status };
+  const delegated = ns.length > 0 && ns.every((n) => FORTLESS_NAMESERVERS.includes(n));
+  if (!delegated) return { verified: false, status: zone.status };
+  db.prepare("UPDATE domain_zones SET status = 'ACTIVE', delegation_verified = 1 WHERE id = ? AND status != 'SUSPENDED'").run(zone.id);
+  return { verified: true, status: 'ACTIVE' };
+}
+
+/** Starts a claim on a domain that another workspace added without proving control. */
+export function startDomainClaim(
+  db: Database.Database,
+  input: { accountId: string; domainName: string }
+): ReturnType<typeof ownershipChallenge> & { domain: string } {
+  const domain = normalizeDomainName(input.domainName);
+  if (!isValidDomainName(domain)) throw new Error(`Invalid domain name "${input.domainName}".`);
+  const holder = db.prepare('SELECT account_id, ownership_verified_at FROM domain_zones WHERE domain_name = ?').get(domain) as { account_id: string; ownership_verified_at: string | null } | undefined;
+  if (holder?.account_id === input.accountId) throw new Error('This domain is already in your workspace; verify it from the zone.');
+  if (holder?.ownership_verified_at) throw new Error(`DOMAIN_VERIFIED_ELSEWHERE: "${domain}" already belongs to another verified workspace.`);
+  const token = crypto.randomBytes(16).toString('hex');
+  db.prepare(`
+    INSERT INTO domain_claims (id, account_id, domain_name, token) VALUES (?, ?, ?, ?)
+    ON CONFLICT(account_id, domain_name) DO NOTHING
+  `).run(generateId('clm'), input.accountId, domain, token);
+  const row = db.prepare('SELECT token FROM domain_claims WHERE account_id = ? AND domain_name = ?').get(input.accountId, domain) as { token: string };
+  return { domain, ...ownershipChallenge(domain, row.token) };
+}
+
+/** Completes a claim: only a visible DNS proof removes an unproven holder and creates the zone for the claimant. */
+export async function completeDomainClaim(
+  db: Database.Database,
+  input: { accountId: string; domainName: string; actorUserId?: string; ipAddress?: string },
+  lookup: DnsLookup = systemLookup
+): Promise<{ verified: boolean; zone?: DomainZoneRecord }> {
+  const domain = normalizeDomainName(input.domainName);
+  const claim = db.prepare('SELECT token FROM domain_claims WHERE account_id = ? AND domain_name = ?').get(input.accountId, domain) as { token: string } | undefined;
+  if (!claim) throw new Error('NOT_FOUND: start a claim for this domain first.');
+  if (!(await txtProves(lookup, domain, claim.token))) return { verified: false };
+  const zoneId = generateId('zone');
+  db.transaction(() => {
+    const holder = db.prepare('SELECT id, account_id, ownership_verified_at FROM domain_zones WHERE domain_name = ?').get(domain) as { id: string; account_id: string; ownership_verified_at: string | null } | undefined;
+    if (holder?.ownership_verified_at) throw new Error(`DOMAIN_VERIFIED_ELSEWHERE: "${domain}" already belongs to another verified workspace.`);
+    if (holder) {
+      db.prepare('DELETE FROM domain_zones WHERE id = ?').run(holder.id);
+      db.prepare(`
+        INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+        VALUES (?, ?, NULL, 'SYSTEM', 'DOMAIN_ZONE_CLAIMED_AWAY', 'domain_zone', ?, '127.0.0.1', ?, ?)
+      `).run(generateId('aud'), holder.account_id, holder.id, holder.id, JSON.stringify({ domain, claimedBy: input.accountId }));
+    }
+    const now = new Date();
+    db.prepare(`
+      INSERT INTO domain_zones (id, account_id, domain_name, status, nameservers, created_at, expires_at, ownership_token, ownership_verified_at)
+      VALUES (?, ?, ?, 'PENDING_DELEGATION', ?, ?, ?, ?, datetime('now', 'utc'))
+    `).run(zoneId, input.accountId, domain, JSON.stringify(FORTLESS_NAMESERVERS), now.toISOString(), new Date(now.getTime() + 365.25 * 24 * 3600 * 1000).toISOString(), claim.token);
+    for (const host of FORTLESS_NAMESERVERS) {
+      db.prepare("INSERT INTO dns_records (id, zone_id, account_id, record_type, name, content, ttl) VALUES (?, ?, ?, 'NS', '@', ?, 86400)").run(generateId('dns'), zoneId, input.accountId, host);
+    }
+    db.prepare('DELETE FROM domain_claims WHERE account_id = ? AND domain_name = ?').run(input.accountId, domain);
+    db.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, ?, 'DOMAIN_ZONE_CREATED', 'domain_zone', ?, ?, ?, ?)
+    `).run(generateId('aud'), input.accountId, input.actorUserId || null, input.actorUserId ? 'USER' : 'SYSTEM', zoneId, input.ipAddress || '127.0.0.1', zoneId, JSON.stringify({ domain, viaClaim: true }));
+  })();
+  return { verified: true, zone: db.prepare('SELECT * FROM domain_zones WHERE id = ?').get(zoneId) as DomainZoneRecord };
 }
 
 /**
@@ -427,7 +571,8 @@ export function verifyDomainDelegation(
  */
 export function listDomainZones(db: Database.Database, accountId: string): DomainZoneRecord[] {
   return db.prepare(`
-    SELECT id, account_id, domain_name, status, auto_renew, nameservers, whois_privacy, created_at, expires_at
+    SELECT id, account_id, domain_name, status, auto_renew, nameservers, whois_privacy, created_at, expires_at, ownership_verified_at, delegation_verified,
+           CASE WHEN ownership_verified_at IS NULL THEN ownership_token END AS ownership_token
     FROM domain_zones
     WHERE account_id = ?
     ORDER BY created_at DESC
@@ -439,7 +584,8 @@ export function listDomainZones(db: Database.Database, accountId: string): Domai
  */
 export function getDomainZone(db: Database.Database, accountId: string, zoneId: string): DomainZoneRecord | null {
   const row = db.prepare(`
-    SELECT id, account_id, domain_name, status, auto_renew, nameservers, whois_privacy, created_at, expires_at
+    SELECT id, account_id, domain_name, status, auto_renew, nameservers, whois_privacy, created_at, expires_at, ownership_verified_at, delegation_verified,
+           CASE WHEN ownership_verified_at IS NULL THEN ownership_token END AS ownership_token
     FROM domain_zones
     WHERE id = ? AND account_id = ?
   `).get(zoneId, accountId);
@@ -478,13 +624,25 @@ export function createDnsRecord(
   if (!zone) {
     throw new Error('NOT_FOUND: Domain zone does not exist or access is forbidden');
   }
+  if (!zone.ownership_verified_at) {
+    throw new Error('OWNERSHIP_NOT_VERIFIED: prove control of this domain before editing its records.');
+  }
 
   const validation = validateDnsRecordPayload(input);
   if (!validation.valid) {
     throw new Error(`VALIDATION_ERROR: ${validation.error}`);
   }
 
-  const normName = input.name.trim();
+  const normName = input.name.trim().toLowerCase();
+  const recordCount = (db.prepare('SELECT COUNT(*) AS c FROM dns_records WHERE zone_id = ?').get(zoneId) as { c: number }).c;
+  if (recordCount >= MAX_RECORDS_PER_ZONE) {
+    throw new Error(`LIMIT_REACHED: a zone can hold at most ${MAX_RECORDS_PER_ZONE} records.`);
+  }
+  const duplicate = db.prepare('SELECT 1 FROM dns_records WHERE zone_id = ? AND record_type = ? AND name = ? AND content = ?')
+    .get(zoneId, input.recordType, normName, input.content.trim());
+  if (duplicate) {
+    throw new Error('DUPLICATE_RECORD: an identical record already exists.');
+  }
 
   // RFC 1912 §2.4 CNAME Collision Invariants:
   // 1. If adding CNAME, no other records can exist at this name.
@@ -575,6 +733,9 @@ export function updateDnsRecord(
   if (!existing) {
     throw new Error('NOT_FOUND: DNS record does not exist or access is forbidden');
   }
+  if (!getDomainZone(db, accountId, zoneId)?.ownership_verified_at) {
+    throw new Error('OWNERSHIP_NOT_VERIFIED: prove control of this domain before editing its records.');
+  }
 
   const merged: DnsRecordInput = {
     recordType: patch.recordType || existing.record_type,
@@ -591,7 +752,7 @@ export function updateDnsRecord(
     throw new Error(`VALIDATION_ERROR: ${validation.error}`);
   }
 
-  const normName = merged.name.trim();
+  const normName = merged.name.trim().toLowerCase();
 
   // Check CNAME collisions if type or name changed
   if (merged.recordType === 'CNAME') {

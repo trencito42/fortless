@@ -125,8 +125,8 @@
       } else if (page === 'verify') {
         const token = new URLSearchParams(location.search).get('token') || '';
         await post('/api/v1/auth/verify-email', { token });
-        show('Email verified. Opening your dashboard…', true);
-        window.setTimeout(() => { location.href = '/app'; }, 900);
+        show('Email verified. Sign in to continue.', true);
+        window.setTimeout(() => { location.href = '/login'; }, 1200);
       }
     } catch (error) { show(error.message); submit.disabled = false; submit.textContent = original; }
   });

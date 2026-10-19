@@ -109,7 +109,7 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
     const show = {
       c: caps.console && can('websocket.connect'),
       f: caps.files && can('file.read'),
-      m: caps.game && can('file.read'),
+      m: caps.game && can('file.read-content'),
       l: fastDlSupported,
       d: caps.databases && can('database.read'),
       h: caps.schedules && can('schedule.read'),
@@ -191,10 +191,12 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
         <section class="card">
           <div class="ch"><div class="tx"><h3>Console</h3><p id="dtlConsoleState">Not connected</p></div></div>
           <pre id="dtlConsoleOut" class="mono" style="height:360px;overflow:auto;margin:0 0 12px;padding:14px 16px;background:var(--s1);border-radius:var(--r, 16px);font-size:12.5px;line-height:1.55;color:var(--ink2);white-space:pre-wrap;word-break:break-all" tabindex="0" aria-live="off"></pre>
-          <div class="inp">
+          ${perms.has('control.console')
+            ? `<div class="inp">
             <svg class="ic s" aria-hidden="true"><use href="#i-arrow-right-01"/></svg>
             <input id="dtlConsoleInput" type="text" autocomplete="off" spellcheck="false" placeholder="Type a command and press Enter" aria-label="Server command">
-          </div>
+          </div>`
+            : '<small class="faint">You can watch the console but not send commands with this access level.</small>'}
         </section>
       </div>` : ''}
 

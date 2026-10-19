@@ -2,7 +2,9 @@ import type Database from 'better-sqlite3';
 
 /** Pterodactyl permission strings. The panel enforces them too, because a shared user acts with their own panel key. */
 export const PERMISSION_PRESETS = {
-  viewer: ['websocket.connect', 'control.console', 'file.read', 'file.read-content', 'backup.read', 'allocation.read', 'startup.read', 'database.read', 'schedule.read', 'activity.read'],
+  // NEW-404: a viewer watches. control.console would let them type commands and file.read-content would expose config
+  // files that hold credentials, so neither is part of this preset.
+  viewer: ['websocket.connect', 'file.read', 'backup.read', 'allocation.read', 'startup.read', 'database.read', 'schedule.read', 'activity.read'],
   operator: [
     'websocket.connect', 'control.console', 'control.start', 'control.stop', 'control.restart',
     'file.read', 'file.read-content', 'file.create', 'file.update', 'file.delete', 'file.archive',
@@ -43,6 +45,9 @@ export function getServiceAccess(
   const service = db.prepare('SELECT id, account_id, order_item_id, external_id, contract_status FROM services WHERE id = ?')
     .get(params.serviceId) as ServiceAccess['service'] | undefined;
   if (!service) return undefined;
+  // NEW-409: a locked or fraud-flagged owner takes the service out of reach for everyone, shared members included.
+  const owner = db.prepare('SELECT status FROM accounts WHERE id = ?').get(service.account_id) as { status: string } | undefined;
+  if (!owner || owner.status !== 'ACTIVE') return undefined;
 
   if (service.account_id === params.accountId) {
     const full = params.role === undefined || params.role === 'OWNER' || params.role === 'TECH_ADMIN';

@@ -237,8 +237,6 @@ export async function beginCheckout(): Promise<void> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         items: [{ planVersionId: deployState.selectedPlanId, quantity: 1, regionId: deployState.selectedRegionId }],
-        billingCountry: 'DE',
-        isB2B: false,
         couponCode: deployState.activeCoupon?.code || undefined,
       }),
     });

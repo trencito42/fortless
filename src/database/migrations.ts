@@ -1170,6 +1170,35 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       `);
     },
   },
+  {
+    version: 45,
+    name: 'domain ownership proof, claims and lower-case DNS names',
+    up(db) {
+      if (!hasColumn(db, 'domain_zones', 'ownership_token')) db.exec('ALTER TABLE domain_zones ADD COLUMN ownership_token TEXT');
+      if (!hasColumn(db, 'domain_zones', 'ownership_verified_at')) db.exec('ALTER TABLE domain_zones ADD COLUMN ownership_verified_at TEXT');
+      if (!hasColumn(db, 'domain_zones', 'delegation_verified')) db.exec('ALTER TABLE domain_zones ADD COLUMN delegation_verified INTEGER NOT NULL DEFAULT 0');
+      db.exec("UPDATE domain_zones SET ownership_token = lower(hex(randomblob(16))) WHERE ownership_token IS NULL");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS domain_claims (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+          domain_name TEXT NOT NULL,
+          token TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          UNIQUE(account_id, domain_name)
+        )
+      `);
+      // NEW-383: names are compared case-insensitively from now on, so existing rows are normalised once.
+      db.exec('UPDATE dns_records SET name = lower(name)');
+    },
+  },
+  {
+    version: 46,
+    name: 'session-bound workspace selection',
+    up(db) {
+      if (!hasColumn(db, 'sessions', 'account_id')) db.exec('ALTER TABLE sessions ADD COLUMN account_id TEXT');
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

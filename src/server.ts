@@ -31,6 +31,8 @@ import {
   registerUser,
   loginUser,
   authenticateSession,
+  listUserWorkspaces,
+  switchWorkspace,
   revokeSession,
   listUserSessions,
   revokeUserSession,
@@ -135,6 +137,7 @@ import {
   listAdminJobs,
 } from './modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
+import { applyStaffChange, StaffChangeError } from './modules/admin/staff.js';
 import {
   listTickets,
   createTicket,
@@ -163,6 +166,11 @@ import {
   updateDnsRecord,
   deleteDnsRecord,
   TLD_CATALOG,
+  ownershipChallenge,
+  verifyDomainOwnership,
+  verifyDomainDelegation,
+  startDomainClaim,
+  completeDomainClaim,
 } from './modules/domains/dns.js';
 import {
   searchKnowledgeArticles,
@@ -784,14 +792,13 @@ export function buildServer(): FastifyInstance {
     const parse = tokenSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Invalid verification request' });
     try {
-      const deviceId = resolveDeviceId(req, reply);
-      const result = verifyEmail(parse.data.token, {
+      verifyEmail(parse.data.token, {
         ipAddress: req.ip,
         userAgent: req.headers['user-agent'] || 'unknown',
-        deviceId,
+        issueSession: false,
       });
-      reply.setCookie('fortless_session', result.token, { path: '/', httpOnly: true, secure: config.NODE_ENV === 'production', sameSite: 'lax', maxAge: 14 * 24 * 60 * 60 });
-      return { verified: true };
+      reply.header('Cache-Control', 'no-store');
+      return { verified: true, loginRequired: true };
     } catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
   });
 
@@ -878,6 +885,18 @@ export function buildServer(): FastifyInstance {
   app.get('/api/v1/auth/sessions', { preHandler: [requireAuth] }, async (req) => ({
     sessions: listUserSessions(req.auth!.user.id, req.auth!.session.id),
   }));
+
+  app.get('/api/v1/auth/workspaces', { preHandler: [requireAuth] }, async (req) => ({
+    workspaces: listUserWorkspaces(req.auth!.user.id, req.auth!.account.id),
+  }));
+
+  app.post('/api/v1/auth/workspace', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parsed = z.object({ accountId: z.string().min(1).max(100) }).safeParse(req.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Choose a workspace.' });
+    const switched = switchWorkspace({ userId: req.auth!.user.id, sessionId: req.auth!.session.id, accountId: parsed.data.accountId, ipAddress: req.ip });
+    if (!switched) return reply.status(404).send({ error: 'Workspace not found.' });
+    return { switched: true, accountId: parsed.data.accountId };
+  });
 
   app.get('/api/v1/auth/mfa', { preHandler: [requireAuth] }, async (req) => getMfaStatus(req.auth!.user.id));
 
@@ -1241,8 +1260,10 @@ export function buildServer(): FastifyInstance {
         customOptions: z.record(z.string(), z.unknown()).optional(),
       })
     ),
-    billingCountry: z.string().length(2).default('DE'),
-    isB2B: z.boolean().default(false),
+    // NEW-403: tax country, B2B status and tax id come from the workspace billing profile, never from the request.
+    // The fields stay accepted so older clients keep working, but their values are ignored.
+    billingCountry: z.string().optional(),
+    isB2B: z.boolean().optional(),
     taxId: z.string().optional(),
     couponCode: z.string().optional(),
   });
@@ -1254,12 +1275,14 @@ export function buildServer(): FastifyInstance {
     }
 
     try {
+      const profile = getDatabase().prepare('SELECT country, tax_id, company_name FROM billing_profiles WHERE account_id = ?').get(req.auth!.account.id) as
+        { country?: string | null; tax_id?: string | null; company_name?: string | null } | undefined;
       const quote = createQuote(
         req.auth!.account.id,
         parse.data.items,
-        parse.data.billingCountry,
-        parse.data.isB2B,
-        parse.data.taxId,
+        (profile?.country || 'DE').toUpperCase(),
+        Boolean(profile?.company_name || profile?.tax_id),
+        profile?.tax_id || undefined,
         parse.data.couponCode
       );
       return reply.status(201).send(quote);
@@ -2121,7 +2144,7 @@ export function buildServer(): FastifyInstance {
     periodYears: z.number().int().min(1).max(10).optional(),
   });
 
-  app.post('/api/v1/domains/zones', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/api/v1/domains/zones', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
     const parse = createZoneSchema.safeParse(req.body);
     if (!parse.success) {
       return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
@@ -2136,11 +2159,39 @@ export function buildServer(): FastifyInstance {
         actorUserId: req.auth!.user.id,
         ipAddress: req.ip,
       });
-      return reply.status(201).send({ zone });
+      return reply.status(201).send({ zone, ownershipChallenge: ownershipChallenge(zone.domain_name, zone.ownership_token as string) });
     } catch (err: unknown) {
       const msg = (err as Error).message;
-      return reply.status(400).send({ error: msg });
+      const status = /^(DOMAIN_VERIFIED_ELSEWHERE|DOMAIN_CLAIMED_UNVERIFIED)/.test(msg) ? 409 : /^LIMIT_REACHED/.test(msg) ? 429 : 400;
+      return reply.status(status).send({ error: msg, code: msg.split(':')[0] });
     }
+  });
+
+  // Domains & DNS: prove ownership (TXT), delegation (NS) and take over an unproven claim (NEW-370)
+  app.post('/api/v1/domains/zones/:zoneId/verify-ownership', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
+    const { zoneId } = req.params as { zoneId: string };
+    try {
+      return await verifyDomainOwnership(getDatabase(), req.auth!.account.id, zoneId, undefined, { userId: req.auth!.user.id, ipAddress: req.ip });
+    } catch (err: unknown) { return reply.status(404).send({ error: (err as Error).message }); }
+  });
+  app.post('/api/v1/domains/zones/:zoneId/verify-delegation', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
+    const { zoneId } = req.params as { zoneId: string };
+    try {
+      return await verifyDomainDelegation(getDatabase(), req.auth!.account.id, zoneId);
+    } catch (err: unknown) { return reply.status(404).send({ error: (err as Error).message }); }
+  });
+  const claimSchema = z.object({ domainName: z.string().trim().min(3).max(253) });
+  app.post('/api/v1/domains/claims', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
+    const parse = claimSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    try { return reply.status(201).send(startDomainClaim(getDatabase(), { accountId: req.auth!.account.id, domainName: parse.data.domainName })); }
+    catch (err: unknown) { const msg = (err as Error).message; return reply.status(msg.startsWith('DOMAIN_VERIFIED_ELSEWHERE') ? 409 : 400).send({ error: msg, code: msg.split(':')[0] }); }
+  });
+  app.post('/api/v1/domains/claims/verify', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
+    const parse = claimSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+    try { return await completeDomainClaim(getDatabase(), { accountId: req.auth!.account.id, domainName: parse.data.domainName, actorUserId: req.auth!.user.id, ipAddress: req.ip }); }
+    catch (err: unknown) { const msg = (err as Error).message; return reply.status(msg.startsWith('NOT_FOUND') ? 404 : msg.startsWith('DOMAIN_VERIFIED_ELSEWHERE') ? 409 : 400).send({ error: msg, code: msg.split(':')[0] }); }
   });
 
   // Domains & DNS: Get Zone Detail
@@ -2176,7 +2227,7 @@ export function buildServer(): FastifyInstance {
     port: z.number().int().min(1).max(65535).optional(),
   });
 
-  app.post('/api/v1/domains/zones/:zoneId/records', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/api/v1/domains/zones/:zoneId/records', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
     const { zoneId } = req.params as { zoneId: string };
     const parse = dnsRecordSchema.safeParse(req.body);
     if (!parse.success) {
@@ -2194,15 +2245,15 @@ export function buildServer(): FastifyInstance {
       return reply.status(201).send({ record });
     } catch (err: unknown) {
       const msg = (err as Error).message;
-      const status = msg.startsWith('NOT_FOUND') ? 404 : 400;
-      return reply.status(status).send({ error: msg });
+      const status = msg.startsWith('NOT_FOUND') ? 404 : /^(OWNERSHIP_NOT_VERIFIED|DUPLICATE_RECORD|CNAME_COLLISION)/.test(msg) ? 409 : msg.startsWith('LIMIT_REACHED') ? 429 : 400;
+      return reply.status(status).send({ error: msg, code: msg.split(':')[0] });
     }
   });
 
   // Domains & DNS: Update DNS Record
   const updateDnsRecordSchema = dnsRecordSchema.partial();
 
-  app.put('/api/v1/domains/zones/:zoneId/records/:recordId', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.put('/api/v1/domains/zones/:zoneId/records/:recordId', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
     const { zoneId, recordId } = req.params as { zoneId: string; recordId: string };
     const parse = updateDnsRecordSchema.safeParse(req.body);
     if (!parse.success) {
@@ -2221,21 +2272,21 @@ export function buildServer(): FastifyInstance {
       return { record };
     } catch (err: unknown) {
       const msg = (err as Error).message;
-      const status = msg.startsWith('NOT_FOUND') ? 404 : 400;
-      return reply.status(status).send({ error: msg });
+      const status = msg.startsWith('NOT_FOUND') ? 404 : /^(OWNERSHIP_NOT_VERIFIED|DUPLICATE_RECORD|CNAME_COLLISION)/.test(msg) ? 409 : msg.startsWith('LIMIT_REACHED') ? 429 : 400;
+      return reply.status(status).send({ error: msg, code: msg.split(':')[0] });
     }
   });
 
   // Domains & DNS: Delete DNS Record
-  app.delete('/api/v1/domains/zones/:zoneId/records/:recordId', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.delete('/api/v1/domains/zones/:zoneId/records/:recordId', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN')] }, async (req, reply) => {
     const { zoneId, recordId } = req.params as { zoneId: string; recordId: string };
     try {
       deleteDnsRecord(getDatabase(), req.auth!.account.id, zoneId, recordId, req.auth!.user.id, req.ip);
       return { success: true };
     } catch (err: unknown) {
       const msg = (err as Error).message;
-      const status = msg.startsWith('NOT_FOUND') ? 404 : 400;
-      return reply.status(status).send({ error: msg });
+      const status = msg.startsWith('NOT_FOUND') ? 404 : /^(OWNERSHIP_NOT_VERIFIED|DUPLICATE_RECORD|CNAME_COLLISION)/.test(msg) ? 409 : msg.startsWith('LIMIT_REACHED') ? 429 : 400;
+      return reply.status(status).send({ error: msg, code: msg.split(':')[0] });
     }
   });
 
@@ -2994,6 +3045,11 @@ export function buildServer(): FastifyInstance {
     reason: z.string().trim().min(8).max(500),
   });
 
+  const staffErrorReply = (reply: FastifyReply, err: unknown) => {
+    if (err instanceof StaffChangeError) return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+    throw err;
+  };
+
   app.post('/api/v1/admin/staff', { preHandler: [requireAuth, requireStaffPermission('staff:manage'), requireRecentStepUp] }, async (req, reply) => {
     const parsed = staffChangeSchema.safeParse(req.body);
     if (!parsed.success || !parsed.data.email) return reply.status(400).send({ error: 'Email, role and an audit reason are required.' });
@@ -3002,15 +3058,9 @@ export function buildServer(): FastifyInstance {
     if (!target) return reply.status(404).send({ error: 'Active identity not found.' });
     const hasMfa = db.prepare("SELECT 1 FROM mfa_factors WHERE user_id = ? AND type = 'TOTP' AND is_confirmed = 1").get(target.id);
     if (!hasMfa) return reply.status(409).send({ error: 'Staff access requires confirmed multi-factor authentication.', code: 'TARGET_MFA_REQUIRED' });
-    db.transaction(() => {
-      db.prepare(`INSERT INTO staff_memberships (user_id, role, status, created_by_user_id)
-        VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET role = excluded.role, status = excluded.status,
-        updated_at = datetime('now', 'utc')`).run(target.id, parsed.data.role, parsed.data.status, req.auth!.user.id);
-      db.prepare('UPDATE users SET is_staff = ? WHERE id = ?').run(parsed.data.status === 'ACTIVE' ? 1 : 0, target.id);
-      db.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
-        VALUES (?, NULL, ?, 'STAFF', 'staff.membership_changed', 'staff_membership', ?, ?, ?, ?)`)
-        .run(generateId('aud'), req.auth!.user.id, target.id, req.ip, generateId('cor'), JSON.stringify({ role: parsed.data.role, status: parsed.data.status, reason: parsed.data.reason }));
-    })();
+    try {
+      applyStaffChange(db, { actorUserId: req.auth!.user.id, targetUserId: target.id, role: parsed.data.role, status: parsed.data.status, reason: parsed.data.reason, ipAddress: req.ip });
+    } catch (err) { return staffErrorReply(reply, err); }
     return reply.status(201).send({ userId: target.id, role: parsed.data.role, status: parsed.data.status });
   });
 
@@ -3018,22 +3068,11 @@ export function buildServer(): FastifyInstance {
     const params = z.object({ userId: z.string().regex(/^usr_[a-f0-9]{24}$/) }).safeParse(req.params);
     const parsed = staffChangeSchema.omit({ email: true }).safeParse(req.body);
     if (!params.success || !parsed.success) return reply.status(400).send({ error: 'Role, status and an audit reason are required.' });
-    if (params.data.userId === req.auth!.user.id) return reply.status(409).send({ error: 'Self-modification is blocked to prevent administrative lockout.' });
     const db = getDatabase();
-    const current = db.prepare('SELECT role, status FROM staff_memberships WHERE user_id = ?').get(params.data.userId) as { role: string; status: string } | undefined;
-    if (!current) return reply.status(404).send({ error: 'Staff membership not found.' });
-    if (current.role === 'OWNER' && (parsed.data.role !== 'OWNER' || parsed.data.status !== 'ACTIVE')) {
-      const owners = db.prepare("SELECT count(*) AS count FROM staff_memberships WHERE role = 'OWNER' AND status = 'ACTIVE'").get() as { count: number };
-      if (owners.count <= 1) return reply.status(409).send({ error: 'The final active owner cannot be removed.' });
-    }
-    db.transaction(() => {
-      db.prepare("UPDATE staff_memberships SET role = ?, status = ?, updated_at = datetime('now', 'utc') WHERE user_id = ?")
-        .run(parsed.data.role, parsed.data.status, params.data.userId);
-      db.prepare('UPDATE users SET is_staff = ? WHERE id = ?').run(parsed.data.status === 'ACTIVE' ? 1 : 0, params.data.userId);
-      db.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
-        VALUES (?, NULL, ?, 'STAFF', 'staff.membership_changed', 'staff_membership', ?, ?, ?, ?)`)
-        .run(generateId('aud'), req.auth!.user.id, params.data.userId, req.ip, generateId('cor'), JSON.stringify({ from: current, role: parsed.data.role, status: parsed.data.status, reason: parsed.data.reason }));
-    })();
+    if (!db.prepare('SELECT 1 FROM staff_memberships WHERE user_id = ?').get(params.data.userId)) return reply.status(404).send({ error: 'Staff membership not found.' });
+    try {
+      applyStaffChange(db, { actorUserId: req.auth!.user.id, targetUserId: params.data.userId, role: parsed.data.role, status: parsed.data.status, reason: parsed.data.reason, ipAddress: req.ip });
+    } catch (err) { return staffErrorReply(reply, err); }
     return { userId: params.data.userId, role: parsed.data.role, status: parsed.data.status };
   });
 

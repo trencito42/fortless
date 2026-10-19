@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_active_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
   mfa_verified_at TEXT,
   step_up_verified_at TEXT,
+  account_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
@@ -653,7 +654,19 @@ CREATE TABLE IF NOT EXISTS domain_zones (
   nameservers TEXT NOT NULL DEFAULT '["ns1.fortless.net","ns2.fortless.net"]',
   whois_privacy INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
-  expires_at TEXT NOT NULL
+  expires_at TEXT NOT NULL,
+  ownership_token TEXT,
+  ownership_verified_at TEXT,
+  delegation_verified INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS domain_claims (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  domain_name TEXT NOT NULL,
+  token TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  UNIQUE(account_id, domain_name)
 );
 
 CREATE TABLE IF NOT EXISTS dns_records (

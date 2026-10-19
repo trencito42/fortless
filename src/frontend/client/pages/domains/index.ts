@@ -27,6 +27,9 @@ interface DomainZone {
   auto_renew: number;
   nameservers: string;
   whois_privacy: number;
+  ownership_verified_at?: string | null;
+  ownership_token?: string | null;
+  delegation_verified?: number;
   created_at: string;
   expires_at: string;
 }
@@ -97,17 +100,31 @@ export async function loadZones(): Promise<void> {
             const ns = JSON.parse(z.nameservers || '[]') as string[];
             const nsText = ns.length ? ns.join(' · ') : 'ns1.fortless.net · ns2.fortless.net';
             const exp = z.expires_at ? ` · Expires ${formatDate(z.expires_at)}` : '';
+            const proven = Boolean(z.ownership_verified_at);
+            const challenge = !proven && z.ownership_token
+              ? { name: `_fortless-challenge.${z.domain_name}`, value: `fortless-verify=${z.ownership_token}` }
+              : null;
+            const pillTone = !proven ? 'warn' : z.status === 'ACTIVE' ? 'good' : 'neu';
+            const pillText = !proven ? 'Ownership not verified' : z.status === 'ACTIVE' ? 'Delegated' : 'Awaiting delegation';
             return `
-            <div class="li h" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(' ')}`.toLowerCase())}" style="padding:12px 14px;gap:12px;align-items:center">
-              <span class="tile good sm"><svg class="ic s" width="16" height="16"><use href="#i-globe-02"/></svg></span>
+            <div class="col" style="gap:8px" data-zone-search="${esc(`${z.domain_name} ${z.status} ${ns.join(' ')}`.toLowerCase())}">
+            <div class="li h" style="padding:12px 14px;gap:12px;align-items:center">
+              <span class="tile ${proven ? 'good' : 'warn'} sm"><svg class="ic s" width="16" height="16"><use href="#i-globe-02"/></svg></span>
               <span class="tx" style="min-width:140px">
                 <b>${esc(z.domain_name)}</b>
                 <small class="muted mono" style="font-size:12px">${esc(nsText)}${esc(exp)}</small>
               </span>
-              <span class="pill good">${esc(z.status)}</span>
-              <button type="button" class="btn xs tint manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}" style="flex-shrink:0">
+              <span class="pill ${pillTone}">${esc(pillText)}</span>
+              ${!proven
+                ? `<button type="button" class="btn xs tint verify-ownership-btn" data-zone-id="${esc(z.id)}" style="flex-shrink:0">Verify ownership</button>`
+                : z.status !== 'ACTIVE'
+                  ? `<button type="button" class="btn xs tint verify-delegation-btn" data-zone-id="${esc(z.id)}" style="flex-shrink:0">Check delegation</button>`
+                  : ''}
+              <button type="button" class="btn xs tint manage-dns-btn" data-zone-id="${esc(z.id)}" data-domain="${esc(z.domain_name)}" style="flex-shrink:0" ${proven ? '' : 'disabled title="Verify ownership first"'}>
                 <svg class="ic xs" width="14" height="14"><use href="#i-arrow-right-01"/></svg>Manage DNS
               </button>
+            </div>
+            ${challenge ? `<div class="alert info"><div><b>Prove you control ${esc(z.domain_name)}</b><span>Add this TXT record at your current DNS provider, then choose Verify ownership. Records cannot be edited and the zone is not delegated until this passes. DNS changes can take a few minutes.</span><span class="mono">${esc(challenge.name)} &nbsp; TXT &nbsp; ${esc(challenge.value)}</span></div></div>` : ''}
             </div>
           `;
           })
@@ -116,6 +133,27 @@ export async function loadZones(): Promise<void> {
     `;
 
     filterZones();
+
+    const verify = (selector: string, path: string, okMessage: string, pendingMessage: string) => {
+      host.querySelectorAll<HTMLButtonElement>(selector).forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const zid = btn.dataset.zoneId;
+          if (!zid) return;
+          btn.disabled = true;
+          try {
+            const res = await api<{ verified: boolean }>(`/api/v1/domains/zones/${encodeURIComponent(zid)}/${path}`, { method: 'POST' });
+            toast(res.verified ? okMessage : pendingMessage, res.verified ? 'good' : 'warn');
+            if (res.verified) await loadZones();
+          } catch (err: unknown) {
+            toast((err as Error).message, 'bad');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+    };
+    verify('.verify-ownership-btn', 'verify-ownership', 'Ownership verified. You can now manage DNS records.', 'The verification TXT record was not found yet. Check the record and try again in a few minutes.');
+    verify('.verify-delegation-btn', 'verify-delegation', 'Delegation confirmed.', 'The domain does not point only to the Fortless name servers yet.');
 
     host.querySelectorAll<HTMLButtonElement>('.manage-dns-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -174,6 +212,21 @@ export async function searchDomains(query: string): Promise<void> {
         btn.disabled = true;
         btn.textContent = 'Registering…';
         try {
+          if (btn.dataset.claimDomain) {
+            const res = await api<{ verified: boolean }>('/api/v1/domains/claims/verify', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domainName: domain }),
+            });
+            if (!res.verified) {
+              toast('The claim TXT record was not found yet. Check it and try again in a few minutes.', 'warn');
+              btn.disabled = false;
+              btn.textContent = 'Verify claim';
+              return;
+            }
+            toast(`"${domain}" is now in your workspace.`, 'good');
+            await loadZones();
+            await searchDomains(domain);
+            return;
+          }
           await api('/api/v1/domains/zones', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -183,9 +236,26 @@ export async function searchDomains(query: string): Promise<void> {
           await loadZones();
           await searchDomains(domain);
         } catch (err: unknown) {
-          toast((err as Error).message, 'bad');
+          const code = (err as { code?: string }).code;
+          if (code === 'DOMAIN_CLAIMED_UNVERIFIED') {
+            // Another workspace added this name without proving control: offer the DNS-proof claim.
+            try {
+              const claim = await api<{ recordName: string; recordValue: string }>('/api/v1/domains/claims', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domainName: domain }),
+              });
+              toast(`Add TXT ${claim.recordName} = ${claim.recordValue}, then select Verify claim.`, 'warn');
+              btn.disabled = false;
+              btn.textContent = 'Verify claim';
+              btn.dataset.claimDomain = domain;
+              return;
+            } catch (claimErr: unknown) {
+              toast((claimErr as Error).message, 'bad');
+            }
+          } else {
+            toast((err as Error).message, 'bad');
+          }
           btn.disabled = false;
-          btn.textContent = 'Create DNS zone';
+          btn.textContent = btn.dataset.claimDomain ? 'Verify claim' : 'Create DNS zone';
         }
       });
     });

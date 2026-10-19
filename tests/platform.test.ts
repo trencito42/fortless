@@ -160,6 +160,13 @@ import { MockAiProviderAdapter, OpenAiCompatibleAiAdapter } from '../src/modules
 import { searchKnowledgeArticles, getKnowledgeArticleBySlug } from '../src/modules/ai/knowledge.js';
 import { runServiceDiagnostic, runTicketTriage } from '../src/modules/ai/diagnostics.js';
 
+/** Zones must prove domain ownership before their records can be edited (NEW-370); these tests are about the records. */
+function createVerifiedZone(database: Database.Database, input: Parameters<typeof createDomainZone>[1]) {
+  const zone = createDomainZone(database, input);
+  database.prepare("UPDATE domain_zones SET ownership_verified_at = datetime('now', 'utc') WHERE id = ?").run(zone.id);
+  return zone;
+}
+
 describe('FORTLESS Comprehensive Production Test Suite', () => {
   let db: Database.Database;
 
@@ -3125,7 +3132,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       );
 
       // Tenant A creates zone
-      const zoneA = createDomainZone(db, {
+      const zoneA = createVerifiedZone(db, {
         accountId: userA.account.id,
         domainName: 'tenanta-infrastructure.com',
         actorUserId: userA.user.id,
@@ -3176,7 +3183,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         { email: 'rfc.tester@example.com', password: 'Password123!', name: 'RFC Tester', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
       );
-      const zone = createDomainZone(db, {
+      const zone = createVerifiedZone(db, {
         accountId: user.account.id,
         domainName: 'rfc-compliance.com',
       });
@@ -3263,7 +3270,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         { email: 'cname.rule@example.com', password: 'Password123!', name: 'CNAME Tester', ipAddress: '127.0.0.1', userAgent: 'test' },
         db
       );
-      const zone = createDomainZone(db, {
+      const zone = createVerifiedZone(db, {
         accountId: user.account.id,
         domainName: 'cname-collision-test.com',
       });
@@ -4027,7 +4034,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(searchRes.results[0]?.availabilityTier).toBe('LOCAL_ZONE_AVAILABLE');
       expect(searchRes.results[0]?.isExternalRegistrarVerified).toBe(false);
 
-      const zone = createDomainZone(db, {
+      const zone = createVerifiedZone(db, {
         accountId: user.account.id,
         domainName: 'testmydomain.org',
       });
