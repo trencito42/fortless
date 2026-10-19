@@ -150,7 +150,7 @@
       return null;
     }
     updateActiveLinks(activeId) {
-      const navId = activeId === "service-detail" || activeId === "admin-service-detail" ? "services" : activeId === "account-detail" ? "accounts" : activeId === "ticket-detail" || activeId === "ticket-new" || activeId === "admin-ticket-detail" ? "tickets" : activeId;
+      const navId = activeId === "service-detail" || activeId === "admin-service-detail" ? "services" : activeId === "account-detail" ? "accounts" : activeId === "order-detail" ? "orders" : activeId === "invoice-detail" ? "billing" : activeId === "ticket-detail" || activeId === "ticket-new" || activeId === "admin-ticket-detail" ? "tickets" : activeId;
       document.querySelectorAll("[data-app-route], [data-route]").forEach((el2) => {
         const rId = el2.dataset.appRoute || el2.dataset.route;
         if (rId === navId) {

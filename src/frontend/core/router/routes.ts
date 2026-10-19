@@ -118,8 +118,18 @@ export const ADMIN_ROUTES: Record<string, RouteDefinition> = {
   orders: {
     id: 'orders', path: '/admin/orders', title: 'Orders · FORTLESS', subtitle: 'Commercial order lifecycle and fulfillment state.',
   },
+  'order-detail': {
+    id: 'order-detail', path: '/admin/orders/:id', title: 'Order Detail · FORTLESS',
+    subtitle: 'Payment, fulfillment, provisioning and related service records.',
+    pattern: /^\/admin\/orders\/(?<id>[^/]+)$/,
+  },
   billing: {
     id: 'billing', path: '/admin/billing', title: 'Billing Operations · FORTLESS', subtitle: 'Invoices, credit notes and payment state.',
+  },
+  'invoice-detail': {
+    id: 'invoice-detail', path: '/admin/billing/:id', title: 'Invoice Detail · FORTLESS',
+    subtitle: 'Authoritative invoice lines, payments, refunds and related services.',
+    pattern: /^\/admin\/billing\/(?<id>[^/]+)$/,
   },
   infrastructure: {
     id: 'infrastructure', path: '/admin/infrastructure', title: 'Infrastructure · FORTLESS', subtitle: 'Capacity pools and provider readiness.',

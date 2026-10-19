@@ -186,6 +186,10 @@ export class Router {
       ? 'services'
       : activeId === 'account-detail'
         ? 'accounts'
+        : activeId === 'order-detail'
+          ? 'orders'
+          : activeId === 'invoice-detail'
+            ? 'billing'
         : activeId === 'ticket-detail' || activeId === 'ticket-new' || activeId === 'admin-ticket-detail'
           ? 'tickets'
           : activeId;

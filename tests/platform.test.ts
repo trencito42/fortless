@@ -129,6 +129,11 @@ import {
   updateTicketStatus,
   listAdminAudit,
   listAdminStaff,
+  listAdminOrders,
+  getAdminOrderDetail,
+  listAdminInvoices,
+  getAdminInvoiceDetail,
+  listAdminCreditNotes,
 } from '../src/modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission } from '../src/modules/admin/access.js';
 import { listTickets, createTicket, getTicketThread, addCustomerReply, addTicketAttachment, listTicketAttachments, getTicketAttachment, sanitizeFilename } from '../src/modules/support/tickets.js';
@@ -1671,6 +1676,11 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       });
       expect(listAdminServices(db)).toMatchObject({ services: [], total: 0 });
       expect(listAdminTickets(db)).toMatchObject({ tickets: [], total: 0 });
+      expect(listAdminOrders(db)).toMatchObject({ orders: [], total: 0, summary: [] });
+      expect(listAdminInvoices(db)).toMatchObject({ invoices: [], total: 0, summary: [] });
+      expect(listAdminCreditNotes(db)).toMatchObject({ creditNotes: [], total: 0, summary: [] });
+      expect(getAdminOrderDetail('ord_missing', db)).toBeNull();
+      expect(getAdminInvoiceDetail('inv_missing', db)).toBeNull();
       expect(listAdminAudit(db, { query: 'user.registration_pending' }).logs).toHaveLength(1);
     });
 

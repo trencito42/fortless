@@ -521,8 +521,59 @@ export function listAdminOrders(db: Database.Database, options: AdminListOptions
     ORDER BY o.created_at DESC, o.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, like, like, limit, offset) as any[];
+  const summary = db.prepare(`
+    SELECT o.status, count(*) AS count
+    FROM orders o
+    JOIN accounts a ON a.id = o.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR o.id LIKE ? ESCAPE '\\' OR o.status LIKE ? ESCAPE '\\'
+      OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    GROUP BY o.status
+  `).all(query, like, like, like, like, like) as Array<{ status: string; count: number }>;
+  const total = summary.reduce((sum, item) => sum + Number(item.count), 0);
 
-  return { orders: rows, limit, offset };
+  return { orders: rows, total, summary, limit, offset };
+}
+
+export function getAdminOrderDetail(orderId: string, db: Database.Database) {
+  const order = db.prepare(`
+    SELECT o.*, a.name AS account_name, u.name AS customer_name, u.email AS customer_email
+    FROM orders o
+    JOIN accounts a ON a.id = o.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE o.id = ?
+  `).get(orderId) as any;
+  if (!order) return null;
+
+  const items = db.prepare(`
+    SELECT oi.*, p.name AS product_name, pv.name AS plan_name, r.name AS region_name,
+           s.id AS service_id, s.contract_status, os.runtime_state,
+           (SELECT ql.unit_price_minor_units FROM quote_lines ql
+            WHERE ql.quote_id = ? AND ql.plan_version_id = oi.plan_version_id LIMIT 1) AS unit_price_minor_units,
+           po.id AS provision_operation_id, po.status AS provision_status,
+           po.attempt_count, po.last_error, po.updated_at AS provision_updated_at
+    FROM order_items oi
+    JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    JOIN products p ON p.id = pv.product_id
+    JOIN regions r ON r.id = oi.region_id
+    LEFT JOIN services s ON s.id = oi.service_id
+    LEFT JOIN service_observed_states os ON os.service_id = s.id
+    LEFT JOIN provision_operations po ON po.id = (
+      SELECT po2.id FROM provision_operations po2 WHERE po2.service_id = s.id ORDER BY po2.created_at DESC LIMIT 1
+    )
+    WHERE oi.order_id = ?
+    ORDER BY oi.id
+  `).all(order.quote_id, orderId) as any[];
+
+  const invoices = db.prepare(`
+    SELECT id, invoice_number, status, currency, total_minor_units, amount_paid_minor_units, due_date, paid_at
+    FROM invoices WHERE order_id = ? ORDER BY created_at DESC
+  `).all(orderId) as any[];
+  const audit = db.prepare(`
+    SELECT action, actor_type, resource_type, resource_id, correlation_id, metadata, created_at
+    FROM audit_events WHERE resource_id = ? ORDER BY created_at DESC LIMIT 30
+  `).all(orderId) as any[];
+  return { order, items, invoices, audit };
 }
 
 export function listAdminInvoices(db: Database.Database, options: AdminListOptions = {}) {
@@ -543,8 +594,58 @@ export function listAdminInvoices(db: Database.Database, options: AdminListOptio
     ORDER BY inv.created_at DESC, inv.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, like, like, like, limit, offset) as any[];
+  const summary = db.prepare(`
+    SELECT inv.currency, count(*) AS count,
+           coalesce(sum(inv.amount_paid_minor_units), 0) AS paid_minor_units,
+           coalesce(sum(max(inv.total_minor_units - inv.amount_paid_minor_units, 0)), 0) AS outstanding_minor_units,
+           sum(CASE WHEN inv.status = 'OVERDUE' THEN 1 ELSE 0 END) AS overdue_count
+    FROM invoices inv
+    JOIN accounts a ON a.id = inv.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR inv.id LIKE ? ESCAPE '\\' OR coalesce(inv.invoice_number, '') LIKE ? ESCAPE '\\'
+      OR inv.status LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    GROUP BY inv.currency ORDER BY inv.currency
+  `).all(query, like, like, like, like, like, like) as any[];
+  const total = summary.reduce((sum, item) => sum + Number(item.count), 0);
 
-  return { invoices: rows, limit, offset };
+  return { invoices: rows, total, summary, limit, offset };
+}
+
+export function getAdminInvoiceDetail(invoiceId: string, db: Database.Database) {
+  const invoice = db.prepare(`
+    SELECT inv.*, a.name AS account_name, u.name AS customer_name, u.email AS customer_email
+    FROM invoices inv
+    JOIN accounts a ON a.id = inv.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE inv.id = ?
+  `).get(invoiceId) as any;
+  if (!invoice) return null;
+
+  const lines = db.prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY id').all(invoiceId) as any[];
+  const payments = db.prepare(`
+    SELECT id, psp_name, psp_session_id, psp_payment_intent_id, status,
+           amount_minor_units, currency, created_at
+    FROM payment_attempts WHERE invoice_id = ? ORDER BY created_at DESC
+  `).all(invoiceId) as any[];
+  const refunds = db.prepare(`
+    SELECT r.id, r.payment_attempt_id, r.amount_minor_units, r.reason, r.status, r.psp_refund_id, r.created_at
+    FROM refunds r JOIN payment_attempts pa ON pa.id = r.payment_attempt_id
+    WHERE pa.invoice_id = ? ORDER BY r.created_at DESC
+  `).all(invoiceId) as any[];
+  const creditNotes = db.prepare('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY created_at DESC').all(invoiceId) as any[];
+  const services = invoice.order_id ? db.prepare(`
+    SELECT s.id, s.identifier, s.contract_status, p.name AS product_name, pv.name AS plan_name
+    FROM order_items oi
+    JOIN services s ON s.order_item_id = oi.id
+    JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    JOIN products p ON p.id = pv.product_id
+    WHERE oi.order_id = ? ORDER BY s.created_at
+  `).all(invoice.order_id) as any[] : [];
+  const audit = db.prepare(`
+    SELECT action, actor_type, correlation_id, metadata, created_at
+    FROM audit_events WHERE resource_id = ? ORDER BY created_at DESC LIMIT 30
+  `).all(invoiceId) as any[];
+  return { invoice, lines, payments, refunds, creditNotes, services, audit };
 }
 
 export function listAdminCreditNotes(db: Database.Database, options: AdminListOptions = {}) {
@@ -565,8 +666,20 @@ export function listAdminCreditNotes(db: Database.Database, options: AdminListOp
     ORDER BY cn.created_at DESC, cn.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, like, like, like, like, limit, offset) as any[];
+  const summary = db.prepare(`
+    SELECT inv.currency, count(*) AS count, coalesce(sum(cn.amount_minor_units), 0) AS credited_minor_units
+    FROM credit_notes cn
+    JOIN invoices inv ON inv.id = cn.invoice_id
+    JOIN accounts a ON a.id = inv.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR cn.id LIKE ? ESCAPE '\\' OR cn.credit_note_number LIKE ? ESCAPE '\\'
+      OR cn.reason LIKE ? ESCAPE '\\' OR inv.invoice_number LIKE ? ESCAPE '\\'
+      OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    GROUP BY inv.currency ORDER BY inv.currency
+  `).all(query, like, like, like, like, like, like, like) as any[];
+  const total = summary.reduce((sum, item) => sum + Number(item.count), 0);
 
-  return { creditNotes: rows, limit, offset };
+  return { creditNotes: rows, total, summary, limit, offset };
 }
 
 export function getAdminCapacityPools(db: Database.Database) {

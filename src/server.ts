@@ -121,7 +121,9 @@ import {
   listAdminAudit,
   listAdminStaff,
   listAdminOrders,
+  getAdminOrderDetail,
   listAdminInvoices,
+  getAdminInvoiceDetail,
   listAdminCreditNotes,
   getAdminCapacityPools,
 } from './modules/admin/read-model.js';
@@ -549,6 +551,8 @@ export function buildServer(): FastifyInstance {
       accounts: 'accounts:read',
       services: 'services:read',
       tickets: 'tickets:read',
+      orders: 'accounts:read',
+      billing: 'accounts:read',
     };
     if (!viewPermissions[view] || !id) return reply.redirect('/admin');
     const destination = `/admin/${view}/${encodeURIComponent(id)}`;
@@ -2678,10 +2682,24 @@ export function buildServer(): FastifyInstance {
     return listAdminOrders(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
   });
 
+  app.get('/api/v1/admin/orders/:id', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const detail = getAdminOrderDetail(id, getDatabase());
+    if (!detail) return reply.status(404).send({ error: 'Order not found.' });
+    return detail;
+  });
+
   app.get('/api/v1/admin/invoices', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
     return listAdminInvoices(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/invoices/:id', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const detail = getAdminInvoiceDetail(id, getDatabase());
+    if (!detail) return reply.status(404).send({ error: 'Invoice not found.' });
+    return detail;
   });
 
   app.get('/api/v1/admin/credit-notes', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {

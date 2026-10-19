@@ -1,11 +1,17 @@
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
-import { hero, paginateItems, renderPager } from '../../../petal/index.js';
+import { hero, renderPager } from '../../../petal/index.js';
 import { badge } from '../../shell/admin-shell.js';
 
 function money(value: number, currency = 'EUR'): string {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(Number(value || 0) / 100);
+}
+
+function moneySummary(rows: any[], field: string): string {
+  return rows.length
+    ? rows.map((row) => money(Number(row[field] || 0), row.currency)).join(' · ')
+    : '—';
 }
 
 function empty(message: string): string {
@@ -17,6 +23,8 @@ function metric(label: string, value: string | number, icon: string, tone = '', 
 }
 
 let cachedOrders: any[] = [];
+let ordersTotal = 0;
+let ordersQuery = '';
 let ordersPage = 1;
 const ordersPageSize = 10;
 let ordersListenersBound = false;
@@ -34,14 +42,13 @@ function paintOrdersList(): void {
     return;
   }
 
-  const pagination = paginateItems(cachedOrders, ordersPage, ordersPageSize);
-  ordersPage = pagination.page;
+  const pages = Math.max(1, Math.ceil(ordersTotal / ordersPageSize));
+  const start = (ordersPage - 1) * ordersPageSize;
+  if (paginationRow) paginationRow.style.display = ordersTotal > ordersPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = `Showing ${start + 1}–${start + cachedOrders.length} of ${ordersTotal}`;
+  if (pagerEl) pagerEl.innerHTML = renderPager(ordersPage, pages);
 
-  if (paginationRow) paginationRow.style.display = cachedOrders.length > ordersPageSize ? 'flex' : 'none';
-  if (infoEl) infoEl.textContent = pagination.info;
-  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-
-  host.innerHTML = pagination.items.map((x) => `<tr>
+  host.innerHTML = cachedOrders.map((x) => `<tr class="h" data-order-id="${esc(x.id)}" style="cursor:pointer">
     <td data-l="Order"><b>${esc(x.id)}</b><small>${formatDate(x.created_at)}</small></td>
     <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
     <td data-l="Items">${Number(x.item_count)}</td><td data-l="Total"><b>${money(x.total_minor_units, x.currency)}</b></td>
@@ -58,26 +65,31 @@ function bindOrdersListeners(): void {
       const p = Number(btn.dataset.pg);
       if (p && p !== ordersPage) {
         ordersPage = p;
-        paintOrdersList();
+        renderOrders(ordersQuery, p);
       }
     }
   });
 }
 
-export async function renderOrders(q = ''): Promise<void> {
+export async function renderOrders(q = '', page = 1): Promise<void> {
   const host = document.querySelector<HTMLElement>('#ordersList');
   if (!host) return;
   try {
-    const { orders } = await api<{ orders: any[] }>(`/api/v1/admin/orders?q=${encodeURIComponent(q)}`);
+    ordersQuery = q;
+    ordersPage = Math.max(1, page);
+    const offset = (ordersPage - 1) * ordersPageSize;
+    const data = await api<{ orders: any[]; total: number; summary: Array<{ status: string; count: number }> }>(`/api/v1/admin/orders?q=${encodeURIComponent(q)}&limit=${ordersPageSize}&offset=${offset}`);
+    const orders = data.orders || [];
     const metrics = document.querySelector<HTMLElement>('#orderMetrics');
     if (metrics) {
-      const pending = orders.filter((x) => /PENDING|CREATED|AWAITING|PROCESSING/.test(String(x.status))).length;
-      const settled = orders.filter((x) => /PAID|FULFILLED|COMPLETED/.test(String(x.status))).length;
-      const attention = orders.filter((x) => /FAILED|ANOMALY|CANCELLED/.test(String(x.status))).length;
-      metrics.innerHTML = metric('Loaded orders', orders.length, 'cube') + metric('Settled', settled, 'check', 'good') + metric('In progress', pending, 'refresh', pending ? 'warn' : 'good') + metric('Needs attention', attention, 'warning', attention ? 'bad' : 'good');
+      const count = (pattern: RegExp) => (data.summary || []).filter((item) => pattern.test(item.status)).reduce((sum, item) => sum + Number(item.count), 0);
+      const pending = count(/DRAFT|AWAITING_PAYMENT|FULFILLING/);
+      const settled = count(/PAID|COMPLETED/);
+      const attention = count(/FAILED|CANCELED|PARTIALLY_FULFILLED/);
+      metrics.innerHTML = metric('Orders', data.total, 'cube') + metric('Settled', settled, 'check', 'good') + metric('In progress', pending, 'refresh', pending ? 'warn' : 'good') + metric('Needs attention', attention, 'warning', attention ? 'bad' : 'good');
     }
     cachedOrders = orders || [];
-    ordersPage = 1;
+    ordersTotal = Number(data.total || 0);
     paintOrdersList();
     bindOrdersListeners();
   } catch (error: any) { host.innerHTML = `<tr><td colspan="5">${empty(error.message)}</td></tr>`; }
@@ -85,6 +97,9 @@ export async function renderOrders(q = ''): Promise<void> {
 
 let cachedInvoices: any[] = [];
 let cachedCreditNotes: any[] = [];
+let invoicesTotal = 0;
+let creditsTotal = 0;
+let billingQuery = '';
 let invoicesPage = 1;
 let creditsPage = 1;
 const adminBillingPageSize = 10;
@@ -103,14 +118,13 @@ function paintAdminInvoicesList(): void {
     return;
   }
 
-  const pagination = paginateItems(cachedInvoices, invoicesPage, adminBillingPageSize);
-  invoicesPage = pagination.page;
+  const pages = Math.max(1, Math.ceil(invoicesTotal / adminBillingPageSize));
+  const start = (invoicesPage - 1) * adminBillingPageSize;
+  if (paginationRow) paginationRow.style.display = invoicesTotal > adminBillingPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = `Showing ${start + 1}–${start + cachedInvoices.length} of ${invoicesTotal}`;
+  if (pagerEl) pagerEl.innerHTML = renderPager(invoicesPage, pages);
 
-  if (paginationRow) paginationRow.style.display = cachedInvoices.length > adminBillingPageSize ? 'flex' : 'none';
-  if (infoEl) infoEl.textContent = pagination.info;
-  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-
-  invoiceHost.innerHTML = pagination.items.map((x) => `<tr>
+  invoiceHost.innerHTML = cachedInvoices.map((x) => `<tr class="h" data-invoice-id="${esc(x.id)}" style="cursor:pointer">
     <td data-l="Invoice"><b>${esc(x.invoice_number || x.id)}</b><small>${esc(x.id)}</small></td>
     <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
     <td data-l="Due">${x.due_date ? formatDate(x.due_date) : '—'}</td>
@@ -132,14 +146,13 @@ function paintAdminCreditsList(): void {
     return;
   }
 
-  const pagination = paginateItems(cachedCreditNotes, creditsPage, adminBillingPageSize);
-  creditsPage = pagination.page;
+  const pages = Math.max(1, Math.ceil(creditsTotal / adminBillingPageSize));
+  const start = (creditsPage - 1) * adminBillingPageSize;
+  if (paginationRow) paginationRow.style.display = creditsTotal > adminBillingPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = `Showing ${start + 1}–${start + cachedCreditNotes.length} of ${creditsTotal}`;
+  if (pagerEl) pagerEl.innerHTML = renderPager(creditsPage, pages);
 
-  if (paginationRow) paginationRow.style.display = cachedCreditNotes.length > adminBillingPageSize ? 'flex' : 'none';
-  if (infoEl) infoEl.textContent = pagination.info;
-  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-
-  creditHost.innerHTML = pagination.items.map((x) => `<tr>
+  creditHost.innerHTML = cachedCreditNotes.map((x) => `<tr>
     <td data-l="Credit note"><b>${esc(x.credit_note_number)}</b><small>${esc(x.id)}</small></td>
     <td data-l="Invoice">${esc(x.invoice_number)}</td><td data-l="Account">${esc(x.account_name)}</td>
     <td data-l="Amount"><b>${money(x.amount_minor_units, x.currency)}</b></td><td data-l="Reason">${esc(x.reason)}</td>
@@ -156,7 +169,7 @@ function bindBillingOpsListeners(): void {
       const p = Number(btn.dataset.pg);
       if (p && p !== invoicesPage) {
         invoicesPage = p;
-        paintAdminInvoicesList();
+        renderBilling(billingQuery, p, creditsPage);
       }
     }
   });
@@ -167,37 +180,103 @@ function bindBillingOpsListeners(): void {
       const p = Number(btn.dataset.pg);
       if (p && p !== creditsPage) {
         creditsPage = p;
-        paintAdminCreditsList();
+        renderBilling(billingQuery, invoicesPage, p);
       }
     }
   });
 }
 
-export async function renderBilling(q = ''): Promise<void> {
+export async function renderBilling(q = '', invoicePage = 1, creditPage = 1): Promise<void> {
   const invoiceHost = document.querySelector<HTMLElement>('#invoicesList');
   const creditHost = document.querySelector<HTMLElement>('#creditNotesList');
   if (!invoiceHost || !creditHost) return;
   try {
+    billingQuery = q;
+    invoicesPage = Math.max(1, invoicePage);
+    creditsPage = Math.max(1, creditPage);
     const [invoiceData, creditData] = await Promise.all([
-      api<{ invoices: any[] }>(`/api/v1/admin/invoices?q=${encodeURIComponent(q)}`),
-      api<{ creditNotes: any[] }>(`/api/v1/admin/credit-notes?q=${encodeURIComponent(q)}`),
+      api<{ invoices: any[]; total: number; summary: any[] }>(`/api/v1/admin/invoices?q=${encodeURIComponent(q)}&limit=${adminBillingPageSize}&offset=${(invoicesPage - 1) * adminBillingPageSize}`),
+      api<{ creditNotes: any[]; total: number; summary: any[] }>(`/api/v1/admin/credit-notes?q=${encodeURIComponent(q)}&limit=${adminBillingPageSize}&offset=${(creditsPage - 1) * adminBillingPageSize}`),
     ]);
     const metrics = document.querySelector<HTMLElement>('#billingMetrics');
     if (metrics) {
-      const paid = invoiceData.invoices.reduce((sum, x) => sum + Number(x.amount_paid_minor_units || 0), 0);
-      const outstanding = invoiceData.invoices.reduce((sum, x) => sum + Math.max(0, Number(x.total_minor_units || 0) - Number(x.amount_paid_minor_units || 0)), 0);
-      const credited = creditData.creditNotes.reduce((sum, x) => sum + Number(x.amount_minor_units || 0), 0);
-      const currency = invoiceData.invoices[0]?.currency || creditData.creditNotes[0]?.currency || 'EUR';
-      metrics.innerHTML = metric('Loaded invoices', invoiceData.invoices.length, 'document') + metric('Paid', money(paid, currency), 'check', 'good') + metric('Outstanding', money(outstanding, currency), 'warning', outstanding ? 'warn' : 'good') + metric('Credits issued', money(credited, currency), 'credit', credited ? 'info' : '');
+      const overdue = invoiceData.summary.reduce((sum, row) => sum + Number(row.overdue_count || 0), 0);
+      metrics.innerHTML = metric('Invoices', invoiceData.total, 'document')
+        + metric('Collected', moneySummary(invoiceData.summary, 'paid_minor_units'), 'check', 'good')
+        + metric('Outstanding', moneySummary(invoiceData.summary, 'outstanding_minor_units'), 'warning', overdue ? 'warn' : 'good', `${overdue} overdue`)
+        + metric('Credits issued', moneySummary(creditData.summary, 'credited_minor_units'), 'credit', creditData.total ? 'info' : '');
     }
     cachedInvoices = invoiceData.invoices || [];
     cachedCreditNotes = creditData.creditNotes || [];
-    invoicesPage = 1;
-    creditsPage = 1;
+    invoicesTotal = Number(invoiceData.total || 0);
+    creditsTotal = Number(creditData.total || 0);
     paintAdminInvoicesList();
     paintAdminCreditsList();
     bindBillingOpsListeners();
   } catch (error: any) { invoiceHost.innerHTML = `<tr><td colspan="6">${empty(error.message)}</td></tr>`; }
+}
+
+export async function renderOrderDetail(orderId: string): Promise<void> {
+  const host = document.getElementById('adminOrderDetailBody');
+  if (!host) return;
+  host.innerHTML = '<div class="sk" role="status" aria-label="Loading order"><i></i><i></i><i></i></div>';
+  try {
+    const data = await api<{ order: any; items: any[]; invoices: any[]; audit: any[] }>(`/api/v1/admin/orders/${encodeURIComponent(orderId)}`);
+    const order = data.order;
+    const title = document.getElementById('adminOrderTitle');
+    const meta = document.getElementById('adminOrderMeta');
+    if (title) title.textContent = `Order ${order.id}`;
+    if (meta) meta.textContent = `${order.account_name} · ${order.customer_email} · created ${formatDate(order.created_at)}`;
+    host.innerHTML = `
+      <div class="g g4 k2">
+        ${metric('Order state', order.status, 'cube')}
+        ${metric('Total', money(order.total_minor_units, order.currency), 'credit')}
+        ${metric('Items', data.items.length, 'server')}
+        ${metric('Invoices', data.invoices.length, 'document')}
+      </div>
+      <div class="row wrap"><a class="btn s" href="/admin/accounts/${encodeURIComponent(order.account_id)}" data-route="account-detail">Customer account</a>${badge(order.status)}<span class="pill mono">${esc(order.currency)}</span></div>
+      <article class="card table-card"><div class="ch"><div class="tx"><h3>Fulfillment</h3><p>Payment, item fulfillment and provisioning are shown as separate states.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Product</th><th>Region</th><th>Price</th><th>Fulfillment</th><th>Provisioning</th><th>Service</th></tr></thead><tbody>
+        ${data.items.map((item) => `<tr><td><b>${esc(item.product_name)}</b><small>${esc(item.plan_name)}</small></td><td>${esc(item.region_name)}</td><td>${item.unit_price_minor_units == null ? '—' : money(item.unit_price_minor_units, order.currency)}</td><td>${badge(item.fulfillment_status)}</td><td>${item.provision_status ? badge(item.provision_status) : '<span class="muted">Not queued</span>'}${item.last_error ? `<small class="bad">${esc(item.last_error)}</small>` : ''}</td><td>${item.service_id ? `<a class="btn xs" href="/admin/services/${encodeURIComponent(item.service_id)}" data-route="admin-service-detail">Manage</a>` : '—'}</td></tr>`).join('') || '<tr><td colspan="6">No order items.</td></tr>'}
+      </tbody></table></div></article>
+      <div class="g g2">
+        <article class="card"><div class="ch"><div class="tx"><h3>Related invoices</h3><p>Authoritative accounting state.</p></div></div><div class="col">${data.invoices.map((invoice) => `<a class="li" href="/admin/billing/${encodeURIComponent(invoice.id)}" data-route="invoice-detail"><span class="tx"><b>${esc(invoice.invoice_number || invoice.id)}</b><small>Due ${formatDate(invoice.due_date)}</small></span><b>${money(invoice.total_minor_units, invoice.currency)}</b>${badge(invoice.status)}</a>`).join('') || empty('No invoice linked')}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Order audit</h3><p>Correlation-aware lifecycle evidence.</p></div></div><div class="col">${data.audit.map((event) => `<div class="li h"><span class="tx"><b>${esc(event.action)}</b><small>${esc(event.correlation_id || 'No correlation id')} · ${formatDate(event.created_at)}</small></span></div>`).join('') || empty('No order audit events')}</div></article>
+      </div>`;
+  } catch (error: any) {
+    host.innerHTML = `<div class="alert bad"><div><b>Order unavailable</b><span>${esc(error.message)}</span></div></div>`;
+  }
+}
+
+export async function renderInvoiceDetail(invoiceId: string): Promise<void> {
+  const host = document.getElementById('adminInvoiceDetailBody');
+  if (!host) return;
+  host.innerHTML = '<div class="sk" role="status" aria-label="Loading invoice"><i></i><i></i><i></i></div>';
+  try {
+    const data = await api<{ invoice: any; lines: any[]; payments: any[]; refunds: any[]; creditNotes: any[]; services: any[]; audit: any[] }>(`/api/v1/admin/invoices/${encodeURIComponent(invoiceId)}`);
+    const invoice = data.invoice;
+    const balance = Math.max(0, Number(invoice.total_minor_units) - Number(invoice.amount_paid_minor_units));
+    const title = document.getElementById('adminInvoiceTitle');
+    const meta = document.getElementById('adminInvoiceMeta');
+    if (title) title.textContent = invoice.invoice_number || invoice.id;
+    if (meta) meta.textContent = `${invoice.account_name} · ${invoice.customer_email} · issued ${formatDate(invoice.created_at)}`;
+    host.innerHTML = `
+      <div class="g g4 k2">
+        ${metric('Invoice state', invoice.status, 'document')}
+        ${metric('Total', money(invoice.total_minor_units, invoice.currency), 'credit')}
+        ${metric('Paid', money(invoice.amount_paid_minor_units, invoice.currency), 'check', invoice.amount_paid_minor_units ? 'good' : '')}
+        ${metric('Balance', money(balance, invoice.currency), 'warning', balance ? 'warn' : 'good')}
+      </div>
+      <div class="row wrap"><a class="btn s" href="/admin/accounts/${encodeURIComponent(invoice.account_id)}" data-route="account-detail">Customer account</a>${invoice.order_id ? `<a class="btn s" href="/admin/orders/${encodeURIComponent(invoice.order_id)}" data-route="order-detail">Related order</a>` : ''}${badge(invoice.status)}${invoice.status === 'PAID' && Number(invoice.amount_paid_minor_units) > 0 ? `<button class="btn s" data-refund-invoice="${esc(invoice.id)}" data-refund-max="${Number(invoice.amount_paid_minor_units)}" data-refund-currency="${esc(invoice.currency)}" data-permission="accounts:manage">Refund</button>` : ''}</div>
+      <article class="card table-card"><div class="ch"><div class="tx"><h3>Invoice lines</h3><p>Persisted fiscal line items and tax basis points.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Description</th><th>Quantity</th><th>Unit price</th><th>Tax</th><th>Total</th></tr></thead><tbody>${data.lines.map((line) => `<tr><td><b>${esc(line.description)}</b></td><td>${Number(line.quantity)}</td><td>${money(line.unit_price_minor_units, invoice.currency)}</td><td>${(Number(line.tax_rate_basis_points) / 100).toFixed(2)}%</td><td><b>${money(line.total_minor_units, invoice.currency)}</b></td></tr>`).join('') || '<tr><td colspan="5">No invoice lines.</td></tr>'}</tbody></table></div></article>
+      <div class="g g2">
+        <article class="card"><div class="ch"><div class="tx"><h3>Payments</h3><p>PSP attempts remain distinct from invoice settlement.</p></div></div><div class="col">${data.payments.map((payment) => `<div class="li h"><span class="tx"><b>${money(payment.amount_minor_units, payment.currency)} via ${esc(payment.psp_name)}</b><small>${esc(payment.psp_payment_intent_id || payment.id)} · ${formatDate(payment.created_at)}</small></span>${badge(payment.status)}</div>`).join('') || empty('No payment attempts')}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Credits & refunds</h3><p>PSP refund state and fiscal credit notes.</p></div></div><div class="col">${data.refunds.map((refund) => `<div class="li h"><span class="tx"><b>${money(refund.amount_minor_units, invoice.currency)}</b><small>${esc(refund.reason)} · ${esc(refund.psp_refund_id || 'PSP reference pending')}</small></span>${badge(refund.status)}</div>`).join('')}${data.creditNotes.map((note) => `<div class="li h"><span class="tx"><b>${esc(note.credit_note_number)}</b><small>${esc(note.reason)}</small></span><b>${money(note.amount_minor_units, invoice.currency)}</b></div>`).join('') || (!data.refunds.length ? empty('No credits or refunds') : '')}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Related services</h3><p>Services fulfilled by the linked order.</p></div></div><div class="col">${data.services.map((service) => `<a class="li" href="/admin/services/${encodeURIComponent(service.id)}" data-route="admin-service-detail"><span class="tx"><b>${esc(service.plan_name || service.product_name)}</b><small>${esc(service.identifier || service.id)}</small></span>${badge(service.contract_status)}</a>`).join('') || empty('No related services')}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Invoice audit</h3><p>Security and accounting mutations.</p></div></div><div class="col">${data.audit.map((event) => `<div class="li h"><span class="tx"><b>${esc(event.action)}</b><small>${esc(event.correlation_id || 'No correlation id')} · ${formatDate(event.created_at)}</small></span></div>`).join('') || empty('No invoice audit events')}</div></article>
+      </div>`;
+  } catch (error: any) {
+    host.innerHTML = `<div class="alert bad"><div><b>Invoice unavailable</b><span>${esc(error.message)}</span></div></div>`;
+  }
 }
 
 

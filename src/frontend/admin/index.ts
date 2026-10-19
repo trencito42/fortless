@@ -27,7 +27,7 @@ import {
 import { renderTickets, openTicketDetail, renderTicketDetail, getActiveTicketId } from './pages/tickets/index.js';
 import { renderAudit } from './pages/audit/index.js';
 import { renderStaff, openStaffEditor } from './pages/staff/index.js';
-import { renderOrders, renderBilling, renderInfrastructure, renderStatus } from './pages/operations/index.js';
+import { renderOrders, renderOrderDetail, renderBilling, renderInvoiceDetail, renderInfrastructure, renderStatus } from './pages/operations/index.js';
 import { renderSettings, testProviderConnection } from './pages/settings/index.js';
 import { toast } from '../petal/index.js';
 
@@ -42,7 +42,9 @@ function updateAdminChrome(routeName: string) {
     services: ['Service inventory', 'Contract and provider-observed state.'],
     'admin-service-detail': ['Service operations', 'Provider state, allocation, lifecycle controls and audit history.'],
     orders: ['Orders', 'Commercial order lifecycle and fulfillment state.'],
+    'order-detail': ['Order detail', 'Payment, fulfillment, provisioning and related service records.'],
     billing: ['Billing operations', 'Invoices, credit notes and payment state.'],
+    'invoice-detail': ['Invoice detail', 'Authoritative lines, payments, refunds and related services.'],
     infrastructure: ['Infrastructure', 'Capacity pools and provider readiness.'],
     catalog: ['Catalog & providers', 'Products stay private until plans are mapped to real provider inventory.'],
     tickets: ['Support queue', 'Real customer threads. Click a ticket to view and reply.'],
@@ -89,7 +91,9 @@ router.register('admin-service-detail', async (match) => {
   await renderServiceDetail(match.params.id!);
 });
 router.register('orders', async () => { updateAdminChrome('orders'); await renderOrders(); });
+router.register('order-detail', async (match) => { updateAdminChrome('order-detail'); await renderOrderDetail(match.params.id!); });
 router.register('billing', async () => { updateAdminChrome('billing'); await renderBilling(); });
+router.register('invoice-detail', async (match) => { updateAdminChrome('invoice-detail'); await renderInvoiceDetail(match.params.id!); });
 router.register('infrastructure', async () => { updateAdminChrome('infrastructure'); await renderInfrastructure(); });
 
 router.register('catalog', async () => {
@@ -229,6 +233,16 @@ function bindAdminEvents() {
     const refund = target.closest<HTMLElement>('[data-refund-invoice]');
     if (refund) {
       openOperation('refund', refund.dataset.refundInvoice!, Number(refund.dataset.refundMax || 0), refund.dataset.refundCurrency || 'EUR');
+      return;
+    }
+    const orderRow = target.closest<HTMLElement>('[data-order-id]');
+    if (orderRow) {
+      router.navigate('order-detail', { id: orderRow.dataset.orderId! });
+      return;
+    }
+    const invoiceRow = target.closest<HTMLElement>('[data-invoice-id]');
+    if (invoiceRow) {
+      router.navigate('invoice-detail', { id: invoiceRow.dataset.invoiceId! });
       return;
     }
     if (target.closest('[data-add-staff]')) { const m = document.getElementById('modalAddStaff'); if (m) m.hidden = false; return; }

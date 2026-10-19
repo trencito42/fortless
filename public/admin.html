@@ -111,6 +111,11 @@
         </div>
       </div></section>
 
+      <section class="page" id="page-order-detail">
+        <div class="hd"><div class="tx"><a class="eyebrow" href="/admin/orders" data-route="orders">← Orders</a><h2 id="adminOrderTitle">Order detail</h2><p id="adminOrderMeta">Loading commercial and fulfillment context…</p></div></div>
+        <div id="adminOrderDetailBody" class="col" style="gap:14px"></div>
+      </section>
+
       <section class="page" id="page-billing"><div class="hd"><div><h2>Billing operations</h2><p>Authoritative invoices and issued credit notes, stored in minor units.</p></div></div><div id="billingMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search invoice or customer" data-search="billing"></div><article class="card table-card"><div class="card-head"><div><h2>Invoices</h2><p>Refunds are step-up protected and create credit notes.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Invoice</th><th>Account</th><th>Due</th><th>Paid / total</th><th>Status</th><th></th></tr></thead><tbody id="invoicesList"></tbody></table></div>
         <div class="row wrap" id="adminInvoicesPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
           <span class="muted" id="adminInvoicesPageInfo" style="font-size:12.5px"></span>
@@ -122,6 +127,11 @@
           <div class="pager" id="adminCreditsPager" data-c="Pagination"></div>
         </div>
       </article></section>
+
+      <section class="page" id="page-invoice-detail">
+        <div class="hd"><div class="tx"><a class="eyebrow" href="/admin/billing" data-route="billing">← Billing operations</a><h2 id="adminInvoiceTitle">Invoice detail</h2><p id="adminInvoiceMeta">Loading accounting and payment context…</p></div></div>
+        <div id="adminInvoiceDetailBody" class="col" style="gap:14px"></div>
+      </section>
 
       <section class="page" id="page-infrastructure"><div class="hd"><div><h2>Infrastructure</h2><p>Local allocation ledger and provider readiness.</p></div></div><div id="infrastructureMetrics" class="g g4 k2 admin-metrics"></div><div id="capacityRegions" class="g g3" style="margin-bottom:12px"></div><article class="card table-card"><div class="card-head"><div><h2>Capacity nodes</h2><p>Only persisted nodes are shown; no inferred capacity.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Node</th><th>Region</th><th>Services</th><th>Memory</th><th>Disk</th><th>Mode</th></tr></thead><tbody id="capacityNodes"></tbody></table></div></article></section>
 
