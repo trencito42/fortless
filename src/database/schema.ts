@@ -410,17 +410,49 @@ CREATE TABLE IF NOT EXISTS provision_operations (
 );
 
 -- 5. Operations, Support, Audit & Idempotency
+CREATE TABLE IF NOT EXISTS ticket_departments (
+  id TEXT PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
 CREATE TABLE IF NOT EXISTS tickets (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
   created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   assigned_staff_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  department_id TEXT REFERENCES ticket_departments(id) ON DELETE SET NULL,
   subject TEXT NOT NULL,
   priority TEXT NOT NULL DEFAULT 'NORMAL' CHECK(priority IN ('LOW', 'NORMAL', 'HIGH', 'URGENT')),
   status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN', 'WAITING_CUSTOMER', 'WAITING_STAFF', 'RESOLVED', 'CLOSED')),
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
+
+CREATE TABLE IF NOT EXISTS ticket_macros (
+  id TEXT PRIMARY KEY,
+  name TEXT UNIQUE NOT NULL,
+  body TEXT NOT NULL,
+  status TEXT CHECK(status IN ('OPEN', 'WAITING_CUSTOMER', 'WAITING_STAFF', 'RESOLVED', 'CLOSED')),
+  department_id TEXT REFERENCES ticket_departments(id) ON DELETE SET NULL,
+  is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+  created_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS admin_account_notes (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  author_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_account_notes_account ON admin_account_notes(account_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tickets_department ON tickets(department_id, status, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS ticket_messages (
   id TEXT PRIMARY KEY,

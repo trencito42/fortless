@@ -310,6 +310,35 @@ function bindAdminEvents() {
     }
   });
 
+  document.addEventListener('submit', async (event: SubmitEvent) => {
+    const form = event.target as HTMLFormElement;
+    if (form.id !== 'adminAccountNoteForm' && form.id !== 'adminBillingProfileForm') return;
+    event.preventDefault();
+    const accountId = getActiveAccountId();
+    if (!accountId) return;
+    const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+    if (button) button.disabled = true;
+    try {
+      const values = new FormData(form);
+      if (form.id === 'adminAccountNoteForm') {
+        await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/notes`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: values.get('body') }),
+        });
+        toast('Administrative note saved.', 'good');
+      } else {
+        await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/billing-profile`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(values.entries())),
+        });
+        toast('Billing profile updated and audited.', 'good');
+      }
+      await renderAccountDetail(accountId);
+    } catch (error: any) {
+      toast(error.message, 'bad');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  });
+
   // Search input debouncers
   document.querySelectorAll<HTMLInputElement>('[data-search]').forEach((input) => {
     let timer: number;

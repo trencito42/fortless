@@ -287,6 +287,8 @@ export interface AdminAccountDetail {
   orders: any[];
   subscriptions: any[];
   audit: any[];
+  notes: any[];
+  billingProfile: any | null;
   summary: Record<string, number>;
 }
 
@@ -355,6 +357,15 @@ export function getAdminAccountDetail(accountId: string, db: Database.Database):
     SELECT action, actor_type, resource_type, resource_id, ip_address, correlation_id, created_at
     FROM audit_events WHERE account_id = ? ORDER BY created_at DESC, id DESC LIMIT 30
   `).all(accountId) as any[];
+  const notes = db.prepare(`
+    SELECT n.id, n.body, n.created_at, u.id AS author_user_id, u.name AS author_name, u.email AS author_email
+    FROM admin_account_notes n JOIN users u ON u.id = n.author_user_id
+    WHERE n.account_id = ? ORDER BY n.created_at DESC, n.id DESC LIMIT 50
+  `).all(accountId) as any[];
+  const billingProfile = db.prepare(`
+    SELECT company_name, tax_id, tax_id_type, address_line1, address_line2, city, postal_code, country, updated_at
+    FROM billing_profiles WHERE account_id = ?
+  `).get(accountId) as any | undefined;
   const summary = db.prepare(`
     SELECT
       (SELECT count(*) FROM services WHERE account_id = ?) AS services,
@@ -364,7 +375,47 @@ export function getAdminAccountDetail(accountId: string, db: Database.Database):
       (SELECT count(*) FROM invoices WHERE account_id = ? AND status IN ('ISSUED', 'OVERDUE') AND amount_paid_minor_units < total_minor_units) AS unpaid_invoices
   `).get(accountId, accountId, accountId, accountId, accountId) as Record<string, number>;
 
-  return { account, members, services, invoices, tickets, orders, subscriptions, audit, summary };
+  return { account, members, services, invoices, tickets, orders, subscriptions, audit, notes, billingProfile: billingProfile || null, summary };
+}
+
+export function addAdminAccountNote(
+  data: { accountId: string; authorUserId: string; body: string; ipAddress: string },
+  db: Database.Database
+) {
+  return runInTransaction((trx) => {
+    const account = trx.prepare('SELECT id FROM accounts WHERE id = ?').get(data.accountId);
+    if (!account) throw new Error('Account not found.');
+    const id = generateId('note');
+    trx.prepare('INSERT INTO admin_account_notes (id, account_id, author_user_id, body) VALUES (?, ?, ?, ?)')
+      .run(id, data.accountId, data.authorUserId, data.body);
+    trx.prepare(`INSERT INTO audit_events
+      (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'STAFF', 'account.admin_note_added', 'account', ?, ?, ?, ?)`)
+      .run(generateId('aud'), data.accountId, data.authorUserId, data.accountId, data.ipAddress, generateId('cor'), JSON.stringify({ noteId: id }));
+    return { id };
+  }, db);
+}
+
+export function updateAdminBillingProfile(
+  data: { accountId: string; actorUserId: string; ipAddress: string; companyName: string | null; taxId: string | null; taxIdType: string | null; addressLine1: string; addressLine2: string | null; city: string; postalCode: string; country: string },
+  db: Database.Database
+) {
+  return runInTransaction((trx) => {
+    const account = trx.prepare('SELECT id FROM accounts WHERE id = ?').get(data.accountId);
+    if (!account) throw new Error('Account not found.');
+    trx.prepare(`
+      INSERT INTO billing_profiles (id, account_id, tax_id, tax_id_type, company_name, address_line1, address_line2, city, postal_code, country)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET tax_id = excluded.tax_id, tax_id_type = excluded.tax_id_type,
+        company_name = excluded.company_name, address_line1 = excluded.address_line1, address_line2 = excluded.address_line2,
+        city = excluded.city, postal_code = excluded.postal_code, country = excluded.country, updated_at = datetime('now', 'utc')
+    `).run(generateId('bpr'), data.accountId, data.taxId, data.taxIdType, data.companyName, data.addressLine1, data.addressLine2, data.city, data.postalCode, data.country);
+    trx.prepare(`INSERT INTO audit_events
+      (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'STAFF', 'billing.profile_updated_by_staff', 'account', ?, ?, ?, ?)`)
+      .run(generateId('aud'), data.accountId, data.actorUserId, data.accountId, data.ipAddress, generateId('cor'), JSON.stringify({ country: data.country, hasTaxId: Boolean(data.taxId), taxIdType: data.taxIdType }));
+    return { accountId: data.accountId };
+  }, db);
 }
 
 export function getAdminServiceDetail(serviceId: string, db: Database.Database) {

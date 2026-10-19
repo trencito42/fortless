@@ -111,6 +111,8 @@ import {
   getAdminOverview,
   listAdminAccounts,
   getAdminAccountDetail,
+  addAdminAccountNote,
+  updateAdminBillingProfile,
   updateAccountStatus,
   listAdminServices,
   getAdminServiceDetail,
@@ -2674,6 +2676,39 @@ export function buildServer(): FastifyInstance {
       return reply.send({ success: true, accountId: params.data.accountId, status: body.data.status });
     } catch (err: unknown) {
       return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/v1/admin/accounts/:accountId/notes', { preHandler: [requireAuth, requireStaffPermission('accounts:manage')] }, async (req, reply) => {
+    const params = z.object({ accountId: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({ body: z.string().trim().min(2).max(4000) }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'A note between 2 and 4000 characters is required.' });
+    try {
+      const note = addAdminAccountNote({ accountId: params.data.accountId, authorUserId: req.auth!.user.id, body: body.data.body, ipAddress: req.ip }, getDatabase());
+      return reply.status(201).send(note);
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
+  app.put('/api/v1/admin/accounts/:accountId/billing-profile', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ accountId: z.string().min(1) }).safeParse(req.params);
+    const nullableText = (max: number) => z.string().trim().max(max).transform((value) => value || null).nullable().optional().transform((value) => value ?? null);
+    const body = z.object({
+      companyName: nullableText(120),
+      taxId: z.string().trim().max(30).regex(/^[A-Za-z0-9 .\-/]*$/).transform((value) => value || null).nullable().optional().transform((value) => value ?? null),
+      taxIdType: nullableText(30),
+      addressLine1: z.string().trim().min(2).max(150),
+      addressLine2: nullableText(150),
+      city: z.string().trim().min(2).max(80),
+      postalCode: z.string().trim().min(2).max(20).regex(/^[A-Za-z0-9 -]+$/),
+      country: z.string().trim().length(2).transform((value) => value.toUpperCase()).refine((value) => /^[A-Z]{2}$/.test(value)),
+    }).strict().safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Valid billing identity, address and two-letter country code are required.', details: body.success ? undefined : body.error.issues });
+    try {
+      return updateAdminBillingProfile({ accountId: params.data.accountId, actorUserId: req.auth!.user.id, ipAddress: req.ip, ...body.data }, getDatabase());
+    } catch (err: unknown) {
+      return reply.status(404).send({ error: (err as Error).message });
     }
   });
 

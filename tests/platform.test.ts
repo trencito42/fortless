@@ -121,6 +121,8 @@ import {
   getAdminOverview,
   listAdminAccounts,
   getAdminAccountDetail,
+  addAdminAccountNote,
+  updateAdminBillingProfile,
   updateAccountStatus,
   listAdminServices,
   listAdminTickets,
@@ -1866,6 +1868,24 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const audit = db.prepare("SELECT * FROM audit_events WHERE action = 'ticket.status_changed'").all() as { metadata: string }[];
       expect(audit).toHaveLength(1);
       expect(JSON.parse(audit[0]!.metadata)).toEqual({ from: 'OPEN', to: 'RESOLVED' });
+    });
+
+    it('ADMIN-09: administrative notes and staff billing changes persist with author and audit evidence', () => {
+      const customer = registerUser(
+        { email: 'account_context@example.com', password: 'Password123!', name: 'Account Context', ipAddress: '127.0.0.1', userAgent: 'test' }, db
+      );
+      const staff = registerUser(
+        { email: 'billing_staff@example.com', password: 'Password123!', name: 'Billing Staff', ipAddress: '127.0.0.1', userAgent: 'test' }, db
+      );
+      addAdminAccountNote({ accountId: customer.account.id, authorUserId: staff.user.id, body: 'Customer supplied fiscal documents for manual review.', ipAddress: '10.0.0.10' }, db);
+      updateAdminBillingProfile({
+        accountId: customer.account.id, actorUserId: staff.user.id, ipAddress: '10.0.0.10', companyName: 'Context SRL', taxId: 'RO123456', taxIdType: 'VAT', addressLine1: 'Example Street 10', addressLine2: null, city: 'Bucharest', postalCode: '010101', country: 'RO',
+      }, db);
+
+      const detail = getAdminAccountDetail(customer.account.id, db)!;
+      expect(detail.notes).toMatchObject([{ author_name: 'Billing Staff', body: 'Customer supplied fiscal documents for manual review.' }]);
+      expect(detail.billingProfile).toMatchObject({ company_name: 'Context SRL', tax_id: 'RO123456', tax_id_type: 'VAT', country: 'RO' });
+      expect(db.prepare("SELECT count(*) AS count FROM audit_events WHERE action IN ('account.admin_note_added', 'billing.profile_updated_by_staff')").get()).toEqual({ count: 2 });
     });
   });
 

@@ -1268,6 +1268,32 @@
         <article class="card"><div class="ch"><div class="tx"><h3>Subscriptions & renewals</h3><p>Persisted renewal state and next billing date.</p></div></div><div class="col">${d.subscriptions.map((sub) => `<a class="li" href="/admin/services/${encodeURIComponent(sub.service_id)}" data-route="admin-service-detail"><span class="tx"><b>${esc(sub.plan_name || sub.product_name)}</b><small>${esc(sub.billing_interval)} \xB7 renews ${formatDate(sub.next_renewal_date)}</small></span><b>${money(sub.renewal_price_minor_units, sub.currency)}</b>${badge(sub.status)}</a>`).join("") || '<div class="empty"><b>No subscriptions recorded.</b></div>'}</div></article>
       </div>
 
+      <div class="g g2">
+        <article class="card">
+          <div class="ch"><div class="tx"><h3>Administrative notes</h3><p>Private staff context with immutable author and timestamp.</p></div></div>
+          <div class="col" style="gap:8px">${d.notes.map((note) => `<div class="li h"><span class="tx"><b>${esc(note.author_name)}</b><small>${formatDate(note.created_at)} \xB7 ${esc(note.author_email)}</small><span style="margin-top:6px;white-space:pre-wrap">${esc(note.body)}</span></span></div>`).join("") || '<div class="empty"><b>No administrative notes.</b></div>'}</div>
+          <form id="adminAccountNoteForm" class="col" style="gap:8px;margin-top:12px" data-permission="accounts:manage">
+            <label class="field"><span>Add private note</span><div class="inp ta"><textarea name="body" required minlength="2" maxlength="4000" placeholder="Operational context visible only to authorized staff"></textarea></div></label>
+            <div class="row" style="justify-content:flex-end"><button class="btn s pri" type="submit">Save note</button></div>
+          </form>
+        </article>
+        <article class="card">
+          <div class="ch"><div class="tx"><h3>Billing profile & tax identity</h3><p>Updates are validated, MFA-gated and audited.</p></div></div>
+          <form id="adminBillingProfileForm" class="col" style="gap:10px" data-permission="accounts:manage">
+            <div class="g g2">
+              <label class="field"><span>Company name</span><div class="inp"><input name="companyName" maxlength="120" value="${esc(d.billingProfile?.company_name || "")}"></div></label>
+              <label class="field"><span>Country code</span><div class="inp"><input name="country" required minlength="2" maxlength="2" value="${esc(d.billingProfile?.country || "")}" placeholder="RO"></div></label>
+              <label class="field"><span>Tax ID</span><div class="inp"><input name="taxId" maxlength="30" value="${esc(d.billingProfile?.tax_id || "")}"></div></label>
+              <label class="field"><span>Tax ID type</span><div class="inp"><input name="taxIdType" maxlength="30" value="${esc(d.billingProfile?.tax_id_type || "")}" placeholder="VAT, EIN\u2026"></div></label>
+            </div>
+            <label class="field"><span>Address</span><div class="inp"><input name="addressLine1" required maxlength="150" value="${esc(d.billingProfile?.address_line1 || "")}"></div></label>
+            <label class="field"><span>Address line 2</span><div class="inp"><input name="addressLine2" maxlength="150" value="${esc(d.billingProfile?.address_line2 || "")}"></div></label>
+            <div class="g g2"><label class="field"><span>City</span><div class="inp"><input name="city" required maxlength="80" value="${esc(d.billingProfile?.city || "")}"></div></label><label class="field"><span>Postal code</span><div class="inp"><input name="postalCode" required maxlength="20" value="${esc(d.billingProfile?.postal_code || "")}"></div></label></div>
+            <div class="row" style="justify-content:flex-end"><button class="btn s pri" type="submit">Save billing profile</button></div>
+          </form>
+        </article>
+      </div>
+
       <div>
         <div class="dh" style="margin-bottom:6px">SUPPORT CONTEXT (${d.tickets.length})</div>
         <div class="col" style="gap:8px">
@@ -3058,6 +3084,38 @@
           item.hidden = value !== "ALL" && item.dataset.filterState !== value;
         });
         return;
+      }
+    });
+    document.addEventListener("submit", async (event) => {
+      const form = event.target;
+      if (form.id !== "adminAccountNoteForm" && form.id !== "adminBillingProfileForm") return;
+      event.preventDefault();
+      const accountId = getActiveAccountId();
+      if (!accountId) return;
+      const button = form.querySelector('button[type="submit"]');
+      if (button) button.disabled = true;
+      try {
+        const values = new FormData(form);
+        if (form.id === "adminAccountNoteForm") {
+          await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ body: values.get("body") })
+          });
+          toast("Administrative note saved.", "good");
+        } else {
+          await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/billing-profile`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(Object.fromEntries(values.entries()))
+          });
+          toast("Billing profile updated and audited.", "good");
+        }
+        await renderAccountDetail(accountId);
+      } catch (error) {
+        toast(error.message, "bad");
+      } finally {
+        if (button) button.disabled = false;
       }
     });
     document.querySelectorAll("[data-search]").forEach((input) => {
