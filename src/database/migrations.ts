@@ -1219,6 +1219,22 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       }
     },
   },
+  {
+    version: 48,
+    name: 'managed transactional email template overrides',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS email_template_overrides (
+          template TEXT PRIMARY KEY,
+          subject_template TEXT NOT NULL,
+          text_template TEXT NOT NULL,
+          html_template TEXT NOT NULL,
+          updated_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

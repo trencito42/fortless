@@ -43,6 +43,9 @@ import {
   ProductionEmailTransportAdapter,
   SandboxEmailTransportAdapter,
   SmtpEmailTransportAdapter,
+  listEmailTemplates,
+  saveEmailTemplateOverride,
+  resetEmailTemplateOverride,
 } from '../src/modules/email/outbox.js';
 import { getNotificationPreferences, saveNotificationPreferences } from '../src/modules/notifications/preferences.js';
 import { bootstrapOwner } from '../src/scripts/bootstrap-owner.js';
@@ -2305,6 +2308,15 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(rendered.html).toContain('>Reset password</a>');
       expect(rendered.html).not.toContain('<!--[if !mso]><!-->');
       expect(rendered.html).not.toContain('<v:roundrect');
+    });
+
+    it('EMAIL-06: audited template overrides are applied by the queue renderer and security links stay mandatory', () => {
+      const staff = registerUser({ email: 'mail_admin@example.com', password: 'P@ssword123!', name: 'Mail Admin', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      saveEmailTemplateOverride(db, { template: 'welcome', subject: 'Welcome {{name}}', text: 'Hello {{name}}', html: '<p>Hello {{name}}</p>', actorUserId: staff.user.id });
+      expect(renderEmail('welcome', { name: 'Ada' }, db)).toEqual({ subject: 'Welcome Ada', text: 'Hello Ada', html: '<p>Hello Ada</p>' });
+      expect(listEmailTemplates(db).find((item) => item.template === 'welcome')).toMatchObject({ overridden: true });
+      expect(() => saveEmailTemplateOverride(db, { template: 'password_reset', subject: 'Reset', text: 'No link', html: '<p>No link</p>', actorUserId: staff.user.id })).toThrow('{{resetUrl}}');
+      expect(resetEmailTemplateOverride(db, 'welcome')).toMatchObject({ overridden: false });
     });
 
     it('INV-03: Plaintext invoice receipt renders exact items, fiscal details, and VAT', async () => {

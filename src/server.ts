@@ -24,6 +24,7 @@ import rateLimit from '@fastify/rate-limit';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import Stripe from 'stripe';
 import { z } from 'zod';
 import { config } from './config/index.js';
 import { getDatabase } from './database/index.js';
@@ -113,6 +114,7 @@ import {
   getUnreadNotificationCount,
 } from './modules/notifications/notifications.js';
 import { getNotificationPreferences, saveNotificationPreferences } from './modules/notifications/preferences.js';
+import { emailTemplateIds, listEmailTemplates, resetEmailTemplateOverride, saveEmailTemplateOverride, verifySmtpConnection, type EmailTemplate } from './modules/email/outbox.js';
 import {
   getAdminOverview,
   listAdminAccounts,
@@ -1320,7 +1322,7 @@ export function buildServer(): FastifyInstance {
   const recordCatalogAudit = (
     req: FastifyRequest,
     action: string,
-    resourceType: 'catalog_product' | 'plan_version' | 'service',
+    resourceType: 'catalog_product' | 'plan_version' | 'service' | 'email_template' | 'integration',
     resourceId: string,
     metadata: Record<string, unknown>,
     db = getDatabase()
@@ -3423,8 +3425,76 @@ export function buildServer(): FastifyInstance {
     };
   });
 
+  app.get('/api/v1/admin/settings/email-templates', { preHandler: [requireAuth, requireStaffPermission('admin:access')] }, async () => {
+    const db = getDatabase();
+    const failedDeliveries = db.prepare(`SELECT id, recipient, template, subject, status, attempts, last_error, created_at
+      FROM email_outbox WHERE status IN ('FAILED', 'DEAD_LETTER') ORDER BY created_at DESC LIMIT 20`).all();
+    return { templates: listEmailTemplates(db), failedDeliveries };
+  });
+
+  app.put('/api/v1/admin/settings/email-templates/:template', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ template: z.string() }).safeParse(req.params);
+    const body = z.object({ subject: z.string(), text: z.string(), html: z.string() }).safeParse(req.body);
+    if (!params.success || !emailTemplateIds.includes(params.data.template as EmailTemplate) || !body.success) return reply.status(400).send({ error: 'A valid email template and content are required.' });
+    try {
+      const template = params.data.template as EmailTemplate;
+      const result = saveEmailTemplateOverride(getDatabase(), { template, ...body.data, actorUserId: req.auth!.user.id });
+      recordCatalogAudit(req, 'email.template_updated', 'email_template', template, { overridden: true });
+      return { success: true, template: result };
+    } catch (error: unknown) {
+      return reply.status(422).send({ error: (error as Error).message });
+    }
+  });
+
+  app.delete('/api/v1/admin/settings/email-templates/:template', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ template: z.string() }).safeParse(req.params);
+    if (!params.success || !emailTemplateIds.includes(params.data.template as EmailTemplate)) return reply.status(400).send({ error: 'A valid email template is required.' });
+    const template = params.data.template as EmailTemplate;
+    const result = resetEmailTemplateOverride(getDatabase(), template);
+    recordCatalogAudit(req, 'email.template_reset', 'email_template', template, { overridden: false });
+    return { success: true, template: result };
+  });
+
+  app.post('/api/v1/admin/settings/email-deliveries/:id/resend', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({ reason: z.string().trim().min(5).max(300) }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Delivery and audit reason are required.' });
+    try {
+      return { success: true, result: retryAdminJob({ type: 'EMAIL', id: params.data.id, actorUserId: req.auth!.user.id, ipAddress: req.ip, reason: body.data.reason }, getDatabase()) };
+    } catch (error: unknown) {
+      const message = (error as Error).message;
+      return reply.status(message.startsWith('NOT_FOUND') ? 404 : 409).send({ error: message });
+    }
+  });
+
+  app.post('/api/v1/admin/settings/test-smtp', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    if (!config.SMTP_HOST || !config.SMTP_PASSWORD) return reply.status(503).send({ error: 'SMTP is not configured.', code: 'SMTP_NOT_CONFIGURED' });
+    const startedAt = Date.now();
+    try {
+      await verifySmtpConnection();
+      const latencyMs = Date.now() - startedAt;
+      recordCatalogAudit(req, 'integration.smtp_verified', 'integration', 'smtp', { latencyMs });
+      return { success: true, latencyMs, host: config.SMTP_HOST, port: config.SMTP_PORT };
+    } catch (error: unknown) {
+      return reply.status(502).send({ error: (error as Error).message || 'SMTP verification failed.', code: 'SMTP_CONNECTION_FAILED', latencyMs: Date.now() - startedAt });
+    }
+  });
+
+  app.post('/api/v1/admin/settings/test-stripe', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
+    if (!config.STRIPE_SECRET_KEY) return reply.status(503).send({ error: 'Stripe is not configured.', code: 'STRIPE_NOT_CONFIGURED' });
+    const startedAt = Date.now();
+    try {
+      const balance = await new Stripe(config.STRIPE_SECRET_KEY).balance.retrieve();
+      const latencyMs = Date.now() - startedAt;
+      recordCatalogAudit(req, 'integration.stripe_verified', 'integration', 'stripe', { latencyMs, livemode: balance.livemode });
+      return { success: true, latencyMs, livemode: balance.livemode, availableCurrencies: balance.available.map((item) => item.currency) };
+    } catch (error: unknown) {
+      return reply.status(502).send({ error: (error as Error).message || 'Stripe verification failed.', code: 'STRIPE_CONNECTION_FAILED', latencyMs: Date.now() - startedAt });
+    }
+  });
+
   // --- Admin Test Provider Connection ---
-  app.post('/api/v1/admin/settings/test-provider', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (_req, reply) => {
+  app.post('/api/v1/admin/settings/test-provider', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     if (config.PROVIDER_MODE !== 'pterodactyl_1' || !config.PTERODACTYL_PANEL_URL || !config.PTERODACTYL_API_KEY) {
       return reply.status(503).send({
         error: 'Pterodactyl provider is not configured. Set PTERODACTYL_PANEL_URL and PTERODACTYL_API_KEY in environment.',
@@ -3441,6 +3511,7 @@ export function buildServer(): FastifyInstance {
       });
       const inventory = await adapter.getInventory();
       const latencyMs = Date.now() - t0;
+      recordCatalogAudit(req, 'integration.pterodactyl_verified', 'integration', 'pterodactyl', { latencyMs, nodesCount: inventory.nodes.length });
       return reply.send({
         success: true,
         latencyMs,

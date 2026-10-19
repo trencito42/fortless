@@ -305,6 +305,8 @@
                 <span class="ic" data-icon="shield"></span>
                 <div><b>Production Invariant</b><span>Monetary figures are stored exclusively in integer Euro cents. Client redirects never trigger fulfillment.</span></div>
               </div>
+              <div id="stripeTestResult"></div>
+              <div class="row"><button class="btn s pri" type="button" id="testStripeBtn" data-permission="accounts:manage">Test Stripe connection</button></div>
             </div>
           </article>
 
@@ -325,8 +327,10 @@
                 <dt>Worker isolation</dt><dd><span class="pill good d">Transactional outbox ledger</span></dd>
               </div>
               <div class="row" style="margin-top:6px">
+                <button class="btn s pri" type="button" id="testSmtpBtn" data-permission="services:manage">Test SMTP connection</button>
                 <a class="btn s" href="/admin/jobs">Check delivery jobs</a>
               </div>
+              <div id="smtpTestResult"></div>
             </div>
           </article>
 
@@ -351,6 +355,23 @@
                 <a class="btn s" href="/admin/audit">View audit log</a>
               </div>
             </div>
+          </article>
+        </div>
+
+        <div class="g g2" style="margin-top:16px">
+          <article class="card">
+            <div class="card-head"><div><h2>Email template editor</h2><p>Canonical Fortless Mail content with audited overrides.</p></div><span class="pill" id="emailTemplateState">Loading</span></div>
+            <form id="emailTemplateForm" class="col" style="gap:12px">
+              <label class="field"><span>Template</span><div class="inp"><select id="emailTemplateSelect"></select></div></label>
+              <label class="field"><span>Subject</span><div class="inp"><input id="emailTemplateSubject" maxlength="200" required></div></label>
+              <label class="field"><span>Plain-text body</span><textarea id="emailTemplateText" rows="10" required></textarea></label>
+              <label class="field"><span>HTML body</span><textarea id="emailTemplateHtml" rows="10" class="mono" required></textarea></label>
+              <div class="row wrap"><button class="btn pri" type="submit" data-permission="services:manage">Save override</button><button class="btn" type="button" id="resetEmailTemplateBtn" data-permission="services:manage">Restore canonical</button></div>
+            </form>
+          </article>
+          <article class="card">
+            <div class="card-head"><div><h2>Failed mail deliveries</h2><p>Safe resend excludes reset, verification and invitation links.</p></div></div>
+            <div class="table-scroll"><table class="tbl"><thead><tr><th>Recipient</th><th>Template</th><th>Status</th><th>Failure</th><th></th></tr></thead><tbody id="failedEmailDeliveries"></tbody></table></div>
           </article>
         </div>
       </section>

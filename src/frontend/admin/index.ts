@@ -33,7 +33,7 @@ import { renderAudit } from './pages/audit/index.js';
 import { renderJobs } from './pages/jobs/index.js';
 import { renderStaff, openStaffEditor } from './pages/staff/index.js';
 import { renderOrders, renderOrderDetail, renderBilling, renderInvoiceDetail, renderInfrastructure, renderStatus } from './pages/operations/index.js';
-import { renderSettings, testProviderConnection } from './pages/settings/index.js';
+import { renderSettings, testProviderConnection, testSmtpConnection, testStripeConnection, selectEmailTemplate, saveEmailTemplate, resetEmailTemplate, resendEmail } from './pages/settings/index.js';
 import { toast } from '../petal/index.js';
 
 const adminShell = new AdminShell();
@@ -299,6 +299,11 @@ function bindAdminEvents() {
       testProviderConnection().catch((err) => toast(err.message, 'bad'));
       return;
     }
+    if (target.closest('#testSmtpBtn')) { testSmtpConnection().catch((err) => toast(err.message, 'bad')); return; }
+    if (target.closest('#testStripeBtn')) { testStripeConnection().catch((err) => toast(err.message, 'bad')); return; }
+    if (target.closest('#resetEmailTemplateBtn')) { resetEmailTemplate().then(() => toast('Canonical template restored', 'good')).catch((err) => toast(err.message, 'bad')); return; }
+    const resend = target.closest<HTMLElement>('[data-resend-email]');
+    if (resend?.dataset.resendEmail) { resendEmail(resend.dataset.resendEmail).then(() => toast('Email queued for safe resend', 'good')).catch((err) => toast(err.message, 'bad')); return; }
     if (target.closest('#refreshSettingsBtn')) {
       renderSettings().then(() => toast('Settings reloaded', 'good')).catch((err) => toast(err.message, 'bad'));
       return;
@@ -327,6 +332,11 @@ function bindAdminEvents() {
 
   document.addEventListener('submit', async (event: SubmitEvent) => {
     const form = event.target as HTMLFormElement;
+    if (form.id === 'emailTemplateForm') {
+      event.preventDefault();
+      saveEmailTemplate().then(() => toast('Email template saved', 'good')).catch((err) => toast(err.message, 'bad'));
+      return;
+    }
     const handled = ['adminAccountNoteForm', 'adminBillingProfileForm', 'adminTicketRoutingForm', 'supportDepartmentForm', 'supportMacroForm'];
     if (!handled.includes(form.id)) return;
     event.preventDefault();
@@ -371,6 +381,10 @@ function bindAdminEvents() {
     } finally {
       if (button) button.disabled = false;
     }
+  });
+
+  document.addEventListener('change', (event) => {
+    if ((event.target as HTMLElement).id === 'emailTemplateSelect') selectEmailTemplate();
   });
 
   // Search input debouncers

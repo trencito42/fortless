@@ -711,6 +711,14 @@ CREATE INDEX IF NOT EXISTS idx_tickets_account ON tickets(account_id);
 CREATE INDEX IF NOT EXISTS idx_audit_events_account ON audit_events(account_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_events_status ON outbox_events(status, scheduled_at);
 CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, scheduled_at);
+CREATE TABLE IF NOT EXISTS email_template_overrides (
+  template TEXT PRIMARY KEY,
+  subject_template TEXT NOT NULL,
+  text_template TEXT NOT NULL,
+  html_template TEXT NOT NULL,
+  updated_by_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
 CREATE INDEX IF NOT EXISTS idx_account_invitations_account ON account_invitations(account_id, email);
 CREATE TABLE IF NOT EXISTS service_members (
   id TEXT PRIMARY KEY,

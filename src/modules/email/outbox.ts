@@ -88,6 +88,47 @@ const optionalCategory: Partial<Record<EmailTemplate, OptionalEmailCategory>> = 
   service_provisioned: 'service', service_ready: 'service', ticket_reply: 'support',
 };
 
+export const emailTemplateIds = Object.keys(canonicalTemplateId) as EmailTemplate[];
+
+function effectiveTemplate(template: EmailTemplate, db?: Database.Database): CanonicalMail & { overridden: boolean; updatedAt: string | null } {
+  const canonical = canonicalTemplates[canonicalTemplateId[template]];
+  if (!canonical) throw new Error('Missing canonical Fortless Mail template: ' + template);
+  if (!db) return { ...canonical, overridden: false, updatedAt: null };
+  const override = db.prepare(`SELECT subject_template, text_template, html_template, updated_at
+    FROM email_template_overrides WHERE template = ?`).get(template) as { subject_template: string; text_template: string; html_template: string; updated_at: string } | undefined;
+  return override
+    ? { name: canonical.name, subject: override.subject_template, text: override.text_template, html: override.html_template, overridden: true, updatedAt: override.updated_at }
+    : { ...canonical, overridden: false, updatedAt: null };
+}
+
+export function listEmailTemplates(db: Database.Database) {
+  return emailTemplateIds.map((template) => ({ template, ...effectiveTemplate(template, db) }));
+}
+
+export function saveEmailTemplateOverride(db: Database.Database, data: { template: EmailTemplate; subject: string; text: string; html: string; actorUserId: string }) {
+  if (!emailTemplateIds.includes(data.template)) throw new Error('Unknown email template.');
+  const subject = data.subject.trim();
+  const text = data.text.trim();
+  const html = data.html.trim();
+  if (!subject || subject.length > 200 || !text || text.length > 50_000 || !html || html.length > 250_000) throw new Error('Template content is empty or exceeds the safe size limit.');
+  const requiredLink: Partial<Record<EmailTemplate, string>> = {
+    email_verification: 'verifyUrl', password_reset: 'resetUrl', account_invitation: 'inviteUrl', service_invitation: 'inviteUrl',
+  };
+  const link = requiredLink[data.template];
+  if (link && (!text.includes(`{{${link}}}`) || !html.includes(`{{${link}}}`))) throw new Error(`Both text and HTML must contain {{${link}}}.`);
+  db.prepare(`INSERT INTO email_template_overrides (template, subject_template, text_template, html_template, updated_by_user_id, updated_at)
+    VALUES (?, ?, ?, ?, ?, datetime('now','utc'))
+    ON CONFLICT(template) DO UPDATE SET subject_template=excluded.subject_template, text_template=excluded.text_template,
+      html_template=excluded.html_template, updated_by_user_id=excluded.updated_by_user_id, updated_at=excluded.updated_at`)
+    .run(data.template, subject, text, html, data.actorUserId);
+  return effectiveTemplate(data.template, db);
+}
+
+export function resetEmailTemplateOverride(db: Database.Database, template: EmailTemplate) {
+  db.prepare('DELETE FROM email_template_overrides WHERE template = ?').run(template);
+  return effectiveTemplate(template, db);
+}
+
 function htmlEscape(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char);
 }
@@ -152,10 +193,10 @@ function templateReplacements(payload: Record<string, unknown>): Array<[string, 
 
 export function renderEmail(
   template: EmailTemplate,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  db?: Database.Database
 ): { subject: string; text: string; html: string } {
-  const canonical = canonicalTemplates[canonicalTemplateId[template]];
-  if (!canonical) throw new Error('Missing canonical Fortless Mail template: ' + template);
+  const canonical = effectiveTemplate(template, db);
   const plain = templateReplacements(payload);
   if (template === 'mfa_changed' && payload['enabled'] === false) {
     plain.push(
@@ -200,7 +241,7 @@ export function queueEmail(
   const recipient = data.recipient.trim().toLowerCase();
   const category = optionalCategory[data.template];
   if (category && !isOptionalEmailEnabled(recipient, category, trx)) return '';
-  const rendered = renderEmail(data.template, data.payload);
+  const rendered = renderEmail(data.template, data.payload, trx);
   const id = `eml_${crypto.randomBytes(12).toString('hex')}`;
   trx.prepare(`
     INSERT INTO email_outbox (id, recipient, template, subject, payload_json, status)
@@ -306,6 +347,16 @@ export class SmtpEmailTransportAdapter implements EmailTransportAdapter {
     });
     return { messageId: info.messageId || `smtp_${message.id}` };
   }
+
+  async verify(): Promise<void> {
+    if (!this.pass || !this.host) throw new Error('[SMTP] SMTP credentials are not configured.');
+    const transporter = this.getTransporter();
+    try { await transporter.verify(); } finally { transporter.close(); this.transporter = null; }
+  }
+}
+
+export async function verifySmtpConnection(): Promise<void> {
+  await new SmtpEmailTransportAdapter().verify();
 }
 
 export class ProductionEmailTransportAdapter implements EmailTransportAdapter {
@@ -429,7 +480,7 @@ export async function processEmailOutbox(
   for (const email of claimedEmails) {
     try {
       const payload = JSON.parse(email.payload_json);
-      const rendered = renderEmail(email.template, payload);
+      const rendered = renderEmail(email.template, payload, db);
 
       await transport.send({
         id: email.id,

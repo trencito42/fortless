@@ -2860,6 +2860,37 @@
   }
 
   // src/frontend/admin/pages/settings/index.ts
+  var emailTemplates = [];
+  function showTemplate(templateId) {
+    const template = emailTemplates.find((item) => item.template === templateId);
+    if (!template) return;
+    document.getElementById("emailTemplateSubject").value = template.subject;
+    document.getElementById("emailTemplateText").value = template.text;
+    document.getElementById("emailTemplateHtml").value = template.html;
+    const state = document.getElementById("emailTemplateState");
+    if (state) {
+      state.className = `pill ${template.overridden ? "warn d" : "good d"}`;
+      state.textContent = template.overridden ? "Custom override" : "Canonical";
+    }
+  }
+  async function renderEmailSettings() {
+    const data = await api("/api/v1/admin/settings/email-templates");
+    emailTemplates = data.templates;
+    const select = document.getElementById("emailTemplateSelect");
+    if (select) {
+      const selected = select.value || emailTemplates[0]?.template || "";
+      select.innerHTML = emailTemplates.map((item) => `<option value="${esc(item.template)}">${esc(item.name)} \xB7 ${esc(item.template)}</option>`).join("");
+      select.value = emailTemplates.some((item) => item.template === selected) ? selected : emailTemplates[0]?.template || "";
+      showTemplate(select.value);
+    }
+    const tokenTemplates = /* @__PURE__ */ new Set(["email_verification", "password_reset", "account_invitation", "service_invitation"]);
+    const tbody = document.getElementById("failedEmailDeliveries");
+    if (tbody) tbody.innerHTML = data.failedDeliveries.length ? data.failedDeliveries.map((item) => `<tr>
+    <td>${esc(item.recipient)}</td><td><span class="mono">${esc(item.template)}</span></td><td><span class="pill bad d">${esc(item.status)}</span></td>
+    <td class="muted" title="${esc(item.last_error || "")}">${esc((item.last_error || "Unknown delivery error").slice(0, 80))}</td>
+    <td>${tokenTemplates.has(item.template) ? '<span class="muted">Regenerate from workflow</span>' : `<button class="btn xs" type="button" data-resend-email="${esc(item.id)}">Resend safely</button>`}</td>
+  </tr>`).join("") : '<tr><td colspan="5"><div class="empty"><b>No failed deliveries</b><span>The transactional outbox is clear.</span></div></td></tr>';
+  }
   async function renderSettings() {
     try {
       const data = await api("/api/v1/admin/settings");
@@ -2891,6 +2922,7 @@
       setText("settingsSessionTtl", `${data.security.sessionTtlHours} hours`);
       setText("settingsStepUpTtl", `${data.security.stepUpTtlMinutes} minutes`);
       setText("settingsSsrf", data.security.antiSsrBlacklistActive ? "Private and metadata networks blocked" : "Not active");
+      await renderEmailSettings();
     } catch (err) {
       const testResult = document.getElementById("providerTestResult");
       if (testResult) {
@@ -2900,6 +2932,49 @@
       }
     }
   }
+  function selectEmailTemplate() {
+    const select = document.getElementById("emailTemplateSelect");
+    if (select) showTemplate(select.value);
+  }
+  async function saveEmailTemplate() {
+    const template = document.getElementById("emailTemplateSelect").value;
+    await api(`/api/v1/admin/settings/email-templates/${encodeURIComponent(template)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      subject: document.getElementById("emailTemplateSubject").value,
+      text: document.getElementById("emailTemplateText").value,
+      html: document.getElementById("emailTemplateHtml").value
+    }) });
+    await renderEmailSettings();
+  }
+  async function resetEmailTemplate() {
+    const template = document.getElementById("emailTemplateSelect").value;
+    await api.delete(`/api/v1/admin/settings/email-templates/${encodeURIComponent(template)}`);
+    await renderEmailSettings();
+  }
+  async function resendEmail(id) {
+    await api.post(`/api/v1/admin/settings/email-deliveries/${encodeURIComponent(id)}/resend`, { reason: "Manual safe resend after delivery review" });
+    await renderEmailSettings();
+  }
+  async function testIntegration(kind) {
+    const button = document.getElementById(kind === "smtp" ? "testSmtpBtn" : "testStripeBtn");
+    const result = document.getElementById(kind === "smtp" ? "smtpTestResult" : "stripeTestResult");
+    if (!button || !result) return;
+    button.disabled = true;
+    result.hidden = true;
+    try {
+      const response = await api(`/api/v1/admin/settings/test-${kind}`, { method: "POST" });
+      result.hidden = false;
+      result.className = "alert good";
+      result.innerHTML = `<div><b>${kind === "smtp" ? "SMTP authentication succeeded" : `Stripe ${response.livemode ? "live" : "test"} API connected`}</b><span>Read-only validation completed in ${response.latencyMs}ms.</span></div>`;
+    } catch (error) {
+      result.hidden = false;
+      result.className = "alert bad";
+      result.innerHTML = `<div><b>Validation failed</b><span>${esc(error.message)}</span></div>`;
+    } finally {
+      button.disabled = false;
+    }
+  }
+  var testSmtpConnection = () => testIntegration("smtp");
+  var testStripeConnection = () => testIntegration("stripe");
   async function testProviderConnection() {
     const btn = document.getElementById("testProviderBtn");
     const resultDiv = document.getElementById("providerTestResult");
@@ -3227,6 +3302,23 @@
         testProviderConnection().catch((err) => toast(err.message, "bad"));
         return;
       }
+      if (target.closest("#testSmtpBtn")) {
+        testSmtpConnection().catch((err) => toast(err.message, "bad"));
+        return;
+      }
+      if (target.closest("#testStripeBtn")) {
+        testStripeConnection().catch((err) => toast(err.message, "bad"));
+        return;
+      }
+      if (target.closest("#resetEmailTemplateBtn")) {
+        resetEmailTemplate().then(() => toast("Canonical template restored", "good")).catch((err) => toast(err.message, "bad"));
+        return;
+      }
+      const resend = target.closest("[data-resend-email]");
+      if (resend?.dataset.resendEmail) {
+        resendEmail(resend.dataset.resendEmail).then(() => toast("Email queued for safe resend", "good")).catch((err) => toast(err.message, "bad"));
+        return;
+      }
       if (target.closest("#refreshSettingsBtn")) {
         renderSettings().then(() => toast("Settings reloaded", "good")).catch((err) => toast(err.message, "bad"));
         return;
@@ -3256,6 +3348,11 @@
     });
     document.addEventListener("submit", async (event) => {
       const form = event.target;
+      if (form.id === "emailTemplateForm") {
+        event.preventDefault();
+        saveEmailTemplate().then(() => toast("Email template saved", "good")).catch((err) => toast(err.message, "bad"));
+        return;
+      }
       const handled = ["adminAccountNoteForm", "adminBillingProfileForm", "adminTicketRoutingForm", "supportDepartmentForm", "supportMacroForm"];
       if (!handled.includes(form.id)) return;
       event.preventDefault();
@@ -3312,6 +3409,9 @@
       } finally {
         if (button) button.disabled = false;
       }
+    });
+    document.addEventListener("change", (event) => {
+      if (event.target.id === "emailTemplateSelect") selectEmailTemplate();
     });
     document.querySelectorAll("[data-search]").forEach((input) => {
       let timer;
