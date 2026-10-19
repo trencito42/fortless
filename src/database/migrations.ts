@@ -999,6 +999,35 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       db.exec('CREATE INDEX IF NOT EXISTS idx_subscriptions_psp ON subscriptions(psp_subscription_id)');
     },
   },
+  {
+    version: 41,
+    name: 'audit remediation: SEMI_ANNUAL subscriptions, invoice-to-subscription link, suspension reason',
+    up(db) {
+      // NEW-347: the subscriptions CHECK rejected SEMI_ANNUAL, so those plans could never be settled.
+      const tableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'subscriptions'").get() as { sql: string } | undefined)?.sql ?? '';
+      if (tableSql && !tableSql.includes('SEMI_ANNUAL')) {
+        const indexes = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'subscriptions' AND sql IS NOT NULL").all() as { sql: string }[];
+        const columns = (db.prepare('PRAGMA table_info(subscriptions)').all() as { name: string }[]).map((c) => c.name);
+        const rebuilt = tableSql
+          .replace(/CREATE TABLE (IF NOT EXISTS )?"?subscriptions"?/i, 'CREATE TABLE subscriptions_rebuild')
+          .replace(/billing_interval\s+TEXT\s+NOT NULL\s+CHECK\s*\(\s*billing_interval\s+IN\s*\([^)]*\)\s*\)/i,
+            "billing_interval TEXT NOT NULL CHECK(billing_interval IN ('MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL'))");
+        db.exec(rebuilt);
+        const list = columns.join(', ');
+        db.exec(`INSERT INTO subscriptions_rebuild (${list}) SELECT ${list} FROM subscriptions`);
+        db.exec('DROP TABLE subscriptions');
+        db.exec('ALTER TABLE subscriptions_rebuild RENAME TO subscriptions');
+        for (const idx of indexes) db.exec(idx.sql);
+      }
+      // NEW-330: settle exactly the invoice that belongs to the Stripe event.
+      if (!hasColumn(db, 'invoices', 'subscription_id')) db.exec('ALTER TABLE invoices ADD COLUMN subscription_id TEXT');
+      if (!hasColumn(db, 'invoices', 'psp_invoice_id')) db.exec('ALTER TABLE invoices ADD COLUMN psp_invoice_id TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_invoices_subscription ON invoices(subscription_id, status)');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_psp_invoice ON invoices(psp_invoice_id) WHERE psp_invoice_id IS NOT NULL');
+      // NEW-355: remember why a service was suspended so a payment only lifts billing suspensions.
+      if (!hasColumn(db, 'services', 'suspension_reason')) db.exec('ALTER TABLE services ADD COLUMN suspension_reason TEXT');
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

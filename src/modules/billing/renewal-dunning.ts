@@ -18,7 +18,7 @@ export interface RenewalResult {
  */
 export function calculateNextPeriod(
   currentEndIso: string,
-  interval: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL'
+  interval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL'
 ): { periodStart: string; periodEnd: string; nextRenewal: string } {
   const currentEnd = new Date(currentEndIso);
   const periodStart = new Date(currentEnd.getTime());
@@ -28,6 +28,8 @@ export function calculateNextPeriod(
     periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
   } else if (interval === 'QUARTERLY') {
     periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 3);
+  } else if (interval === 'SEMI_ANNUAL') {
+    periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 6);
   } else if (interval === 'ANNUAL') {
     periodEnd.setUTCFullYear(periodEnd.getUTCFullYear() + 1);
   }
@@ -209,8 +211,8 @@ export async function processSubscriptionRenewals(
       trx.prepare(`
         INSERT INTO invoices (
           id, account_id, status, currency, subtotal_minor_units, tax_minor_units,
-          total_minor_units, due_date, created_at
-        ) VALUES (?, ?, 'ISSUED', ?, ?, ?, ?, ?, datetime('now', 'utc'))
+          total_minor_units, due_date, created_at, subscription_id
+        ) VALUES (?, ?, 'ISSUED', ?, ?, ?, ?, ?, datetime('now', 'utc'), ?)
       `).run(
         invoiceId,
         sub.account_id,
@@ -218,7 +220,8 @@ export async function processSubscriptionRenewals(
         sub.renewal_price_minor_units,
         taxAmount,
         totalAmount,
-        graceEnd
+        graceEnd,
+        sub.id
       );
 
       trx.prepare(`
@@ -283,6 +286,7 @@ export async function processSubscriptionRenewals(
         serviceId: sub.service_id,
         reason: 'Subscription renewal grace period expired without payment settlement',
         actorType: 'SYSTEM',
+        category: 'BILLING',
       },
       undefined,
       db

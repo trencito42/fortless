@@ -143,8 +143,9 @@ export async function processOutboxQueue(
         if (extId) {
           await eventAdapter.unsuspend(extId);
         }
-        db.prepare("UPDATE services SET contract_status = 'ACTIVE' WHERE id = ?").run(event.aggregate_id);
-        db.prepare("UPDATE service_observed_states SET runtime_state = 'RUNNING' WHERE service_id = ?").run(event.aggregate_id);
+        // Never resurrect a terminated service with a stale unsuspend event.
+        db.prepare("UPDATE services SET contract_status = 'ACTIVE', suspension_reason = NULL WHERE id = ? AND contract_status IN ('ACTIVE', 'SUSPENDED')").run(event.aggregate_id);
+        db.prepare("UPDATE service_observed_states SET runtime_state = 'RUNNING' WHERE service_id = ? AND EXISTS (SELECT 1 FROM services WHERE id = ? AND contract_status = 'ACTIVE')").run(event.aggregate_id, event.aggregate_id);
       } else if (event.event_type === 'service.terminate.v1') {
         const extId = service?.external_id || parsedPayload.externalId;
         if (extId) {
@@ -198,19 +199,28 @@ export async function processOutboxQueue(
         }, db);
       } else if (event.event_type === 'stripe.subscription.cancel.v1') {
         const pspSubId = parsedPayload.pspSubscriptionId;
-        if (pspSubId && config.STRIPE_SECRET_KEY) {
+        if (pspSubId) {
+          // NEW-344/NEW-333: never drop a PSP side effect silently, and read the flag the producer actually writes.
+          if (!config.STRIPE_SECRET_KEY) throw new Error('Stripe is not configured, so the subscription cancellation cannot be sent to the payment provider.');
           const stripe = new Stripe(config.STRIPE_SECRET_KEY);
-          if (parsedPayload.cancelAtPeriodEnd) {
-            await stripe.subscriptions.update(pspSubId, { cancel_at_period_end: true });
-          } else {
-            await stripe.subscriptions.cancel(pspSubId);
+          const immediate = parsedPayload.immediate === true;
+          try {
+            if (immediate) {
+              await stripe.subscriptions.cancel(pspSubId, undefined, { idempotencyKey: `cancel_${event.id}` });
+            } else {
+              await stripe.subscriptions.update(pspSubId, { cancel_at_period_end: true }, { idempotencyKey: `cancel_eop_${event.id}` });
+            }
+          } catch (err: unknown) {
+            // A subscription that is already gone at the PSP is the desired end state, not a failure.
+            if ((err as { code?: string }).code !== 'resource_missing') throw err;
           }
         }
       } else if (event.event_type === 'stripe.subscription.resume.v1') {
         const pspSubId = parsedPayload.pspSubscriptionId;
-        if (pspSubId && config.STRIPE_SECRET_KEY) {
+        if (pspSubId) {
+          if (!config.STRIPE_SECRET_KEY) throw new Error('Stripe is not configured, so the subscription resume cannot be sent to the payment provider.');
           const stripe = new Stripe(config.STRIPE_SECRET_KEY);
-          await stripe.subscriptions.update(pspSubId, { cancel_at_period_end: false });
+          await stripe.subscriptions.update(pspSubId, { cancel_at_period_end: false }, { idempotencyKey: `resume_${event.id}` });
         }
       } else {
         // NEW-339: Explicitly fail closed on unrecognized event types to avoid false COMPLETED
@@ -254,8 +264,8 @@ export async function processOutboxQueue(
         } else if (event.event_type.startsWith('stripe.subscription.')) {
           db.prepare(`
             INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
-            VALUES (?, 'SYSTEM', 'SYSTEM', 'billing.stripe_outbox_failed', 'subscription', ?, ?, ?)
-          `).run(`aud_${crypto.randomUUID()}`, event.aggregate_id, `corr_${crypto.randomUUID()}`, JSON.stringify({ eventType: event.event_type, reason: errMsg.slice(0, 200) }));
+            VALUES (?, (SELECT account_id FROM subscriptions WHERE id = ?), 'SYSTEM', 'billing.stripe_outbox_failed', 'subscription', ?, ?, ?)
+          `).run(`aud_${crypto.randomUUID()}`, event.aggregate_id, event.aggregate_id, `corr_${crypto.randomUUID()}`, JSON.stringify({ eventType: event.event_type, reason: errMsg.slice(0, 200) }));
         } else {
           db.prepare(`
             UPDATE services

@@ -277,7 +277,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   amount_paid_minor_units INTEGER NOT NULL DEFAULT 0,
   due_date TEXT NOT NULL,
   paid_at TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  subscription_id TEXT,
+  psp_invoice_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS invoice_lines (
@@ -328,7 +330,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   service_id TEXT UNIQUE NOT NULL,
   psp_subscription_id TEXT,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'PAST_DUE', 'CANCEL_SCHEDULED', 'CANCELED', 'TERMINATED')),
-  billing_interval TEXT NOT NULL CHECK(billing_interval IN ('MONTHLY', 'QUARTERLY', 'ANNUAL')),
+  billing_interval TEXT NOT NULL CHECK(billing_interval IN ('MONTHLY', 'QUARTERLY', 'SEMI_ANNUAL', 'ANNUAL')),
   current_period_start TEXT NOT NULL,
   current_period_end TEXT NOT NULL,
   next_renewal_date TEXT NOT NULL,
@@ -373,7 +375,8 @@ CREATE TABLE IF NOT EXISTS services (
   contract_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(contract_status IN ('ACTIVE', 'PAST_DUE', 'SUSPENDED', 'CANCELLED', 'TERMINATED')),
   node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  suspension_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS service_desired_configs (

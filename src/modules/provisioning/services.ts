@@ -299,6 +299,8 @@ export async function suspendService(
     reason: string;
     actorUserId?: string;
     actorType?: 'STAFF' | 'SYSTEM';
+    /** Why the service is suspended; a successful payment lifts only BILLING suspensions (NEW-355). */
+    category?: 'BILLING' | 'STAFF' | 'DISPUTE';
   },
   adapter: ProviderAdapter = getProviderAdapter(),
   db: Database.Database = getDatabase()
@@ -317,9 +319,9 @@ export async function suspendService(
   runInTransaction((trx) => {
     trx.prepare(`
       UPDATE services
-      SET contract_status = 'SUSPENDED', updated_at = datetime('now', 'utc')
+      SET contract_status = 'SUSPENDED', suspension_reason = ?, updated_at = datetime('now', 'utc')
       WHERE id = ?
-    `).run(service.id);
+    `).run(params.category ?? (params.actorType === 'STAFF' ? 'STAFF' : null), service.id);
 
     trx.prepare(`
       UPDATE service_observed_states
@@ -370,7 +372,7 @@ export async function unsuspendService(
   runInTransaction((trx) => {
     trx.prepare(`
       UPDATE services
-      SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc')
+      SET contract_status = 'ACTIVE', suspension_reason = NULL, updated_at = datetime('now', 'utc')
       WHERE id = ?
     `).run(service.id);
 

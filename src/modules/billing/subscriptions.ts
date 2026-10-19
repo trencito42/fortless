@@ -11,7 +11,7 @@ export interface SubscriptionDetail {
   accountId: string;
   serviceId: string;
   status: 'ACTIVE' | 'PAST_DUE' | 'CANCEL_SCHEDULED' | 'CANCELED' | 'TERMINATED';
-  billingInterval: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
+  billingInterval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
   currentPeriodStart: string;
   currentPeriodEnd: string;
   nextRenewalDate: string;

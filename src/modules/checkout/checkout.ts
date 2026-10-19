@@ -75,12 +75,21 @@ export async function processCheckout(
     billingInterval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
     recurringUnitAmount: number;
     setupFeeTotal: number;
+    discountMinorUnits: number;
+    taxRateBasisPoints: number;
   } | null = null;
+  let createdSessionId: string | null = null;
 
   try {
     txResult = runInTransaction((trx) => {
       // 2. Validate Quote
       const quote = verifyQuote(data.quoteId, data.accountId, trx);
+
+      // NEW-345/NEW-338: Stripe Checkout is built from exactly one recurring line. Orders for several services share one
+      // Stripe subscription that cannot be cancelled or priced per service, so they are refused instead of under-billed.
+      if (quote.lines.length !== 1 || quote.lines[0]!.quantity !== 1) {
+        throw new Error('UNSUPPORTED_ORDER_SHAPE: an order can contain exactly one service. Place a separate order for each service.');
+      }
 
       // Verify compatible billing intervals across quote lines
       const intervals = new Set(quote.lines.map((l) => l.interval || 'MONTHLY'));
@@ -112,7 +121,7 @@ export async function processCheckout(
             orderId,
             line.planVersionId,
             itemRegion,
-            JSON.stringify({ ...(data.customOptions || {}), interval: itemInterval, regionId: itemRegion })
+            JSON.stringify({ ...(data.customOptions || {}), interval: itemInterval, regionId: itemRegion, recurringMinorUnits: line.unitPriceMinorUnits })
           );
         }
       }
@@ -201,6 +210,8 @@ export async function processCheckout(
         billingInterval,
         recurringUnitAmount,
         setupFeeTotal,
+        discountMinorUnits: discountTotal,
+        taxRateBasisPoints: quote.taxEvidence.taxRateBasisPoints,
       };
     }, db);
 
@@ -234,7 +245,30 @@ export async function processCheckout(
           break;
       }
 
-      // NEW-340: Separate recurring subscription line item from one-time setup fee
+      const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+
+      // NEW-340/NEW-345: the amount Stripe collects must equal the signed quote. Tax and the one-time discount are
+      // applied by Stripe through a tax rate and a "once" coupon, so renewals bill the plain recurring price plus tax.
+      const taxRates: string[] = [];
+      if (txResult.taxRateBasisPoints > 0) {
+        const taxRate = await stripe.taxRates.create({
+          display_name: 'VAT',
+          percentage: txResult.taxRateBasisPoints / 100,
+          inclusive: false,
+        }, { idempotencyKey: `tr_${txResult.paymentAttemptId}` });
+        taxRates.push(taxRate.id);
+      }
+      let discounts: Stripe.Checkout.SessionCreateParams.Discount[] | undefined;
+      if (txResult.discountMinorUnits > 0) {
+        const coupon = await stripe.coupons.create({
+          amount_off: txResult.discountMinorUnits,
+          currency: txResult.currency.toLowerCase(),
+          duration: 'once',
+          name: 'Order discount',
+        }, { idempotencyKey: `cp_${txResult.paymentAttemptId}` });
+        discounts = [{ coupon: coupon.id }];
+      }
+
       const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
         {
           price_data: {
@@ -244,6 +278,7 @@ export async function processCheckout(
             unit_amount: txResult.recurringUnitAmount,
           },
           quantity: 1,
+          ...(taxRates.length ? { tax_rates: taxRates } : {}),
         },
       ];
 
@@ -255,14 +290,15 @@ export async function processCheckout(
             unit_amount: txResult.setupFeeTotal,
           },
           quantity: 1,
+          ...(taxRates.length ? { tax_rates: taxRates } : {}),
         });
       }
 
-      const stripe = new Stripe(config.STRIPE_SECRET_KEY);
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',
         payment_method_types: ['card'],
         line_items: lineItems,
+        ...(discounts ? { discounts } : {}),
         success_url: `${config.APP_ORIGIN}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${config.APP_ORIGIN}/app/deploy`,
         metadata: {
@@ -280,6 +316,7 @@ export async function processCheckout(
       }, {
         idempotencyKey: `cs_${txResult.paymentAttemptId}_${data.idempotencyKey}`,
       });
+      createdSessionId = session.id;
 
       if (!session.url) {
         throw new Error('Stripe did not return a checkout URL.');
@@ -315,14 +352,34 @@ export async function processCheckout(
     // Reopen quote if external checkout provider failed so customer can retry
     db.prepare("UPDATE quotes SET status = 'OPEN' WHERE id = ? AND account_id = ? AND status = 'CONVERTED'")
       .run(data.quoteId, data.accountId);
-    // Compensate local order, coupon redemption, and invoice to prevent orphaned billable state on failure (NEW-341)
-    if (txResult) {
+    // Compensate local order, coupon redemption, invoice and any Stripe session already created (NEW-341, NEW-349,
+    // FTL-BILL-206). Values must match the schema CHECK constraints, and a failure here is reported, never swallowed.
+    if (createdSessionId && config.STRIPE_SECRET_KEY) {
       try {
-        cancelCouponRedemptionAtomic(txResult.orderId, db);
-        db.prepare("UPDATE orders SET status = 'CANCELLED' WHERE id = ?").run(txResult.orderId);
-        db.prepare("UPDATE invoices SET status = 'VOID' WHERE id = ?").run(txResult.invoiceId);
-        db.prepare("UPDATE payment_attempts SET status = 'FAILED' WHERE id = ?").run(txResult.paymentAttemptId);
-      } catch { /* compensation best-effort */ }
+        await new Stripe(config.STRIPE_SECRET_KEY).checkout.sessions.expire(createdSessionId);
+      } catch (expireErr) {
+        console.error('[Checkout] could not expire Stripe session after a failed checkout:', createdSessionId, (expireErr as Error).message);
+      }
+    }
+    if (txResult) {
+      const failed = txResult;
+      try {
+        runInTransaction((trx) => {
+          cancelCouponRedemptionAtomic(failed.orderId, trx);
+          // Free the unique idempotency keys so the customer can retry with the same key.
+          trx.prepare("UPDATE orders SET status = 'CANCELED', idempotency_key = idempotency_key || '#failed_' || id, updated_at = datetime('now', 'utc') WHERE id = ?").run(failed.orderId);
+          trx.prepare("UPDATE invoices SET status = 'VOIDED' WHERE id = ? AND status != 'PAID'").run(failed.invoiceId);
+          trx.prepare("UPDATE payment_attempts SET status = 'FAILED', idempotency_key = idempotency_key || '#failed_' || id WHERE id = ?").run(failed.paymentAttemptId);
+        }, db);
+      } catch (compensationErr) {
+        console.error('[Checkout] compensation failed, manual review required for order', failed.orderId, (compensationErr as Error).message);
+        try {
+          db.prepare(`
+            INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+            VALUES (?, ?, 'SYSTEM', 'checkout.compensation_failed', 'order', ?, ?, ?)
+          `).run(generateId('aud'), data.accountId, failed.orderId, generateId('cor'), JSON.stringify({ reason: (compensationErr as Error).message.slice(0, 200) }));
+        } catch { /* audit table unavailable: console output above is the last resort */ }
+      }
     }
     throw err;
   }

@@ -6,6 +6,7 @@ import { generateId } from '../identity/auth.js';
 import { markInvoicePaid, getNextCreditNoteNumber } from '../invoicing/invoicing.js';
 import { queueEmail } from '../email/outbox.js';
 import { createNotification } from '../notifications/notifications.js';
+import { calculateNextPeriod } from '../billing/renewal-dunning.js';
 
 export interface StripeWebhookPayload {
   id: string;
@@ -86,22 +87,43 @@ export function ingestPSPWebhook(
   const eventType = payload.type;
   const payloadDigest = crypto.createHash('sha256').update(rawBody).digest('hex');
 
-  // 1. Inbox Deduplication Gate
+  // 1. Inbox Deduplication Gate (NEW-346): only events that reached a terminal state are deduplicated.
+  //    An event that was received but never finished (processing threw or the process died) is processed again.
   const existing = db.prepare(`
     SELECT status, payload_digest FROM psp_inbox_events
     WHERE psp_name = ? AND merchant_account = ? AND event_id = ?
   `).get(pspName, merchantAccount, eventId) as ({ status: string; payload_digest: string }) | undefined;
 
-  if (existing) {
+  if (existing && existing.status !== 'RECEIVED' && existing.status !== 'FAILED') {
     return { status: 'DEDUPLICATED', eventId };
   }
+  if (existing && existing.payload_digest !== payloadDigest) {
+    // Same event id with a different body is never reprocessed.
+    db.prepare("UPDATE psp_inbox_events SET status = 'ANOMALY', processed_at = datetime('now', 'utc') WHERE psp_name = ? AND merchant_account = ? AND event_id = ?").run(pspName, merchantAccount, eventId);
+    return { status: 'ANOMALY_HELD', eventId };
+  }
 
-  // Persist raw event to Inbox
-  db.prepare(`
-    INSERT INTO psp_inbox_events (id, psp_name, merchant_account, event_id, event_type, payload_digest, payload, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'RECEIVED')
-  `).run(generateId('inb'), pspName, merchantAccount, eventId, eventType, payloadDigest, rawBody);
+  if (!existing) {
+    db.prepare(`
+      INSERT INTO psp_inbox_events (id, psp_name, merchant_account, event_id, event_type, payload_digest, payload, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'RECEIVED')
+    `).run(generateId('inb'), pspName, merchantAccount, eventId, eventType, payloadDigest, rawBody);
+  }
 
+  try {
+    return dispatchInboundEvent(eventId, eventType, payload, db);
+  } catch (err) {
+    db.prepare("UPDATE psp_inbox_events SET status = 'FAILED', processed_at = datetime('now', 'utc') WHERE psp_name = ? AND merchant_account = ? AND event_id = ?").run(pspName, merchantAccount, eventId);
+    throw err;
+  }
+}
+
+function dispatchInboundEvent(
+  eventId: string,
+  eventType: string,
+  payload: StripeWebhookPayload,
+  db: Database.Database
+): IngestResult {
   // 2. Handle Charge Refunded
   if (eventType === 'charge.refunded') {
     const rawObj = payload.data.object as Record<string, any>;
@@ -193,7 +215,7 @@ export function ingestPSPWebhook(
         `).all(attempt.account_id) as Array<{ id: string; external_id: string | null; provider_type: string }>;
 
         for (const svc of affectedServices) {
-          trx.prepare("UPDATE services SET contract_status = 'SUSPENDED' WHERE id = ?").run(svc.id);
+          trx.prepare("UPDATE services SET contract_status = 'SUSPENDED', suspension_reason = 'DISPUTE' WHERE id = ? AND contract_status != 'TERMINATED'").run(svc.id);
           trx.prepare(`
             INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
             VALUES (?, 'service.suspend.v1', 'service', ?, ?, 'PENDING')
@@ -239,22 +261,32 @@ export function ingestPSPWebhook(
 
         const sub = trx.prepare('SELECT account_id, service_id FROM subscriptions WHERE psp_subscription_id = ?').get(subId) as { account_id: string; service_id?: string } | undefined;
         if (sub) {
-          // NEW-330: Only settle exactly one matching issued invoice, never all issued invoices
-          const matchingInvoice = trx.prepare(`
-            SELECT id FROM invoices 
-            WHERE account_id = ? AND status = 'ISSUED'
-            ORDER BY created_at ASC LIMIT 1
-          `).get(sub.account_id) as { id: string } | undefined;
-
-          if (matchingInvoice) {
-            trx.prepare("UPDATE invoices SET status = 'PAID', paid_at = datetime('now', 'utc') WHERE id = ?").run(matchingInvoice.id);
+          // NEW-330: settle only an issued invoice that belongs to this subscription (and matches the amount paid).
+          //          The first invoice of a subscription is settled by the checkout event, never here.
+          const stripeInvoiceId = typeof rawInv.id === 'string' ? rawInv.id : null;
+          const amountPaid = Number(rawInv.amount_paid);
+          if (rawInv.billing_reason !== 'subscription_create') {
+            const matchingInvoice = trx.prepare(`
+              SELECT id, total_minor_units FROM invoices
+              WHERE subscription_id = (SELECT id FROM subscriptions WHERE psp_subscription_id = ?) AND status = 'ISSUED'
+              ORDER BY created_at ASC LIMIT 1
+            `).get(subId) as { id: string; total_minor_units: number } | undefined;
+            if (matchingInvoice && Number.isFinite(amountPaid) && amountPaid === matchingInvoice.total_minor_units) {
+              trx.prepare("UPDATE invoices SET status = 'PAID', paid_at = datetime('now', 'utc'), amount_paid_minor_units = ?, psp_invoice_id = COALESCE(psp_invoice_id, ?) WHERE id = ?")
+                .run(amountPaid, stripeInvoiceId, matchingInvoice.id);
+            } else {
+              trx.prepare(`
+                INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+                VALUES (?, ?, 'PSP_WEBHOOK', 'billing.invoice_paid_unmatched', 'subscription', ?, ?, ?)
+              `).run(generateId('aud'), sub.account_id, subId, eventId, JSON.stringify({ stripeInvoiceId, amountPaid: Number.isFinite(amountPaid) ? amountPaid : null }));
+            }
           }
 
           // NEW-336: Unsuspend service if it was suspended due to billing dunning
           if (sub.service_id) {
-            const svc = trx.prepare('SELECT id, contract_status FROM services WHERE id = ?').get(sub.service_id) as { id: string; contract_status: string } | undefined;
-            if (svc && svc.contract_status === 'SUSPENDED') {
-              trx.prepare("UPDATE services SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc') WHERE id = ?").run(svc.id);
+            const svc = trx.prepare('SELECT id, contract_status, suspension_reason FROM services WHERE id = ?').get(sub.service_id) as { id: string; contract_status: string; suspension_reason: string | null } | undefined;
+            if (svc && svc.contract_status === 'SUSPENDED' && svc.suspension_reason === 'BILLING') {
+              trx.prepare("UPDATE services SET contract_status = 'ACTIVE', suspension_reason = NULL, updated_at = datetime('now', 'utc') WHERE id = ?").run(svc.id);
               trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(svc.id);
               trx.prepare(`
                 INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
@@ -286,7 +318,7 @@ export function ingestPSPWebhook(
         trx.prepare(`
           UPDATE subscriptions
           SET status = 'PAST_DUE',
-              grace_period_end = ?,
+              grace_period_end = CASE WHEN status = 'PAST_DUE' AND grace_period_end IS NOT NULL THEN grace_period_end ELSE ? END,
               dunning_attempts = dunning_attempts + 1,
               last_dunning_at = datetime('now', 'utc'),
               updated_at = datetime('now', 'utc')
@@ -511,17 +543,20 @@ export function ingestPSPWebhook(
       // Ingest Stripe subscription if present (NEW-338)
       if (pspSubId) {
         let itemInterval = 'MONTHLY';
+        let recurringMinor: number | null = null;
         try {
           const parsed = JSON.parse(item.custom_options || '{}');
           if (parsed.interval) itemInterval = parsed.interval;
+          if (Number.isInteger(parsed.recurringMinorUnits) && parsed.recurringMinorUnits >= 0) recurringMinor = parsed.recurringMinorUnits;
         } catch {
           // ignore
         }
-        const intervalMonths = itemInterval === 'ANNUALLY' ? 12 : itemInterval === 'QUARTERLY' ? 3 : itemInterval === 'SEMI_ANNUAL' ? 6 : 1;
+        const billingInterval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL' = itemInterval === 'ANNUAL' || itemInterval === 'ANNUALLY' ? 'ANNUAL' : itemInterval === 'QUARTERLY' ? 'QUARTERLY' : itemInterval === 'SEMI_ANNUAL' ? 'SEMI_ANNUAL' : 'MONTHLY';
         const subId = generateId('sub');
         const now = new Date();
-        const nextPeriod = new Date(now.getTime() + intervalMonths * 30 * 24 * 60 * 60 * 1000);
-        const renewalPrice = items.length === 1 ? attemptRow.amount_minor_units : Math.round(attemptRow.amount_minor_units / items.length);
+        const nextPeriod = new Date(calculateNextPeriod(now.toISOString(), billingInterval).periodEnd);
+        // NEW-338: each service is renewed at its own recurring price, never at the order total (which includes setup fee, discount and tax).
+        const renewalPrice = recurringMinor ?? (items.length === 1 ? attemptRow.amount_minor_units : Math.round(attemptRow.amount_minor_units / items.length));
 
         trx.prepare(`
           INSERT INTO subscriptions (
@@ -535,7 +570,7 @@ export function ingestPSPWebhook(
           attemptRow.account_id,
           serviceId,
           pspSubId,
-          itemInterval,
+          billingInterval,
           now.toISOString(),
           nextPeriod.toISOString(),
           nextPeriod.toISOString(),
