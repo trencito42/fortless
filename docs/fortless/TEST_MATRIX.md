@@ -186,8 +186,14 @@ Before public commercial traffic is routed to Fortless, all mandatory gates must
 - [x] **Gate 1:** 100% of Critical Financial tests (Category C) pass in automated CI (`PAY-01` to `PAY-10`, 100% pass).
 - [x] **Gate 2:** 100% of Auth & Tenant Isolation tests (Category A) pass with zero leaks (`AUTH-01` to `AUTH-12`, 100% pass).
 - [x] **Gate 3:** Provider Timeout & Idempotency tests (Category E) pass with zero duplicate instances (`PROV-01` to `PROV-10`, 100% pass).
-- [ ] **Gate 4:** Stripe Testmode / Sandbox end-to-end checkout, 3DS challenge, and webhook verification verified. `[BLOCKED: Live Stripe Test API Keys Required]`
+- [ ] **Gate 4:** Stripe Testmode: checkout session lines/total, subscription cancel (period end and immediate) and staff refund are `[SANDBOX_VERIFIED]` (`npm run test:sandbox`, tests/sandbox/stripe-sandbox.test.ts). Still open: 3DS challenge, completing a hosted checkout and a Stripe-delivered signed webhook, and an induced-timeout unknown-outcome run (FTL-BILL-206).
 - [ ] **Gate 5:** Pterodactyl Application API read-only inventory connectivity is confirmed, but real create/suspend/delete lifecycle evidence is still required. `[NOT_STARTED]`
 - [x] **Gate 6:** Automated atomic database backup, AES-256-GCM encryption, checksum validation, and isolated staging restore verification (`BCK-01` to `BCK-04`, 100% pass).
 - [x] **Gate 7:** Legal Terms of Service, Privacy Policy, Acceptable Use Policy, Refund Policy, and SLA reviewed and posted. `[LOCAL_VERIFIED]` (Published at `/legal/:doc` with Petal Design System).
 - [x] **Gate 8:** No hardcoded secrets, test credentials, or debug bypass flags exist in the codebase.
+
+## Stripe sandbox (real TEST-mode API)
+- [x] `SBX-01`: Real checkout session bills the recurring line and the one-time setup line, total equals the quote, a retry with the same key returns the same order and one payment attempt (FTL-BILL-206 retry part, NEW-340, NEW-345). `[SANDBOX_VERIFIED]`
+- [x] `SBX-02`: Introductory coupon is applied by Stripe and `amount_total` equals the quote (NEW-340). `[SANDBOX_VERIFIED]`
+- [x] `SBX-03`: Cancel at period end sets `cancel_at_period_end`; immediate cancel ends the real subscription; a repeat finds no failed outbox event (NEW-333). `[SANDBOX_VERIFIED]`
+- [x] `SBX-04`: Staff refund of EUR 5.00 creates exactly one Stripe refund of 500 and a replay does not add another (NEW-334). `[SANDBOX_VERIFIED]`

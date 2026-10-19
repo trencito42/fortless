@@ -13,6 +13,7 @@
     "backup": "tsx src/scripts/backup-restore.ts backup",
     "staff:bootstrap-owner": "tsx src/scripts/bootstrap-owner.ts",
     "test": "vitest run --reporter=verbose",
+    "test:sandbox": "vitest run -c vitest.sandbox.config.ts --reporter=verbose",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "profiles:import": "tsx src/scripts/import-game-profiles.ts"
