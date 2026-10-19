@@ -2,7 +2,7 @@
 
 Canonical continuously maintained workbook: [FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx](./FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx)
 
-Latest audit: [AUDIT_INDEPENDENT_3cb35de_2026-10-19.md](./AUDIT_INDEPENDENT_3cb35de_2026-10-19.md) (batches 1–8, 154 findings; earlier: [AUDIT_BOUNTY_2026-10-19_b929281.md](./AUDIT_BOUNTY_2026-10-19_b929281.md))
+Latest audit: [AUDIT_INDEPENDENT_3cb35de_2026-10-19.md](./AUDIT_INDEPENDENT_3cb35de_2026-10-19.md) (batches 1–9, 158 findings; coverage matrix and staging plan included; earlier: [AUDIT_BOUNTY_2026-10-19_b929281.md](./AUDIT_BOUNTY_2026-10-19_b929281.md))
 
 - Reviewed code commit: `b9292811a22159a28a7159deee2c7ff27f41a873`
 - 83 findings, 9 new (NEW-330…338); 21 status changes independently inspected in source

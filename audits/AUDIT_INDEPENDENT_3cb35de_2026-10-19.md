@@ -161,6 +161,21 @@ Reviewed at `a236de9`. Full role × state × action table: [AUDIT_BATCH8_ROLE_ST
 | NEW-408 | P2 | Customer UI shows all actions to all roles; billing and audit readable by all (POLICY_DECISION) |
 | NEW-409 | P1 | Locking or fraud-flagging an account only ends its login; services, shares and panel access continue |
 
+## New findings, batch 9 (4) — Wings, console, game tools, admin service actions
+
+Reviewed at `89e3b45`. Seven earlier findings were reproduced locally with `audits/proofs/repro-batch9-89e3b45.mts` (temporary SQLite file, fake provider, in-process requests; nothing touches `./data`, `.env` or a network): NEW-369, NEW-376, NEW-389, NEW-399, NEW-408, NEW-409 and NEW-404. Provider-dependent checks are listed, not simulated, in [STAGING_TEST_PLAN.md](./STAGING_TEST_PLAN.md).
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-410 | P2 | Game profile edits audited by slug only; download-host allowlist accepts any hostname or IP |
+| NEW-411 | P2 | Mod install buffers up to 100 MB per request with no concurrency limit |
+| NEW-412 | P2 | Staff suspend/unsuspend/terminate: inline provider calls, timeouts treated as failure, audit IP hardcoded to 127.0.0.1 |
+| NEW-413 | P2 | Console access cannot be revoked from Fortless until the Wings token lapses (NEEDS_VERIFICATION) |
+
+## Exploratory audit closed
+
+The exploratory pass is complete at 158 findings. Coverage per domain, with what was verified, what needs staging and what lies outside this audit, is in [COVERAGE_MATRIX_EXPLORATORY_AUDIT.md](./COVERAGE_MATRIX_EXPLORATORY_AUDIT.md). The next stage is remediation verification: for each fixed finding, run its acceptance test from the workbook and move the status through FIXED_IN_CODE to TESTED or CLOSED, rather than another full audit. Suggested order for fixing: money and tenant boundaries first (NEW-344..347, NEW-403), then access control (NEW-369, NEW-376, NEW-404, NEW-409, NEW-396), then data protection (NEW-373..375, NEW-398), then the P2 reliability set.
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
