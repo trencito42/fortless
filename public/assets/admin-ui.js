@@ -1079,6 +1079,8 @@
   // src/frontend/admin/pages/accounts/index.ts
   var activeAccountId = null;
   var cachedAccounts = [];
+  var adminAccountsTotal = 0;
+  var adminAccountsQuery = "";
   var adminAccountsPage = 1;
   var adminAccountsPageSize = 10;
   var adminAccountsListenersBound = false;
@@ -1096,12 +1098,12 @@
       host.innerHTML = `<div class="empty"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"></use></svg></span><b>No matching accounts.</b></div>`;
       return;
     }
-    const pagination = paginateItems(cachedAccounts, adminAccountsPage, adminAccountsPageSize);
-    adminAccountsPage = pagination.page;
-    if (paginationRow) paginationRow.style.display = cachedAccounts.length > adminAccountsPageSize ? "flex" : "none";
-    if (infoEl) infoEl.textContent = pagination.info;
-    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-    host.innerHTML = pagination.items.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
+    const pages = Math.max(1, Math.ceil(adminAccountsTotal / adminAccountsPageSize));
+    const start = (adminAccountsPage - 1) * adminAccountsPageSize;
+    if (paginationRow) paginationRow.style.display = adminAccountsTotal > adminAccountsPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = `Showing ${start + 1}\u2013${start + cachedAccounts.length} of ${adminAccountsTotal}`;
+    if (pagerEl) pagerEl.innerHTML = renderPager(adminAccountsPage, pages);
+    host.innerHTML = cachedAccounts.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
     <span class="tile sm ${x.status === "LOCKED" ? "bad" : x.status === "FLAGGED_FRAUD" ? "warn" : ""}">${hero("users")}</span>
     <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} \xB7 ${esc(x.owner_email)}</small></span>
     <span class="faint hide-n">${Number(x.member_count)} members \xB7 ${Number(x.service_count)} services \xB7 ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
@@ -1117,18 +1119,21 @@
         const p = Number(btn.dataset.pg);
         if (p && p !== adminAccountsPage) {
           adminAccountsPage = p;
-          paintAccountsList();
+          renderAccounts(adminAccountsQuery, p);
         }
       }
     });
   }
-  async function renderAccounts(q = "") {
+  async function renderAccounts(q = "", page = 1) {
     const host = document.querySelector("#accountsList");
     if (!host) return;
     try {
-      const d = await api(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`);
+      adminAccountsQuery = q;
+      adminAccountsPage = Math.max(1, page);
+      const offset = (adminAccountsPage - 1) * adminAccountsPageSize;
+      const d = await api(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}&limit=${adminAccountsPageSize}&offset=${offset}`);
       cachedAccounts = d.accounts || [];
-      adminAccountsPage = 1;
+      adminAccountsTotal = Number(d.total || 0);
       paintAccountsList();
       bindAdminAccountsListeners();
     } catch (e) {
@@ -1269,6 +1274,8 @@
   // src/frontend/admin/pages/services/index.ts
   var activeServiceId = null;
   var cachedAdminServices = [];
+  var adminServicesTotal = 0;
+  var adminServicesQuery = "";
   var adminServicesPage = 1;
   var adminServicesPageSize = 10;
   var adminServicesListenersBound = false;
@@ -1283,12 +1290,12 @@
       host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching services.</b></div></td></tr>`;
       return;
     }
-    const pagination = paginateItems(cachedAdminServices, adminServicesPage, adminServicesPageSize);
-    adminServicesPage = pagination.page;
-    if (paginationRow) paginationRow.style.display = cachedAdminServices.length > adminServicesPageSize ? "flex" : "none";
-    if (infoEl) infoEl.textContent = pagination.info;
-    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-    host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === "RUNNING" ? "RUNNING" : "OTHER"}" data-service-id="${esc(x.id)}" style="cursor:pointer">
+    const pages = Math.max(1, Math.ceil(adminServicesTotal / adminServicesPageSize));
+    const start = (adminServicesPage - 1) * adminServicesPageSize;
+    if (paginationRow) paginationRow.style.display = adminServicesTotal > adminServicesPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = `Showing ${start + 1}\u2013${start + cachedAdminServices.length} of ${adminServicesTotal}`;
+    if (pagerEl) pagerEl.innerHTML = renderPager(adminServicesPage, pages);
+    host.innerHTML = cachedAdminServices.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === "RUNNING" ? "RUNNING" : "OTHER"}" data-service-id="${esc(x.id)}" style="cursor:pointer">
     <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
     <td data-l="Account">${esc(x.account_name)}</td>
     <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
@@ -1307,18 +1314,21 @@
         const p = Number(btn.dataset.pg);
         if (p && p !== adminServicesPage) {
           adminServicesPage = p;
-          paintAdminServicesList();
+          renderServices(adminServicesQuery, p);
         }
       }
     });
   }
-  async function renderServices(q = "") {
+  async function renderServices(q = "", page = 1) {
     const host = document.querySelector("#servicesList");
     if (!host) return;
     try {
-      const d = await api(`/api/v1/admin/services?q=${encodeURIComponent(q)}`);
+      adminServicesQuery = q;
+      adminServicesPage = Math.max(1, page);
+      const offset = (adminServicesPage - 1) * adminServicesPageSize;
+      const d = await api(`/api/v1/admin/services?q=${encodeURIComponent(q)}&limit=${adminServicesPageSize}&offset=${offset}`);
       cachedAdminServices = d.services || [];
-      adminServicesPage = 1;
+      adminServicesTotal = Number(d.total || 0);
       paintAdminServicesList();
       bindAdminServicesListeners();
     } catch (e) {
@@ -1417,7 +1427,7 @@
       </div>
 
       <!-- Lifecycle Management Form -->
-      <div class="card flat" style="padding:14px">
+      <div class="card flat" style="padding:14px" data-permission="services:manage">
         <div class="dh" style="margin-bottom:4px">LIFECYCLE SUSPENSION & TERMINATION</div>
         <small class="muted" style="display:block;margin-bottom:10px">Administrative actions require audit rationale and recording.</small>
 
@@ -1590,8 +1600,8 @@
     </td>
     <td class="r" data-l="Actions">
       <div class="row nw" style="justify-content:flex-end;gap:6px">
-        ${plan.status !== "ACTIVE" ? `<button class="btn xs good" data-plan-status="ACTIVE" data-plan-id="${esc(plan.id)}">Activate</button>` : ""}
-        ${plan.status !== "RETIRED" ? `<button class="btn xs bad" data-plan-status="RETIRED" data-plan-id="${esc(plan.id)}">Retire</button>` : ""}
+        ${plan.status !== "ACTIVE" ? `<button class="btn xs good" data-plan-status="ACTIVE" data-plan-id="${esc(plan.id)}" data-permission="catalog:manage">Activate</button>` : ""}
+        ${plan.status !== "RETIRED" ? `<button class="btn xs bad" data-plan-status="RETIRED" data-plan-id="${esc(plan.id)}" data-permission="catalog:manage">Retire</button>` : ""}
       </div>
     </td>
   </tr>`;
@@ -1621,10 +1631,10 @@
         </div>
         <span class="pill ${product.isPublished ? "good" : "warn"} d">${product.isPublished ? "Published" : "Draft (Private)"}</span>
         <div class="row nw" style="gap:6px">
-          <button class="btn xs ${product.isPublished ? "bad" : "pri"}" data-product-publish="${product.isPublished ? "false" : "true"}" data-product-id="${esc(product.id)}">
+          <button class="btn xs ${product.isPublished ? "bad" : "pri"}" data-product-publish="${product.isPublished ? "false" : "true"}" data-product-id="${esc(product.id)}" data-permission="catalog:manage">
             ${product.isPublished ? "Unpublish" : "Publish"}
           </button>
-          <button class="btn xs" data-new-plan-product="${esc(product.id)}">
+          <button class="btn xs" data-new-plan-product="${esc(product.id)}" data-permission="catalog:manage">
             ${hero("plus", "xs")}New plan
           </button>
         </div>
@@ -1652,7 +1662,7 @@
           <span class="tile neu">${hero("server")}</span>
           <h4>No plan versions</h4>
           <p>Add at least one plan with RAM, CPU and disk specs to make this product orderable.</p>
-          <button class="btn s" data-new-plan-product="${esc(product.id)}" style="margin-top:6px">
+          <button class="btn s" data-new-plan-product="${esc(product.id)}" data-permission="catalog:manage" style="margin-top:6px">
             ${hero("plus", "xs")}Create first plan
           </button>
         </div>
@@ -2237,7 +2247,7 @@
         host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching staff identities.</b></div></td></tr>`;
         return;
       }
-      host.innerHTML = d.staff.map((x) => `<tr class="h"><td data-l="Member"><div class="row nw"><span class="av v">${esc(x.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase())}</span><div><b>${esc(x.name)}</b><small>${esc(x.email)}</small></div></div></td><td data-l="Role">${badge(x.role)}</td><td data-l="MFA">${badge(x.mfa_enabled ? "READY" : "NOT SET UP")}</td><td data-l="Access">${badge(x.status)}</td><td data-l="Action"><button class="btn xs" data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(x.role)}" data-staff-status="${esc(x.status)}">Edit</button></td></tr>`).join("");
+      host.innerHTML = d.staff.map((x) => `<tr class="h"><td data-l="Member"><div class="row nw"><span class="av v">${esc(x.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase())}</span><div><b>${esc(x.name)}</b><small>${esc(x.email)}</small></div></div></td><td data-l="Role">${badge(x.role)}</td><td data-l="MFA">${badge(x.mfa_enabled ? "READY" : "NOT SET UP")}</td><td data-l="Access">${badge(x.status)}</td><td data-l="Action"><button class="btn xs" data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(x.role)}" data-staff-status="${esc(x.status)}" data-permission="staff:manage">Edit</button></td></tr>`).join("");
     } catch (e) {
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }

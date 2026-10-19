@@ -89,7 +89,7 @@
           <div class="tx"><a class="eyebrow" href="/admin/accounts" data-route="accounts">← Customer accounts</a><h2 id="adminAccountTitle">Account profile</h2><p id="adminAccountMeta">Loading account record…</p></div>
         </div>
         <div id="adminAccountContent" class="col" style="gap:14px"></div>
-        <form id="adminAccountStatusForm" class="card col" style="gap:12px;margin-top:14px">
+        <form id="adminAccountStatusForm" class="card col" style="gap:12px;margin-top:14px" data-permission="accounts:manage">
           <div class="ch"><div class="tx"><h3>Access restriction</h3><p>Sensitive changes require MFA step-up and an audit reason.</p></div></div>
           <label class="field"><span>Account status</span><div class="inp"><select id="adminAccountStatusSelect"><option value="ACTIVE">ACTIVE — normal access</option><option value="LOCKED">LOCKED — access blocked</option><option value="FLAGGED_FRAUD">FLAGGED FRAUD — review required</option></select></div></label>
           <label class="field"><span>Audit reason</span><div class="inp"><input type="text" id="adminAccountReason" required minlength="5" maxlength="500" placeholder="Why this account status is changing"></div></label>
@@ -131,7 +131,7 @@
             <h2>Catalog & providers</h2>
             <p>Commercial products, immutable plan versions, and live Pterodactyl hypervisor allocations.</p>
           </div>
-          <button class="btn pri" type="button" data-new-product><span class="ic" data-icon="plus"></span>Create product</button>
+          <button class="btn pri" type="button" data-new-product data-permission="catalog:manage"><span class="ic" data-icon="plus"></span>Create product</button>
         </div>
 
         <div class="row" style="margin-bottom:14px">
@@ -186,11 +186,11 @@
       </section>
 
       <section class="page" id="page-staff">
-        <div class="hd"><div class="tx"><h2>Staff access</h2><p>Persisted roles, access status and MFA readiness.</p></div><button class="btn pri" type="button" data-add-staff>Add staff</button></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search staff" data-search="staff" aria-label="Search staff"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Member</th><th>Role</th><th>MFA</th><th>Access</th><th></th></tr></thead><tbody id="staffList"></tbody></table></div></div>
+        <div class="hd"><div class="tx"><h2>Staff access</h2><p>Persisted roles, access status and MFA readiness.</p></div><button class="btn pri" type="button" data-add-staff data-permission="staff:manage">Add staff</button></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search staff" data-search="staff" aria-label="Search staff"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Member</th><th>Role</th><th>MFA</th><th>Access</th><th></th></tr></thead><tbody id="staffList"></tbody></table></div></div>
         <div class="card"><div class="card-head"><div><h2>Role permissions</h2><p>Effective grants from the server-side access policy.</p></div></div><div class="table-scroll"><table class="tbl"><thead><tr><th>Role</th><th>Accounts</th><th>Services</th><th>Tickets</th><th>Audit</th><th>Staff</th><th>Catalog</th></tr></thead><tbody><tr><td><b>OWNER</b></td><td>manage</td><td>manage</td><td>manage</td><td>read</td><td>manage</td><td>manage</td></tr><tr><td><b>ADMINISTRATOR</b></td><td>manage</td><td>manage</td><td>manage</td><td>read</td><td>read</td><td>manage</td></tr><tr><td><b>BILLING</b></td><td>read</td><td>—</td><td>—</td><td>—</td><td>—</td><td>read</td></tr><tr><td><b>SUPPORT</b></td><td>read</td><td>read</td><td>manage</td><td>—</td><td>—</td><td>read</td></tr><tr><td><b>INFRASTRUCTURE</b></td><td>read</td><td>manage</td><td>—</td><td>read</td><td>—</td><td>manage</td></tr><tr><td><b>AUDITOR</b></td><td>read</td><td>read</td><td>read</td><td>read</td><td>read</td><td>read</td></tr></tbody></table></div></div>
       </section>
 
-      <section class="page" id="page-status"><div class="hd"><div><h2>System status</h2><p>Customer-visible components and incident timeline.</p></div><button class="btn pri" type="button" data-new-incident>Declare incident</button></div><div id="statusMetrics" class="g g4 k2 admin-metrics"></div><div class="status-banner" id="statusHeadline"></div><div class="g g2"><article class="card"><div class="card-head"><div><h2>Components</h2><p>Published operational state.</p></div></div><div id="statusComponents" class="stack"></div></article><article class="card"><div class="card-head"><div><h2>Incidents</h2><p>Active and resolved customer communications.</p></div></div><div id="statusIncidents" class="stack"></div></article></div></section>
+      <section class="page" id="page-status"><div class="hd"><div><h2>System status</h2><p>Customer-visible components and incident timeline.</p></div><button class="btn pri" type="button" data-new-incident data-permission="services:manage">Declare incident</button></div><div id="statusMetrics" class="g g4 k2 admin-metrics"></div><div class="status-banner" id="statusHeadline"></div><div class="g g2"><article class="card"><div class="card-head"><div><h2>Components</h2><p>Published operational state.</p></div></div><div id="statusComponents" class="stack"></div></article><article class="card"><div class="card-head"><div><h2>Incidents</h2><p>Active and resolved customer communications.</p></div></div><div id="statusIncidents" class="stack"></div></article></div></section>
 
       <section class="page" id="page-settings">
         <div class="hd">

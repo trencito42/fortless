@@ -76,8 +76,8 @@ function planRow(plan: Plan, _product?: Product): string {
     </td>
     <td class="r" data-l="Actions">
       <div class="row nw" style="justify-content:flex-end;gap:6px">
-        ${plan.status !== 'ACTIVE' ? `<button class="btn xs good" data-plan-status="ACTIVE" data-plan-id="${esc(plan.id)}">Activate</button>` : ''}
-        ${plan.status !== 'RETIRED' ? `<button class="btn xs bad" data-plan-status="RETIRED" data-plan-id="${esc(plan.id)}">Retire</button>` : ''}
+        ${plan.status !== 'ACTIVE' ? `<button class="btn xs good" data-plan-status="ACTIVE" data-plan-id="${esc(plan.id)}" data-permission="catalog:manage">Activate</button>` : ''}
+        ${plan.status !== 'RETIRED' ? `<button class="btn xs bad" data-plan-status="RETIRED" data-plan-id="${esc(plan.id)}" data-permission="catalog:manage">Retire</button>` : ''}
       </div>
     </td>
   </tr>`;
@@ -116,10 +116,10 @@ function renderProducts(query = ''): void {
         </div>
         <span class="pill ${product.isPublished ? 'good' : 'warn'} d">${product.isPublished ? 'Published' : 'Draft (Private)'}</span>
         <div class="row nw" style="gap:6px">
-          <button class="btn xs ${product.isPublished ? 'bad' : 'pri'}" data-product-publish="${product.isPublished ? 'false' : 'true'}" data-product-id="${esc(product.id)}">
+          <button class="btn xs ${product.isPublished ? 'bad' : 'pri'}" data-product-publish="${product.isPublished ? 'false' : 'true'}" data-product-id="${esc(product.id)}" data-permission="catalog:manage">
             ${product.isPublished ? 'Unpublish' : 'Publish'}
           </button>
-          <button class="btn xs" data-new-plan-product="${esc(product.id)}">
+          <button class="btn xs" data-new-plan-product="${esc(product.id)}" data-permission="catalog:manage">
             ${hero('plus', 'xs')}New plan
           </button>
         </div>
@@ -147,7 +147,7 @@ function renderProducts(query = ''): void {
           <span class="tile neu">${hero('server')}</span>
           <h4>No plan versions</h4>
           <p>Add at least one plan with RAM, CPU and disk specs to make this product orderable.</p>
-          <button class="btn s" data-new-plan-product="${esc(product.id)}" style="margin-top:6px">
+          <button class="btn s" data-new-plan-product="${esc(product.id)}" data-permission="catalog:manage" style="margin-top:6px">
             ${hero('plus', 'xs')}Create first plan
           </button>
         </div>
