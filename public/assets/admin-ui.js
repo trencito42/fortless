@@ -815,6 +815,7 @@
   // src/frontend/admin/shell/admin-shell.ts
   var AdminShell = class {
     permissions = /* @__PURE__ */ new Set();
+    role = "";
     cmd;
     pendingStepUpAction = null;
     constructor() {
@@ -863,6 +864,7 @@
         if (topAvatar) topAvatar.textContent = identity.user.name.slice(0, 2).toUpperCase();
         if (staffRole) staffRole.textContent = `${access.staff.role.replaceAll("_", " ")} \xB7 MFA`;
         this.permissions = new Set(access.staff.permissions);
+        this.role = access.staff.role;
         const required = {
           accounts: "accounts:read",
           services: "services:read",
@@ -882,8 +884,23 @@
             link.remove();
           }
         });
+        this.enforcePermissions();
+        const main = document.getElementById("mn");
+        if (main) {
+          new MutationObserver(() => this.enforcePermissions(main)).observe(main, { childList: true, subtree: true });
+        }
       } catch {
       }
+    }
+    hasPermission(permission) {
+      return this.role === "OWNER" || this.permissions.has(permission);
+    }
+    enforcePermissions(root = document) {
+      root.querySelectorAll("[data-permission]").forEach((element) => {
+        const allowed = this.hasPermission(element.dataset.permission || "");
+        element.hidden = !allowed;
+        element.setAttribute("aria-hidden", String(!allowed));
+      });
     }
     promptStepUp(onSuccess, onError) {
       this.pendingStepUpAction = { onSuccess, onError };
@@ -1366,7 +1383,7 @@
       </div>
 
       <!-- Live Provider Controls -->
-      <div class="card flat" style="padding:14px">
+      <div class="card flat" style="padding:14px" data-permission="services:manage">
         <div class="row nw" style="justify-content:space-between;align-items:center;margin-bottom:10px">
           <div>
             <div class="dh">HYPERVISOR POWER ACTIONS</div>
@@ -1390,7 +1407,7 @@
         <div id="servicePowerFeedback" style="margin-top:8px" hidden></div>
       </div>
 
-      <div class="card flat" style="padding:14px">
+      <div class="card flat" style="padding:14px" data-permission="services:manage">
         <div class="dh" style="margin-bottom:4px">RELINK TO PANEL SERVER</div>
         <small class="muted">Use when the server was recreated on the panel under another id. Current link: <code>${esc(String(s.external_id || "none"))}</code></small>
         <div class="row nw" style="gap:8px;margin-top:10px">
@@ -2341,7 +2358,7 @@
     <td data-l="Due">${x.due_date ? formatDate(x.due_date) : "\u2014"}</td>
     <td data-l="Paid">${money2(x.amount_paid_minor_units, x.currency)} / <b>${money2(x.total_minor_units, x.currency)}</b></td>
     <td data-l="Status">${badge(x.status)}</td>
-    <td data-l="Action">${x.status === "PAID" ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}">Refund</button>` : ""}</td></tr>`).join("");
+    <td data-l="Action">${x.status === "PAID" ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}" data-permission="accounts:manage">Refund</button>` : ""}</td></tr>`).join("");
   }
   function paintAdminCreditsList() {
     const creditHost = document.querySelector("#creditNotesList");
@@ -2453,9 +2470,9 @@
       }
       const headline = document.querySelector("#statusHeadline");
       if (headline) headline.innerHTML = `<b>${esc(data.headline)}</b>${badge(data.indicator)}`;
-      componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} \xB7 updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}">Change</button></article>`).join("") || empty("No status components");
+      componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} \xB7 updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}" data-permission="services:manage">Change</button></article>`).join("") || empty("No status components");
       const incidents = [...data.activeIncidents, ...data.pastIncidents];
-      incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates \xB7 ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== "RESOLVED" ? `<button class="btn xs" data-incident-id="${esc(x.id)}">Update</button>` : ""}</article>`).join("") || empty("No incidents recorded");
+      incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates \xB7 ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== "RESOLVED" ? `<button class="btn xs" data-incident-id="${esc(x.id)}" data-permission="services:manage">Update</button>` : ""}</article>`).join("") || empty("No incidents recorded");
     } catch (error) {
       componentsHost.innerHTML = empty(error.message);
     }

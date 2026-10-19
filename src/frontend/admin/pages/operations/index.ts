@@ -116,7 +116,7 @@ function paintAdminInvoicesList(): void {
     <td data-l="Due">${x.due_date ? formatDate(x.due_date) : '—'}</td>
     <td data-l="Paid">${money(x.amount_paid_minor_units, x.currency)} / <b>${money(x.total_minor_units, x.currency)}</b></td>
     <td data-l="Status">${badge(x.status)}</td>
-    <td data-l="Action">${x.status === 'PAID' ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}">Refund</button>` : ''}</td></tr>`).join('');
+    <td data-l="Action">${x.status === 'PAID' ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}" data-permission="accounts:manage">Refund</button>` : ''}</td></tr>`).join('');
 }
 
 function paintAdminCreditsList(): void {
@@ -236,8 +236,8 @@ export async function renderStatus(): Promise<void> {
     }
     const headline = document.querySelector('#statusHeadline');
     if (headline) headline.innerHTML = `<b>${esc(data.headline)}</b>${badge(data.indicator)}`;
-    componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} · updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}">Change</button></article>`).join('') || empty('No status components');
+    componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} · updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}" data-permission="services:manage">Change</button></article>`).join('') || empty('No status components');
     const incidents = [...data.activeIncidents, ...data.pastIncidents];
-    incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates · ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== 'RESOLVED' ? `<button class="btn xs" data-incident-id="${esc(x.id)}">Update</button>` : ''}</article>`).join('') || empty('No incidents recorded');
+    incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates · ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== 'RESOLVED' ? `<button class="btn xs" data-incident-id="${esc(x.id)}" data-permission="services:manage">Update</button>` : ''}</article>`).join('') || empty('No incidents recorded');
   } catch (error: any) { componentsHost.innerHTML = empty(error.message); }
 }

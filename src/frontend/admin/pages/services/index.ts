@@ -147,7 +147,7 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
       </div>
 
       <!-- Live Provider Controls -->
-      <div class="card flat" style="padding:14px">
+      <div class="card flat" style="padding:14px" data-permission="services:manage">
         <div class="row nw" style="justify-content:space-between;align-items:center;margin-bottom:10px">
           <div>
             <div class="dh">HYPERVISOR POWER ACTIONS</div>
@@ -171,7 +171,7 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
         <div id="servicePowerFeedback" style="margin-top:8px" hidden></div>
       </div>
 
-      <div class="card flat" style="padding:14px">
+      <div class="card flat" style="padding:14px" data-permission="services:manage">
         <div class="dh" style="margin-bottom:4px">RELINK TO PANEL SERVER</div>
         <small class="muted">Use when the server was recreated on the panel under another id. Current link: <code>${esc(String(s.external_id || 'none'))}</code></small>
         <div class="row nw" style="gap:8px;margin-top:10px">
@@ -181,7 +181,7 @@ export async function renderServiceDetail(serviceId: string): Promise<void> {
       </div>
 
       <!-- Lifecycle Management Form -->
-      <div class="card flat" style="padding:14px">
+      <div class="card flat" style="padding:14px" data-permission="services:manage">
         <div class="dh" style="margin-bottom:4px">LIFECYCLE SUSPENSION & TERMINATION</div>
         <small class="muted" style="display:block;margin-bottom:10px">Administrative actions require audit rationale and recording.</small>
 

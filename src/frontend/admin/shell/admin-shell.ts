@@ -9,6 +9,7 @@ import { hero, CommandPaletteController, initModalStacker, updateModalStacking }
 
 export class AdminShell {
   public permissions: Set<string> = new Set();
+  private role = '';
   public cmd: CommandPaletteController;
   private pendingStepUpAction: { onSuccess: () => void; onError?: (err: Error) => void } | null = null;
 
@@ -67,6 +68,7 @@ export class AdminShell {
       if (staffRole) staffRole.textContent = `${access.staff.role.replaceAll('_', ' ')} · MFA`;
 
       this.permissions = new Set(access.staff.permissions);
+      this.role = access.staff.role;
 
       // Prune links without required permission
       const required: Record<string, string> = {
@@ -89,9 +91,27 @@ export class AdminShell {
           link.remove();
         }
       });
+
+      this.enforcePermissions();
+      const main = document.getElementById('mn');
+      if (main) {
+        new MutationObserver(() => this.enforcePermissions(main)).observe(main, { childList: true, subtree: true });
+      }
     } catch {
       // non-blocking
     }
+  }
+
+  public hasPermission(permission: string): boolean {
+    return this.role === 'OWNER' || this.permissions.has(permission);
+  }
+
+  public enforcePermissions(root: ParentNode = document): void {
+    root.querySelectorAll<HTMLElement>('[data-permission]').forEach((element) => {
+      const allowed = this.hasPermission(element.dataset.permission || '');
+      element.hidden = !allowed;
+      element.setAttribute('aria-hidden', String(!allowed));
+    });
   }
 
   public promptStepUp(onSuccess: () => void, onError?: (err: Error) => void): void {
