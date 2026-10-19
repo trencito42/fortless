@@ -84,6 +84,9 @@ export function filterServices(): void {
   renderServiceInventory();
 }
 
+// FTL-UI-205: renderServices reports its own failures inside the panel, so callers need to know whether it really loaded.
+let servicesRenderOk = false;
+
 export async function renderServices(): Promise<void> {
   const host = document.getElementById('servicesView');
   if (!host) return;
@@ -181,16 +184,19 @@ export async function renderServices(): Promise<void> {
       const btn = e.currentTarget as HTMLButtonElement | null;
       if (btn) btn.disabled = true;
       try {
+        servicesRenderOk = false;
         await renderServices();
-        toast('Refreshed services list', 'info');
+        if (servicesRenderOk) toast('Refreshed services list', 'info');
       } catch (err: any) {
         toast('Failed to refresh services: ' + (err.message || 'Network error'), 'bad');
       } finally {
         if (btn) btn.disabled = false;
       }
     });
+    servicesRenderOk = true;
 
   } catch (error: any) {
+    servicesRenderOk = false;
     host.innerHTML = `<div class="alert bad">${hero('warning', 's')}<div><b>Failed to load services</b><span>${esc(error.message)}</span></div></div>`;
   }
 }

@@ -73,15 +73,6 @@
       this.resolve();
     }
     resolve() {
-      this.navigationSeq++;
-      const currentSeq = this.navigationSeq;
-      if (this.activeAbortController) {
-        try {
-          this.activeAbortController.abort();
-        } catch {
-        }
-      }
-      this.activeAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       const path = window.location.pathname;
       const prev = this.currentMatch;
       if (prev?.route.tabbed) {
@@ -97,6 +88,15 @@
           }
         }
       }
+      this.navigationSeq++;
+      const currentSeq = this.navigationSeq;
+      if (this.activeAbortController) {
+        try {
+          this.activeAbortController.abort();
+        } catch {
+        }
+      }
+      this.activeAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       while (this.cleanups.length) {
         const cleanup = this.cleanups.pop();
         try {
@@ -194,7 +194,7 @@
       id: "domains",
       path: "/app/domains",
       title: "Domains & DNS \xB7 FORTLESS",
-      subtitle: "Domain registration, TLD pricing catalog, and authoritative DNS zones."
+      subtitle: "DNS zones for domains you already own. Domain registration is not offered."
     },
     billing: {
       id: "billing",
@@ -274,6 +274,15 @@
   // src/frontend/core/api/client.ts
   var ApiClient = class {
     csrfToken = null;
+    navigationSignal = null;
+    /**
+     * FTL-UI-203: page data requests (GET) are tied to the current navigation. When the user moves on, the request is
+     * aborted and its promise never settles, so a superseded page cannot paint over the new one or raise stale toasts.
+     * Writes are never aborted.
+     */
+    setNavigationSignal(provider) {
+      this.navigationSignal = provider;
+    }
     stepUpInterceptor = null;
     setStepUpInterceptor(interceptor) {
       this.stepUpInterceptor = interceptor;
@@ -297,12 +306,20 @@
           headers["X-CSRF-Token"] = await this.getCsrfToken();
         }
       }
-      const res = await fetch(url, {
-        ...options,
-        method,
-        headers,
-        credentials: "same-origin"
-      });
+      const navSignal = method === "GET" && !options.signal ? this.navigationSignal?.() : void 0;
+      let res;
+      try {
+        res = await fetch(url, {
+          ...options,
+          method,
+          headers,
+          credentials: "same-origin",
+          ...navSignal ? { signal: navSignal } : {}
+        });
+      } catch (err) {
+        if (navSignal?.aborted && err?.name === "AbortError") return new Promise(() => void 0);
+        throw err;
+      }
       let data = {};
       const text = await res.text();
       if (text) {
@@ -486,6 +503,44 @@
       document.body.appendChild(host);
     }
     return host;
+  }
+
+  // src/frontend/petal/components/radiogroup.ts
+  function initRadioGroups(root = document) {
+    root.querySelectorAll('.seg[role="radiogroup"]').forEach((group) => {
+      if (group.dataset["rg"] === "1") return;
+      const items = () => [...group.querySelectorAll('[role="radio"]')];
+      const inputOf = (item) => item.closest("label")?.querySelector('input[type="radio"]') ?? null;
+      if (!items().length || !items().every((i) => inputOf(i))) return;
+      group.dataset["rg"] = "1";
+      const sync = () => {
+        const all = items();
+        const active = all.find((i) => inputOf(i)?.checked) ?? all[0];
+        for (const item of all) {
+          item.setAttribute("aria-checked", String(item === active));
+          item.tabIndex = item === active ? 0 : -1;
+        }
+      };
+      sync();
+      group.addEventListener("change", sync);
+      group.addEventListener("keydown", (event) => {
+        const all = items();
+        const current = all.indexOf(document.activeElement);
+        if (current === -1) return;
+        let next = current;
+        if (event.key === "ArrowRight" || event.key === "ArrowDown") next = (current + 1) % all.length;
+        else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = (current - 1 + all.length) % all.length;
+        else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = all.length - 1;
+        else if (event.key === " " || event.key === "Enter") next = current;
+        else return;
+        event.preventDefault();
+        const target = all[next];
+        inputOf(target)?.click();
+        sync();
+        target.focus();
+      });
+    });
   }
 
   // src/frontend/petal/components/modals.ts
@@ -1677,6 +1732,7 @@ ${selectedOr("code")}
   function filterServices() {
     renderServiceInventory();
   }
+  var servicesRenderOk = false;
   async function renderServices() {
     const host = document.getElementById("servicesView");
     if (!host) return;
@@ -1767,15 +1823,18 @@ ${selectedOr("code")}
         const btn = e.currentTarget;
         if (btn) btn.disabled = true;
         try {
+          servicesRenderOk = false;
           await renderServices();
-          toast("Refreshed services list", "info");
+          if (servicesRenderOk) toast("Refreshed services list", "info");
         } catch (err) {
           toast("Failed to refresh services: " + (err.message || "Network error"), "bad");
         } finally {
           if (btn) btn.disabled = false;
         }
       });
+      servicesRenderOk = true;
     } catch (error) {
+      servicesRenderOk = false;
       host.innerHTML = `<div class="alert bad">${hero("warning", "s")}<div><b>Failed to load services</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
@@ -4599,7 +4658,7 @@ ${selectedOr("code")}
         host.innerHTML = renderEmptyState({
           icon: "document",
           title: "No domain zones active",
-          message: "Search and register a domain above or delegate DNS to Fortless authoritative nameservers."
+          message: "Add a domain you already own above, prove ownership with a TXT record, then point its name servers to Fortless."
         });
         return;
       }
@@ -4693,9 +4752,9 @@ ${selectedOr("code")}
         return;
       }
       host.innerHTML = `<div class="col" style="gap:6px;margin-top:8px">${res.results.map((item) => {
-        const isAvail = item.available && item.status === "AVAILABLE";
-        const tone = isAvail ? "good" : "bad";
-        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-globe-02"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result \xB7 registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || "EUR")}<small class="muted">/yr</small></b>` : ""}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s tint register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ""}</span></div>`;
+        const isAvail = item.available && item.status === "NOT_CLAIMED";
+        const tone = isAvail ? "info" : "bad";
+        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-globe-02"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Not in Fortless DNS yet \xB7 availability at a registrar is not checked, nothing is purchased</small></span><span class="row" style="gap:8px;flex-shrink:0"><span class="pill ${tone}">${esc(item.status === "NOT_CLAIMED" ? "Not in Fortless DNS" : item.status)}</span>${isAvail ? `<button type="button" class="btn s tint register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ""}</span></div>`;
       }).join("")}</div>`;
       host.querySelectorAll(".register-domain-btn").forEach((btn) => {
         btn.addEventListener("click", async () => {
@@ -6605,6 +6664,7 @@ ${selectedOr("code")}
     window.scrollTo(0, 0);
   }
   var router = new Router(CLIENT_ROUTES);
+  apiClient.setNavigationSignal(() => router.getSignal());
   router.register("dashboard", async () => {
     updateNavigationChrome("dashboard");
     await renderHome();
@@ -7135,6 +7195,7 @@ ${selectedOr("code")}
     });
   }
   async function init() {
+    initRadioGroups();
     appShell.init();
     installRichTextEditors(document);
     installCustomSelects(document);

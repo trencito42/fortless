@@ -100,3 +100,25 @@ describe('NEW-378/NEW-406/NEW-407: staff sync, settings and search', () => {
     expect(found).toContain('svc_srch');
   });
 });
+
+describe('SEC-10: the application sets its own security headers', () => {
+  it('sends HSTS over HTTPS, nosniff and a CSP that allows only the page\'s own inline scripts', async () => {
+    const res = await h.app.inject({ method: 'GET', url: '/login', headers: { 'x-forwarded-proto': 'https' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['strict-transport-security']).toMatch(/max-age=\d+/);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    const csp = String(res.headers['content-security-policy']);
+    expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain("'unsafe-inline' https://fonts.googleapis.com'"); // styles only
+    expect(csp).toMatch(/script-src 'self'[^;]*(?:'sha256-[A-Za-z0-9+/=]+')?/);
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+    expect(csp).toContain("frame-ancestors 'self'");
+    expect(csp).toContain("object-src 'none'");
+    const api = await h.app.inject({ method: 'GET', url: '/api/v1/auth/csrf' });
+    expect(api.headers['x-content-type-options']).toBe('nosniff');
+    expect(api.headers['content-security-policy']).toBeUndefined();
+    const plain = await h.app.inject({ method: 'GET', url: '/api/v1/auth/csrf' });
+    expect(plain.headers['strict-transport-security']).toBeUndefined(); // plain HTTP in tests
+  });
+});

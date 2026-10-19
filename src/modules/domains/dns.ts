@@ -29,7 +29,8 @@ export interface DomainSearchResult {
   domain: string;
   tld: string;
   available: boolean;
-  status: 'AVAILABLE' | 'TAKEN' | 'UNSUPPORTED_TLD' | 'INVALID_SYNTAX';
+  // NOT_CLAIMED: no Fortless workspace holds a zone for the name. Availability at a registrar is never checked (FTL-DNS-201).
+  status: 'NOT_CLAIMED' | 'TAKEN' | 'UNSUPPORTED_TLD' | 'INVALID_SYNTAX';
   annualPriceMinorUnits: number | null;
   currency: string | null;
   reason?: string;
@@ -173,7 +174,7 @@ export function searchDomain(db: Database.Database, query: string): { query: str
         domain: fullDomain,
         tld: tldKey,
         available: !existing,
-        status: existing ? 'TAKEN' : 'AVAILABLE',
+        status: existing ? 'TAKEN' : 'NOT_CLAIMED',
         availabilityTier: existing ? undefined : 'LOCAL_ZONE_AVAILABLE',
         isExternalRegistrarVerified: false,
         annualPriceMinorUnits: info.annualPriceMinorUnits,
@@ -216,7 +217,7 @@ export function searchDomain(db: Database.Database, query: string): { query: str
         domain: cleaned,
         tld,
         available: !existing,
-        status: existing ? 'TAKEN' : 'AVAILABLE',
+        status: existing ? 'TAKEN' : 'NOT_CLAIMED',
         availabilityTier: existing ? undefined : 'LOCAL_ZONE_AVAILABLE',
         isExternalRegistrarVerified: false,
         annualPriceMinorUnits: tldInfo.annualPriceMinorUnits,

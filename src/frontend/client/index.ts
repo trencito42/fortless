@@ -5,7 +5,7 @@
 
 import { Router, RouteMatch } from '../core/router/router.js';
 import { CLIENT_ROUTES } from '../core/router/routes.js';
-import { api } from '../core/api/client.js';
+import { apiClient, api } from '../core/api/client.js';
 import { toast } from '../petal/index.js';
 import { AppShell } from './shell/app-shell.js';
 
@@ -55,7 +55,7 @@ import {
   registerPasskey,
   handleRemovePasskey,
 } from './pages/settings/index.js';
-import { installCustomSelects, installRichTextEditors } from '../petal/index.js';
+import { installCustomSelects, installRichTextEditors, initRadioGroups } from '../petal/index.js';
 
 const appShell = new AppShell();
 
@@ -128,6 +128,7 @@ function updateNavigationChrome(routeName: string) {
 }
 
 const router = new Router(CLIENT_ROUTES);
+apiClient.setNavigationSignal(() => router.getSignal());
 
 // Register Route Handlers
 router.register('dashboard', async () => {
@@ -751,6 +752,7 @@ function bindDelegatedEvents() {
 
 // Bootstrap Client Portal
 async function init() {
+  initRadioGroups();
   appShell.init();
   installRichTextEditors(document);
   installCustomSelects(document);

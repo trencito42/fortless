@@ -54,6 +54,16 @@ Then clear caches:
 - Root admins are refused. Admins keep signing in with their panel password.
 - SSO sign-in bypasses panel 2FA, because Fortless has already authenticated the user.
 
+## Session length and password recovery (NEW-396, SSO-01)
+
+- SSO logins do not set a "remember me" cookie. Set `SESSION_LIFETIME=60` (minutes) in the panel `.env` so a panel session
+  cannot outlive the Fortless authorization by more than an hour, then `php artisan optimize:clear`.
+- Fortless now creates customer panel users with a reserved undeliverable address (`...@panel.fortless.invalid`) and moves
+  existing ones the next time the customer opens the panel, so the panel's "forgot password" mail cannot reach a mailbox.
+  Still block `/auth/password` and `/auth/password/reset` for these users at the web server if you can.
+- After deploying, check from a browser that a user removed from the Fortless workspace is signed out of the panel within
+  the session lifetime (STAGING_TEST_PLAN items 3 and 4).
+
 ## Known gaps
 
 - Customer panel users are created without a password, but the panel's "forgot password" email flow can still

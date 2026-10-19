@@ -146,6 +146,7 @@ import {
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
 import { applyStaffChange, StaffChangeError } from './modules/admin/staff.js';
 import { csvRow } from './utils/csv.js';
+import { baseSecurityHeaders, contentSecurityPolicy } from './utils/security-headers.js';
 import { customerAuditView } from './modules/audit/customer-view.js';
 import {
   listTickets,
@@ -293,6 +294,19 @@ export function buildServer(): FastifyInstance {
 
     return deviceId;
   };
+
+  // SEC-10: security headers come from the application, whatever the proxy in front adds.
+  app.addHook('onSend', async (req, reply, payload) => {
+    const secure = config.NODE_ENV === 'production' || req.headers['x-forwarded-proto'] === 'https' || req.protocol === 'https';
+    for (const [name, value] of Object.entries(baseSecurityHeaders(secure))) {
+      if (!reply.hasHeader(name)) reply.header(name, value);
+    }
+    const type = String(reply.getHeader('content-type') ?? '');
+    if (type.startsWith('text/html') && typeof payload === 'string' && !reply.hasHeader('content-security-policy')) {
+      reply.header('Content-Security-Policy', contentSecurityPolicy(payload));
+    }
+    return payload;
+  });
 
   // 3. Auth Hook Middleware
   app.decorateRequest('auth', undefined);

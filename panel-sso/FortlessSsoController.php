@@ -125,7 +125,10 @@ class FortlessSsoController extends Controller
             return $this->fail('No matching hosting panel account was found for this sign-in.');
         }
 
-        Auth::guard('web')->login($user, true);
+        // NEW-396: no "remember me" cookie. The panel session is the panel's own short session (see INSTALL.md
+        // for SESSION_LIFETIME), so access ends when that session does and the customer comes back through Fortless,
+        // which re-checks the account, role and MFA each time.
+        Auth::guard('web')->login($user, false);
         $request->session()->regenerate();
 
         return redirect('/');

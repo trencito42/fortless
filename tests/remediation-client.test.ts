@@ -40,3 +40,75 @@ describe('NEW-405: the browser client recovers from an expired CSRF token', () =
     expect(writes).toBe(2);
   });
 });
+
+describe('FTL-UI-203: a superseded page load never settles', () => {
+  it('aborts the GET tied to the previous navigation and leaves writes alone', async () => {
+    const { apiClient } = await import('../src/frontend/core/api/client.js');
+    vi.stubGlobal('window', { location: { pathname: '/app', search: '', href: '' } });
+    const controller = new AbortController();
+    apiClient.setNavigationSignal(() => controller.signal);
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+      if (url === '/api/v1/auth/csrf') return resolve(new Response(JSON.stringify({ csrfToken: 't' }), { status: 200 }));
+      init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      if (!init?.signal) resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    }));
+    let settled = false;
+    const pending = apiClient.get('/api/v1/services').then(() => { settled = true; }, () => { settled = true; });
+    controller.abort(); // the user navigated away
+    await new Promise((r) => setTimeout(r, 30));
+    expect(settled).toBe(false);
+    void pending;
+    // a write started during a navigation is not tied to its signal and completes normally
+    await expect(apiClient.post('/api/v1/save', {})).resolves.toEqual({ ok: true });
+    apiClient.setNavigationSignal(null);
+  });
+});
+
+describe('UI-06: segmented filters are keyboard operable', () => {
+  // A very small DOM stand-in: just the members initRadioGroups touches.
+  function fakeGroup(labels: string[], checkedIndex: number) {
+    const listeners: Record<string, Array<(e: any) => void>> = {};
+    const group: any = { dataset: {}, addEventListener: (t: string, fn: (e: any) => void) => { (listeners[t] ??= []).push(fn); } };
+    const radios = labels.map((value, i) => {
+      const input: any = { type: 'radio', checked: i === checkedIndex, click: () => { radios.forEach((r) => { r.input.checked = r.input === input; }); (listeners['change'] ?? []).forEach((fn) => fn({})); } };
+      const attrs: Record<string, string> = {};
+      const el: any = { tabIndex: 0, setAttribute: (k: string, v: string) => { attrs[k] = v; }, attrs, focus: () => { (globalThis as any).document.activeElement = el; }, closest: () => ({ querySelector: () => input }) };
+      return { el, input, value };
+    });
+    group.querySelectorAll = () => radios.map((r) => r.el);
+    return { group, radios, fire: (key: string) => { const e = { key, preventDefault: () => undefined }; (listeners['keydown'] ?? []).forEach((fn) => fn(e)); } };
+  }
+
+  it('makes the checked control the only tab stop and moves the selection with the arrow keys', async () => {
+    const { initRadioGroups } = await import('../src/frontend/petal/components/radiogroup.js');
+    const { group, radios, fire } = fakeGroup(['ALL', 'AUTH', 'BILLING'], 0);
+    vi.stubGlobal('document', { activeElement: null });
+    initRadioGroups({ querySelectorAll: () => [group] } as never);
+    expect(radios.map((r) => r.el.tabIndex)).toEqual([0, -1, -1]);
+    expect(radios.map((r) => r.el.attrs['aria-checked'])).toEqual(['true', 'false', 'false']);
+
+    radios[0]!.el.focus();
+    fire('ArrowRight');
+    expect(radios.map((r) => r.input.checked)).toEqual([false, true, false]);
+    expect(radios.map((r) => r.el.tabIndex)).toEqual([-1, 0, -1]);
+    expect(radios[1]!.el.attrs['aria-checked']).toBe('true');
+    fire('ArrowLeft'); fire('ArrowLeft');
+    expect(radios.map((r) => r.input.checked)).toEqual([false, false, true]); // wraps around
+    fire('Home');
+    expect(radios[0]!.input.checked).toBe(true);
+  });
+});
+
+describe('FTL-UI-206: power controls follow the real lifecycle and runtime state', () => {
+  it('only offers controls for an ACTIVE contract whose runtime is settled', async () => {
+    const { serviceState } = await import('../src/frontend/client/pages/services/status.js');
+    expect(serviceState({ contract_status: 'ACTIVE', runtime_state: 'RUNNING' })).toMatchObject({ running: true, controllable: true });
+    expect(serviceState({ contract_status: 'ACTIVE', runtime_state: 'STOPPED' })).toMatchObject({ running: false, controllable: true });
+    for (const runtime of ['INSTALLING', 'ERROR', 'UNKNOWN', 'STARTING']) {
+      expect(serviceState({ contract_status: 'ACTIVE', runtime_state: runtime }).controllable).toBe(false);
+    }
+    for (const contract of ['SUSPENDED', 'TERMINATED', 'PAST_DUE']) {
+      expect(serviceState({ contract_status: contract, runtime_state: 'RUNNING' })).toMatchObject({ controllable: false, running: false });
+    }
+  });
+});

@@ -12,6 +12,16 @@ export type StepUpInterceptor = (
 
 class ApiClient {
   private csrfToken: string | null = null;
+  private navigationSignal: (() => AbortSignal | undefined) | null = null;
+
+  /**
+   * FTL-UI-203: page data requests (GET) are tied to the current navigation. When the user moves on, the request is
+   * aborted and its promise never settles, so a superseded page cannot paint over the new one or raise stale toasts.
+   * Writes are never aborted.
+   */
+  public setNavigationSignal(provider: (() => AbortSignal | undefined) | null) {
+    this.navigationSignal = provider;
+  }
   private stepUpInterceptor: StepUpInterceptor | null = null;
 
   public setStepUpInterceptor(interceptor: StepUpInterceptor | null) {
@@ -41,12 +51,20 @@ class ApiClient {
       }
     }
 
-    const res = await fetch(url, {
-      ...options,
-      method,
-      headers,
-      credentials: 'same-origin',
-    });
+    const navSignal = method === 'GET' && !options.signal ? this.navigationSignal?.() : undefined;
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...options,
+        method,
+        headers,
+        credentials: 'same-origin',
+        ...(navSignal ? { signal: navSignal } : {}),
+      });
+    } catch (err) {
+      if (navSignal?.aborted && (err as Error)?.name === 'AbortError') return new Promise<T>(() => undefined);
+      throw err;
+    }
 
     let data: any = {};
     const text = await res.text();

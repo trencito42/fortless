@@ -5,7 +5,7 @@
 
 import { Router } from '../core/router/router.js';
 import { ADMIN_ROUTES } from '../core/router/routes.js';
-import { api } from '../core/api/client.js';
+import { apiClient, api } from '../core/api/client.js';
 import { AdminShell } from './shell/admin-shell.js';
 
 // Feature Pages
@@ -38,6 +38,7 @@ import { toast } from '../petal/index.js';
 
 const adminShell = new AdminShell();
 const router = new Router(ADMIN_ROUTES);
+apiClient.setNavigationSignal(() => router.getSignal());
 
 function updateAdminChrome(routeName: string) {
   const titles: Record<string, [string, string]> = {

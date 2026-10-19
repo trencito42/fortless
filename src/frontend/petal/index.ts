@@ -2,6 +2,7 @@ export * from './components/icons.js';
 export * from './components/sparklines.js';
 export * from './components/gauges.js';
 export * from './components/toasts.js';
+export * from './components/radiogroup.js';
 export * from './components/modals.js';
 export * from './components/empty-state.js';
 export * from './components/cmd.js';

@@ -91,17 +91,6 @@ export class Router {
   }
 
   public resolve(): void {
-    this.navigationSeq++;
-    const currentSeq = this.navigationSeq;
-    if (this.activeAbortController) {
-      try {
-        this.activeAbortController.abort();
-      } catch {
-        // ignore
-      }
-    }
-    this.activeAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
-
     // A tab change inside the same view only announces the new tab; the page is not rebuilt.
     const path = window.location.pathname;
     const prev = this.currentMatch;
@@ -118,6 +107,17 @@ export class Router {
         }
       }
     }
+    this.navigationSeq++;
+    const currentSeq = this.navigationSeq;
+    if (this.activeAbortController) {
+      try {
+        this.activeAbortController.abort();
+      } catch {
+        // ignore
+      }
+    }
+    this.activeAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
     // Run cleanup for prior view
     while (this.cleanups.length) {
       const cleanup = this.cleanups.pop();

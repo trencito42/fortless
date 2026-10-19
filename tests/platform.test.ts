@@ -3125,7 +3125,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const dotCom = res1.results.find((r) => r.tld === '.com');
       expect(dotCom).toBeDefined();
       expect(dotCom?.available).toBe(true);
-      expect(dotCom?.status).toBe('AVAILABLE');
+      expect(dotCom?.status).toBe('NOT_CLAIMED');
       expect(dotCom?.annualPriceMinorUnits).toBe(1250); // €12.50
       expect(dotCom?.currency).toBe('EUR');
 

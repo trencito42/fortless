@@ -31,7 +31,7 @@ export const CLIENT_ROUTES: Record<string, RouteDefinition> = {
     id: 'domains',
     path: '/app/domains',
     title: 'Domains & DNS · FORTLESS',
-    subtitle: 'Domain registration, TLD pricing catalog, and authoritative DNS zones.',
+    subtitle: 'DNS zones for domains you already own. Domain registration is not offered.',
   },
   billing: {
     id: 'billing',

@@ -73,15 +73,6 @@
       this.resolve();
     }
     resolve() {
-      this.navigationSeq++;
-      const currentSeq = this.navigationSeq;
-      if (this.activeAbortController) {
-        try {
-          this.activeAbortController.abort();
-        } catch {
-        }
-      }
-      this.activeAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       const path = window.location.pathname;
       const prev = this.currentMatch;
       if (prev?.route.tabbed) {
@@ -97,6 +88,15 @@
           }
         }
       }
+      this.navigationSeq++;
+      const currentSeq = this.navigationSeq;
+      if (this.activeAbortController) {
+        try {
+          this.activeAbortController.abort();
+        } catch {
+        }
+      }
+      this.activeAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       while (this.cleanups.length) {
         const cleanup = this.cleanups.pop();
         try {
@@ -316,6 +316,15 @@
   // src/frontend/core/api/client.ts
   var ApiClient = class {
     csrfToken = null;
+    navigationSignal = null;
+    /**
+     * FTL-UI-203: page data requests (GET) are tied to the current navigation. When the user moves on, the request is
+     * aborted and its promise never settles, so a superseded page cannot paint over the new one or raise stale toasts.
+     * Writes are never aborted.
+     */
+    setNavigationSignal(provider) {
+      this.navigationSignal = provider;
+    }
     stepUpInterceptor = null;
     setStepUpInterceptor(interceptor) {
       this.stepUpInterceptor = interceptor;
@@ -339,12 +348,20 @@
           headers["X-CSRF-Token"] = await this.getCsrfToken();
         }
       }
-      const res = await fetch(url, {
-        ...options,
-        method,
-        headers,
-        credentials: "same-origin"
-      });
+      const navSignal = method === "GET" && !options.signal ? this.navigationSignal?.() : void 0;
+      let res;
+      try {
+        res = await fetch(url, {
+          ...options,
+          method,
+          headers,
+          credentials: "same-origin",
+          ...navSignal ? { signal: navSignal } : {}
+        });
+      } catch (err) {
+        if (navSignal?.aborted && err?.name === "AbortError") return new Promise(() => void 0);
+        throw err;
+      }
       let data = {};
       const text = await res.text();
       if (text) {
@@ -3015,6 +3032,7 @@
   // src/frontend/admin/index.ts
   var adminShell = new AdminShell();
   var router = new Router(ADMIN_ROUTES);
+  apiClient.setNavigationSignal(() => router.getSignal());
   function updateAdminChrome(routeName) {
     const titles = {
       overview: ["Operations overview", "Real platform records, without simulated operational controls."],

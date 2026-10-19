@@ -580,3 +580,5 @@ html, body {
   }
 }
 
+
+.seg .seg-btn:focus-visible{outline:2px solid var(--acc,currentColor);outline-offset:2px}

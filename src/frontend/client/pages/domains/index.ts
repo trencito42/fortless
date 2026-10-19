@@ -13,7 +13,7 @@ interface DomainSearchResult {
   domain: string;
   tld: string;
   available: boolean;
-  status: 'AVAILABLE' | 'TAKEN' | 'UNSUPPORTED_TLD' | 'INVALID_SYNTAX';
+  status: 'NOT_CLAIMED' | 'TAKEN' | 'UNSUPPORTED_TLD' | 'INVALID_SYNTAX';
   annualPriceMinorUnits: number | null;
   currency: string | null;
   reason?: string;
@@ -88,7 +88,7 @@ export async function loadZones(): Promise<void> {
       host.innerHTML = renderEmptyState({
         icon: 'document',
         title: 'No domain zones active',
-        message: 'Search and register a domain above or delegate DNS to Fortless authoritative nameservers.',
+        message: 'Add a domain you already own above, prove ownership with a TXT record, then point its name servers to Fortless.',
       });
       return;
     }
@@ -200,9 +200,9 @@ export async function searchDomains(query: string): Promise<void> {
     }
 
     host.innerHTML = `<div class="col" style="gap:6px;margin-top:8px">${res.results.map((item) => {
-        const isAvail = item.available && item.status === 'AVAILABLE';
-        const tone = isAvail ? 'good' : 'bad';
-        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-globe-02"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Catalog result · registrar checkout is not connected</small></span><span class="row" style="gap:8px;flex-shrink:0">${item.annualPriceMinorUnits !== null ? `<b>${money(item.annualPriceMinorUnits, item.currency || 'EUR')}<small class="muted">/yr</small></b>` : ''}<span class="pill ${tone}">${esc(item.status)}</span>${isAvail ? `<button type="button" class="btn s tint register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ''}</span></div>`;
+        const isAvail = item.available && item.status === 'NOT_CLAIMED';
+        const tone = isAvail ? 'info' : 'bad';
+        return `<div class="li"><span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-globe-02"/></svg></span><span class="tx"><b>${esc(item.domain)}</b><small>Not in Fortless DNS yet · availability at a registrar is not checked, nothing is purchased</small></span><span class="row" style="gap:8px;flex-shrink:0"><span class="pill ${tone}">${esc(item.status === 'NOT_CLAIMED' ? 'Not in Fortless DNS' : item.status)}</span>${isAvail ? `<button type="button" class="btn s tint register-domain-btn" data-domain="${esc(item.domain)}">Create DNS zone</button>` : ''}</span></div>`;
       }).join('')}</div>`;
 
     host.querySelectorAll<HTMLButtonElement>('.register-domain-btn').forEach((btn) => {
