@@ -107,6 +107,10 @@ export async function renderAccountDetail(accountId: string): Promise<void> {
       services: any[];
       invoices: any[];
       tickets: any[];
+      orders: any[];
+      subscriptions: any[];
+      audit: any[];
+      summary: Record<string, number>;
     }>(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}`);
 
     const titleEl = document.getElementById('adminAccountTitle');
@@ -117,7 +121,7 @@ export async function renderAccountDetail(accountId: string): Promise<void> {
     if (metaEl) {
       metaEl.textContent = `Owner: ${d.account.owner_name} (${d.account.owner_email}) · Created ${formatDate(
         d.account.created_at
-      )}`;
+      )} · Billing: ${d.account.billing_email}`;
     }
     if (statusSelect) statusSelect.value = d.account.status;
 
@@ -129,15 +133,16 @@ export async function renderAccountDetail(accountId: string): Promise<void> {
         </div>
         <div class="card flat" style="padding:10px 12px">
           <small class="muted" style="font-size:11px;font-weight:700">ACTIVE SERVICES</small>
-          <div style="font-size:18px;font-weight:700">${d.services.length}</div>
+          <div style="font-size:18px;font-weight:700">${Number(d.summary.services)}</div>
         </div>
         <div class="card flat" style="padding:10px 12px">
           <small class="muted" style="font-size:11px;font-weight:700">TOTAL INVOICES</small>
-          <div style="font-size:18px;font-weight:700">${d.invoices.length}</div>
+          <div style="font-size:18px;font-weight:700">${Number(d.summary.invoices)}</div>
+          <small class="faint">${Number(d.summary.unpaid_invoices)} unpaid</small>
         </div>
         <div class="card flat" style="padding:10px 12px">
           <small class="muted" style="font-size:11px;font-weight:700">TICKETS</small>
-          <div style="font-size:18px;font-weight:700">${(d.tickets || []).length}</div>
+          <div style="font-size:18px;font-weight:700">${Number(d.summary.tickets)}</div>
         </div>
       </div>
 
@@ -208,7 +213,7 @@ export async function renderAccountDetail(accountId: string): Promise<void> {
             </thead>
             <tbody>
               ${d.invoices.length ? d.invoices.map((i) => `<tr>
-                <td><b class="mono">${esc(i.invoice_number)}</b></td>
+                <td><a class="btn xs" href="/admin/billing/${encodeURIComponent(i.id)}" data-route="invoice-detail">${esc(i.invoice_number || i.id)}</a></td>
                 <td class="faint" style="font-size:12px">${formatDate(i.created_at)}</td>
                 <td><b>${money(i.total_minor_units, i.currency)}</b></td>
                 <td class="r">${badge(i.status)}</td>
@@ -218,12 +223,19 @@ export async function renderAccountDetail(accountId: string): Promise<void> {
         </div>
       </div>
 
+      <div class="g g2">
+        <article class="card"><div class="ch"><div class="tx"><h3>Recent orders</h3><p>Commercial state remains separate from provisioning.</p></div></div><div class="col">${d.orders.map((order) => `<a class="li" href="/admin/orders/${encodeURIComponent(order.id)}" data-route="order-detail"><span class="tx"><b>${esc(order.id)}</b><small>${formatDate(order.created_at)}</small></span><b>${money(order.total_minor_units, order.currency)}</b>${badge(order.status)}</a>`).join('') || '<div class="empty"><b>No orders recorded.</b></div>'}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Subscriptions & renewals</h3><p>Persisted renewal state and next billing date.</p></div></div><div class="col">${d.subscriptions.map((sub) => `<a class="li" href="/admin/services/${encodeURIComponent(sub.service_id)}" data-route="admin-service-detail"><span class="tx"><b>${esc(sub.plan_name || sub.product_name)}</b><small>${esc(sub.billing_interval)} · renews ${formatDate(sub.next_renewal_date)}</small></span><b>${money(sub.renewal_price_minor_units, sub.currency)}</b>${badge(sub.status)}</a>`).join('') || '<div class="empty"><b>No subscriptions recorded.</b></div>'}</div></article>
+      </div>
+
       <div>
         <div class="dh" style="margin-bottom:6px">SUPPORT CONTEXT (${d.tickets.length})</div>
         <div class="col" style="gap:8px">
-          ${d.tickets.length ? d.tickets.map((t) => `<a class="li" href="/admin/tickets" data-route="tickets"><span class="tx"><b>${esc(t.subject)}</b><small>${esc(t.id)} · updated ${formatDate(t.updated_at)}</small></span>${badge(t.priority)}${badge(t.status)}</a>`).join('') : '<div class="empty"><b>No support conversations recorded.</b></div>'}
+          ${d.tickets.length ? d.tickets.map((t) => `<a class="li" href="/admin/tickets/${encodeURIComponent(t.id)}" data-route="admin-ticket-detail"><span class="tx"><b>${esc(t.subject)}</b><small>${esc(t.id)} · updated ${formatDate(t.updated_at)}</small></span>${badge(t.priority)}${badge(t.status)}</a>`).join('') : '<div class="empty"><b>No support conversations recorded.</b></div>'}
         </div>
       </div>
+
+      <article class="card"><div class="ch"><div class="tx"><h3>Security & lifecycle history</h3><p>Latest account-scoped audit events with correlation identifiers.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Action</th><th>Actor</th><th>Resource</th><th>Correlation</th><th>Time</th></tr></thead><tbody>${d.audit.map((event) => `<tr><td><b>${esc(event.action)}</b></td><td>${badge(event.actor_type)}</td><td><span class="mono">${esc(event.resource_type)} · ${esc(event.resource_id)}</span></td><td><span class="mono">${esc(event.correlation_id)}</span></td><td>${formatDate(event.created_at)}</td></tr>`).join('') || '<tr><td colspan="5">No audit events recorded.</td></tr>'}</tbody></table></div></article>
     `;
   } catch (err: any) {
     content.innerHTML = `<div class="alert bad"><div><b>Error loading account</b><span>${esc(err.message)}</span></div></div>`;

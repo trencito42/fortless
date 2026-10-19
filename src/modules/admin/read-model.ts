@@ -269,6 +269,10 @@ export interface AdminAccountDetail {
     updated_at: string;
     [key: string]: unknown;
   }>;
+  orders: any[];
+  subscriptions: any[];
+  audit: any[];
+  summary: Record<string, number>;
 }
 
 export function getAdminAccountDetail(accountId: string, db: Database.Database): AdminAccountDetail | null {
@@ -317,7 +321,35 @@ export function getAdminAccountDetail(accountId: string, db: Database.Database):
     LIMIT 20
   `).all(accountId) as AdminAccountDetail['tickets'];
 
-  return { account, members, services, invoices, tickets };
+  const orders = db.prepare(`
+    SELECT id, status, currency, total_minor_units, created_at, updated_at
+    FROM orders WHERE account_id = ? ORDER BY created_at DESC LIMIT 20
+  `).all(accountId) as any[];
+  const subscriptions = db.prepare(`
+    SELECT sub.id, sub.service_id, sub.status, sub.billing_interval, sub.current_period_end,
+           sub.next_renewal_date, sub.renewal_price_minor_units, sub.currency, sub.auto_renew,
+           s.identifier, p.name AS product_name, pv.name AS plan_name
+    FROM subscriptions sub
+    JOIN services s ON s.id = sub.service_id
+    JOIN order_items oi ON oi.id = s.order_item_id
+    JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    JOIN products p ON p.id = pv.product_id
+    WHERE sub.account_id = ? ORDER BY sub.created_at DESC
+  `).all(accountId) as any[];
+  const audit = db.prepare(`
+    SELECT action, actor_type, resource_type, resource_id, ip_address, correlation_id, created_at
+    FROM audit_events WHERE account_id = ? ORDER BY created_at DESC, id DESC LIMIT 30
+  `).all(accountId) as any[];
+  const summary = db.prepare(`
+    SELECT
+      (SELECT count(*) FROM services WHERE account_id = ?) AS services,
+      (SELECT count(*) FROM orders WHERE account_id = ?) AS orders,
+      (SELECT count(*) FROM invoices WHERE account_id = ?) AS invoices,
+      (SELECT count(*) FROM tickets WHERE account_id = ?) AS tickets,
+      (SELECT count(*) FROM invoices WHERE account_id = ? AND status IN ('ISSUED', 'OVERDUE') AND amount_paid_minor_units < total_minor_units) AS unpaid_invoices
+  `).get(accountId, accountId, accountId, accountId, accountId) as Record<string, number>;
+
+  return { account, members, services, invoices, tickets, orders, subscriptions, audit, summary };
 }
 
 export function getAdminServiceDetail(serviceId: string, db: Database.Database) {
