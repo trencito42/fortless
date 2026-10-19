@@ -137,3 +137,17 @@ describe('SEC-01 / SEC-02: mail transport never weakens TLS or falls back silent
     } finally { (config as any).EMAIL_MODE = before.mode; (config as any).SMTP_PASSWORD = before.pass; }
   });
 });
+
+describe('NEW-364: guessing from elsewhere cannot lock the owner\'s own browser out', () => {
+  it('keeps a previously used device signed in while an unknown device is locked by the account-wide ceiling', () => {
+    const reg = registerUser({ email: 'dos-target@example.com', password: PASSWORD, name: 'D', ipAddress: '127.0.0.1', userAgent: 't' }, db);
+    db.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc') WHERE id = ?").run(reg.user.id);
+    const device = 'dev_' + 'a'.repeat(32);
+    expect(loginUser({ email: 'dos-target@example.com', password: PASSWORD, ipAddress: '203.0.113.1', userAgent: 't', deviceId: device }, db).token).toBeTruthy();
+    for (let i = 0; i < 10; i++) {
+      expect(() => loginUser({ email: 'dos-target@example.com', password: 'wrong-password-123', ipAddress: `198.51.100.${i + 1}`, userAgent: 'bot' }, db)).toThrow();
+    }
+    expect(() => loginUser({ email: 'dos-target@example.com', password: PASSWORD, ipAddress: '198.51.100.99', userAgent: 'new-laptop', deviceId: 'dev_' + 'b'.repeat(32) }, db)).toThrow(/Too many sign-in attempts/);
+    expect(loginUser({ email: 'dos-target@example.com', password: PASSWORD, ipAddress: '203.0.113.1', userAgent: 't', deviceId: device }, db).token).toBeTruthy();
+  });
+});

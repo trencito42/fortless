@@ -15,6 +15,11 @@ import { runMaintenance } from './modules/maintenance/maintenance.js';
 async function bootstrap() {
   console.log('⚡ Initializing FORTLESS Platform Core...');
 
+  // NEW-361: say loudly when a publicly served deployment runs with development defaults.
+  if (config.NODE_ENV !== 'production' && config.APP_ORIGIN.startsWith('https://') && !/localhost|127\.0\.0\.1/.test(config.APP_ORIGIN)) {
+    console.error(`⚠️  NODE_ENV is "${config.NODE_ENV}" while serving ${config.APP_ORIGIN}. Development defaults are active: SESSION_SECRET may come from a local file and file watching is on. Set NODE_ENV=production and an explicit SESSION_SECRET.`);
+  }
+
   // 1. Initialize SQLite Database & Schema
   const db = getDatabase();
   db.exec(SCHEMA_SQL);

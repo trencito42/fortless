@@ -338,13 +338,23 @@ function recordLoginAttempt(email: string, ipAddress: string, succeeded: boolean
   db.prepare('INSERT INTO auth_login_attempts (id, identifier_hash, ip_address, succeeded) VALUES (?, ?, ?, ?)')
     .run(generateId('lat'), identifierDigest(email), ipAddress, succeeded ? 1 : 0);
 }
-function isLoginThrottled(email: string, ipAddress: string, db: Database.Database): boolean {
+/**
+ * NEW-364: the account-wide ceiling exists to stop a distributed guessing attack, but on its own it lets anyone lock a
+ * known account out. A browser that has signed in to this account before (identified by its device cookie) is exempt
+ * from the account-wide ceiling; the per-address limit still applies to it.
+ */
+function isKnownDevice(db: Database.Database, userId: string | undefined, deviceId: string | undefined | null): boolean {
+  if (!userId || !deviceId || !isValidDeviceId(deviceId)) return false;
+  return Boolean(db.prepare('SELECT 1 FROM known_devices WHERE user_id = ? AND device_id = ?').get(userId, deviceId));
+}
+
+function isLoginThrottled(email: string, ipAddress: string, db: Database.Database, knownDevice = false): boolean {
   const row = db.prepare(`SELECT count(*) AS failures FROM auth_login_attempts WHERE identifier_hash = ? AND ip_address = ?
     AND succeeded = 0 AND attempted_at >= datetime('now', '-15 minutes')`).get(identifierDigest(email), ipAddress) as { failures: number };
   if (row.failures >= MAX_FAILED_LOGINS) return true;
   const globalRow = db.prepare(`SELECT count(*) AS failures FROM auth_login_attempts WHERE identifier_hash = ?
     AND succeeded = 0 AND attempted_at >= datetime('now', '-15 minutes')`).get(identifierDigest(email)) as { failures: number };
-  return globalRow.failures >= 10;
+  return !knownDevice && globalRow.failures >= 10;
 }
 let equaliserHash: string | null = null;
 function timingEqualiserHash(): string {
@@ -356,8 +366,8 @@ export function loginUser(
   data: { email: string; password: string; ipAddress: string; userAgent: string; deviceId?: string }, db: Database.Database = getDatabase()
 ): SessionResult {
   const normalizedEmail = data.email.trim().toLowerCase();
-  if (isLoginThrottled(normalizedEmail, data.ipAddress, db)) throw new Error('Too many sign-in attempts. Try again after 15 minutes.');
   const userRow = db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail) as (User & { password_hash: string }) | undefined;
+  if (isLoginThrottled(normalizedEmail, data.ipAddress, db, isKnownDevice(db, userRow?.id, data.deviceId))) throw new Error('Too many sign-in attempts. Try again after 15 minutes.');
   // NEW-362: an unknown or inactive account costs the same password-hash work as a real one.
   const hashToCheck = userRow?.status === 'ACTIVE' ? userRow.password_hash : timingEqualiserHash();
   const passwordOk = verifyPassword(hashToCheck, data.password);
@@ -384,6 +394,9 @@ export function loginUser(
       .run(identifierDigest(normalizedEmail), data.ipAddress);
   }
   recordLoginAttempt(normalizedEmail, data.ipAddress, true, db);
+  if (data.deviceId && isValidDeviceId(data.deviceId) && !requiresMfa) {
+    db.prepare("INSERT INTO known_devices (user_id, device_id) VALUES (?, ?) ON CONFLICT(user_id, device_id) DO UPDATE SET last_seen_at = datetime('now', 'utc')").run(userRow.id, data.deviceId);
+  }
   db.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
     VALUES (?, ?, ?, 'USER', 'user.login', 'session', ?, ?, ?)`)
     .run(generateId('aud'), account.id, userRow.id, tokenDigest(sessionToken), data.ipAddress, generateId('cor'));
@@ -658,6 +671,9 @@ export function completeMfaChallenge(token: string, code: string, ipAddress: str
     const fullExpiry = new Date(Date.now() + SESSION_TTL_MS).toISOString();
     trx.prepare("UPDATE sessions SET mfa_verified_at = datetime('now', 'utc'), expires_at = ? WHERE id = ?")
       .run(fullExpiry, sessionId);
+    if (session.device_id) {
+      trx.prepare("INSERT INTO known_devices (user_id, device_id) VALUES (?, ?) ON CONFLICT(user_id, device_id) DO UPDATE SET last_seen_at = datetime('now', 'utc')").run(session.user_id, session.device_id);
+    }
 
     // Only now that MFA has succeeded, supersede any previous session for this browser installation
     if (session.device_id) {

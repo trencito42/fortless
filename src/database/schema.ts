@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS known_devices (
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_id TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  PRIMARY KEY (user_id, device_id)
+);
+
 CREATE TABLE IF NOT EXISTS sensitive_action_attempts (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

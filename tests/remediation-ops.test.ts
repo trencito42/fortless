@@ -140,3 +140,51 @@ describe('SEC-07: capability claims need keys and recorded evidence', () => {
     }
   });
 });
+
+describe('NEW-390 / NEW-379: destructive operations are confirmed, manual billing runs are stepped up', () => {
+  it('refuses reinstall, restore, backup delete and database delete without confirm:true', async () => {
+    const owner = h.user('u_conf', { accountId: 'acc_conf' });
+    h.db.prepare("INSERT OR IGNORE INTO nodes (id, region_id, provider_instance_id, name, fqdn, max_memory_mb, max_disk_mb) VALUES ('n_conf', 'reg_fra_1', 'i', 'n', 'n.test', 1000, 1000)").run();
+    h.db.prepare("INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id, external_id) VALUES ('svc_conf', 'acc_conf', 'oi_conf', 'PTERODACTYL', 'p', 'ACTIVE', 'n_conf', '3')").run();
+    const uuid = '123e4567-e89b-12d3-a456-426614174000';
+    const attempts: Array<[string, string, string]> = [
+      ['POST', '/api/v1/services/svc_conf/settings/reinstall', 'reinstall'],
+      ['POST', `/api/v1/services/svc_conf/backups/${uuid}/restore`, 'restore'],
+      ['DELETE', `/api/v1/services/svc_conf/backups/${uuid}`, 'delete backup'],
+      ['DELETE', '/api/v1/services/svc_conf/databases/4', 'delete database'],
+    ];
+    const { config } = await import('../src/config/index.js');
+    const saved = { m: config.PROVIDER_MODE, u: config.PTERODACTYL_PANEL_URL, k: config.PTERODACTYL_API_KEY, t: config.PROVIDER_VERIFICATION_TIER };
+    Object.assign(config, { PROVIDER_MODE: 'pterodactyl_1', PTERODACTYL_PANEL_URL: 'https://panel.example.test', PTERODACTYL_API_KEY: 'k', PROVIDER_VERIFICATION_TIER: 'SANDBOX_VERIFIED' });
+    try {
+      for (const [method, url, label] of attempts) {
+        const res = await h.call(method as 'POST' | 'DELETE', url, owner.token, {});
+        expect(res.statusCode, label).toBe(400);
+        expect(res.json().code, label).toBe('CONFIRMATION_REQUIRED');
+      }
+    } finally {
+      Object.assign(config, { PROVIDER_MODE: saved.m, PTERODACTYL_PANEL_URL: saved.u, PTERODACTYL_API_KEY: saved.k, PROVIDER_VERIFICATION_TIER: saved.t });
+    }
+  });
+
+  it('the manual renewal run needs a fresh step-up and is audited', async () => {
+    const admin = h.user('u_renew_admin', { accountId: 'acc_renew', staff: 'ADMINISTRATOR' });
+    expect((await h.call('POST', '/api/v1/admin/billing/process-renewals', admin.token, {})).statusCode).toBe(403);
+    h.stepUp(admin.id);
+    const ok = await h.call('POST', '/api/v1/admin/billing/process-renewals', admin.token, {});
+    expect(ok.statusCode).toBe(200);
+    expect(h.db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'billing.renewals_run_manually'").get()).toEqual({ c: 1 });
+  });
+});
+
+describe('NEW-361: cookies are Secure whenever the public origin is HTTPS', () => {
+  it('sets Secure on the CSRF and device cookies although NODE_ENV is not production', async () => {
+    const { config } = await import('../src/config/index.js');
+    expect(config.NODE_ENV).not.toBe('production');
+    expect(config.APP_ORIGIN.startsWith('https://')).toBe(true);
+    const res = await h.app.inject({ method: 'GET', url: '/api/v1/auth/csrf' });
+    const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
+    expect(cookies.some((c) => c.startsWith('fortless_csrf=') && /;\s*Secure/i.test(c))).toBe(true);
+    expect(cookies.some((c) => c.startsWith('fortless_device_id=') && /;\s*Secure/i.test(c))).toBe(true);
+  });
+});

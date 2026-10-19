@@ -71,12 +71,12 @@ export function initBackups(serviceId: string): Tab {
         case 'restore': {
           if (!(await confirmDialog({ title: 'Restore this backup? The server must be offline.', confirmLabel: 'Confirm', danger: true }))) return;
           const truncate = await confirmDialog({ title: 'Delete current files first?', message: 'Confirm to wipe the server files before restoring. Cancel keeps the existing files and restores over them.', confirmLabel: 'Wipe first', danger: true });
-          await sendJson(`${base}/${uuid}/restore`, 'POST', { truncate });
+          await sendJson(`${base}/${uuid}/restore`, 'POST', { truncate, confirm: true });
           toast('Restore started', 'good'); return;
         }
         case 'delete':
           if (!(await confirmDialog({ title: 'Delete this backup? This cannot be undone.', confirmLabel: 'Confirm', danger: true }))) return;
-          await sendJson(`${base}/${uuid}`, 'DELETE'); break;
+          await sendJson(`${base}/${uuid}`, 'DELETE', { confirm: true }); break;
       }
       await render(host);
     } catch (e) { fail(e); }
@@ -111,7 +111,7 @@ export function initNetwork(serviceId: string): Tab {
       switch (btn.dataset['net']) {
         case 'assign': await sendJson(base, 'POST'); break;
         case 'primary': await sendJson(`${base}/${id}/primary`, 'POST'); break;
-        case 'remove': if (!(await confirmDialog({ title: 'Remove this port?', confirmLabel: 'Confirm', danger: true }))) return; await sendJson(`${base}/${id}`, 'DELETE'); break;
+        case 'remove': if (!(await confirmDialog({ title: 'Remove this port?', confirmLabel: 'Confirm', danger: true }))) return; await sendJson(`${base}/${id}`, 'DELETE', { confirm: true }); break;
       }
       await render(host);
     } catch (e) { fail(e); }
@@ -187,7 +187,7 @@ export function initSettings(serviceId: string): Tab {
         toast('Saved', 'good');
       } else if (btn.dataset['set'] === 'reinstall') {
         if (!(await confirmDialog({ title: 'Reinstall this server? The server will be stopped and the install script will run again.', confirmLabel: 'Confirm', danger: true }))) return;
-        await sendJson(`${base}/reinstall`, 'POST');
+        await sendJson(`${base}/reinstall`, 'POST', { confirm: true });
         toast('Reinstall started', 'good');
       }
     } catch (e) { fail(e); }

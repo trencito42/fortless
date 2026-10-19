@@ -1244,6 +1244,21 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       if (!hasColumn(db, 'quote_lines', 'setup_fee_minor_units')) db.exec('ALTER TABLE quote_lines ADD COLUMN setup_fee_minor_units INTEGER NOT NULL DEFAULT 0');
     },
   },
+  {
+    version: 61,
+    name: 'known devices for account-wide sign-in throttling',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS known_devices (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          device_id TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          last_seen_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          PRIMARY KEY (user_id, device_id)
+        )
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

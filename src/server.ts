@@ -234,6 +234,9 @@ export function buildServer(): FastifyInstance {
     }
   });
 
+  // NEW-361: cookies are Secure whenever the public origin is HTTPS, even if the process was started without NODE_ENV=production.
+  const secureCookies = config.NODE_ENV === 'production' || config.APP_ORIGIN.startsWith('https://');
+
   // 2. Plugins
   const allowedOrigins = new Set(config.ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
   app.register(cors, {
@@ -287,7 +290,7 @@ export function buildServer(): FastifyInstance {
       reply.setCookie(DEVICE_COOKIE_NAME, deviceId, {
         path: '/',
         httpOnly: true,
-        secure: config.NODE_ENV === 'production',
+        secure: secureCookies,
         sameSite: 'lax',
         maxAge: DEVICE_COOKIE_MAX_AGE,
       });
@@ -710,7 +713,7 @@ export function buildServer(): FastifyInstance {
     reply.header('Cache-Control', 'no-store');
     const token = makeCsrfToken(req.auth?.session.id);
     reply.setCookie('fortless_csrf', token, {
-      path: '/', httpOnly: false, secure: config.NODE_ENV === 'production', sameSite: 'strict', maxAge: 60 * 60,
+      path: '/', httpOnly: false, secure: secureCookies, sameSite: 'strict', maxAge: 60 * 60,
     });
     return { csrfToken: token };
   });
@@ -819,7 +822,7 @@ export function buildServer(): FastifyInstance {
       reply.setCookie('fortless_session', result.token, {
         path: '/',
         httpOnly: true,
-        secure: config.NODE_ENV === 'production',
+        secure: secureCookies,
         sameSite: 'lax',
         maxAge: 14 * 24 * 60 * 60,
       });
@@ -880,7 +883,7 @@ export function buildServer(): FastifyInstance {
       reply.setCookie('fortless_session', token, {
         path: '/',
         httpOnly: true,
-        secure: config.NODE_ENV === 'production',
+        secure: secureCookies,
         sameSite: 'lax',
         maxAge: 14 * 24 * 60 * 60,
       });
@@ -1142,7 +1145,7 @@ export function buildServer(): FastifyInstance {
       reply.setCookie('fortless_session', result.token, {
         path: '/',
         httpOnly: true,
-        secure: config.NODE_ENV === 'production',
+        secure: secureCookies,
         sameSite: 'lax',
         maxAge: 14 * 24 * 60 * 60,
       });
@@ -1999,6 +2002,12 @@ export function buildServer(): FastifyInstance {
 
   // Services: backups, network, startup, settings (same gate as the file manager)
   const panelApi = createServerPanelApi();
+  // NEW-390: destructive panel operations need an explicit confirmation from the caller, so a stray or scripted request
+  // cannot wipe a server by accident. The UI sends confirm:true only after its own confirmation dialog.
+  const confirmed = (req: any) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (body['confirm'] !== true) throw new ConsoleAccessError('This action must be confirmed.', 'CONFIRMATION_REQUIRED', 400);
+  };
   const ok = async (fn: () => Promise<unknown>) => {
     const result = await fn();
     return { success: true, ...(result && typeof result === 'object' && 'pending' in result ? { pending: Boolean((result as { pending: unknown }).pending) } : {}) };
@@ -2006,9 +2015,9 @@ export function buildServer(): FastifyInstance {
   const pid = (req: any, k: string) => String((req.params as Record<string, string>)[k] ?? '');
   app.get('/api/v1/services/:id/backups', filesGuard, filesHandler((req) => panelApi.backups(filesCtx(req))));
   app.post('/api/v1/services/:id/backups', filesGuard, filesHandler((req) => ok(() => panelApi.createBackup(filesCtx(req), b(req)))));
-  app.delete('/api/v1/services/:id/backups/:uuid', filesGuard, filesHandler((req) => ok(() => panelApi.deleteBackup(filesCtx(req), pid(req, 'uuid')))));
+  app.delete('/api/v1/services/:id/backups/:uuid', filesGuard, filesHandler((req) => { confirmed(req); return ok(() => panelApi.deleteBackup(filesCtx(req), pid(req, 'uuid'))); }));
   app.post('/api/v1/services/:id/backups/:uuid/lock', filesGuard, filesHandler((req) => ok(() => panelApi.lockBackup(filesCtx(req), pid(req, 'uuid')))));
-  app.post('/api/v1/services/:id/backups/:uuid/restore', filesGuard, filesHandler((req) => ok(() => panelApi.restoreBackup(filesCtx(req), pid(req, 'uuid'), b(req)['truncate']))));
+  app.post('/api/v1/services/:id/backups/:uuid/restore', filesGuard, filesHandler((req) => { confirmed(req); return ok(() => panelApi.restoreBackup(filesCtx(req), pid(req, 'uuid'), b(req)['truncate'])); }));
   app.get('/api/v1/services/:id/backups/:uuid/download-url', filesGuard, filesHandler(async (req) => ({ url: await panelApi.backupDownloadUrl(filesCtx(req), pid(req, 'uuid')) })));
   app.get('/api/v1/services/:id/network', filesGuard, filesHandler((req) => panelApi.network(filesCtx(req))));
   app.post('/api/v1/services/:id/network', filesGuard, filesHandler((req) => ok(() => panelApi.assignAllocation(filesCtx(req)))));
@@ -2018,7 +2027,7 @@ export function buildServer(): FastifyInstance {
   app.get('/api/v1/services/:id/databases', filesGuard, filesHandler((req) => panelApi.databases(filesCtx(req))));
   app.post('/api/v1/services/:id/databases', filesGuard, filesHandler((req) => ok(() => panelApi.createDatabase(filesCtx(req), b(req)))));
   app.post('/api/v1/services/:id/databases/:did/rotate', filesGuard, filesHandler((req) => panelApi.rotateDatabasePassword(filesCtx(req), pid(req, 'did'))));
-  app.delete('/api/v1/services/:id/databases/:did', filesGuard, filesHandler((req) => ok(() => panelApi.deleteDatabase(filesCtx(req), pid(req, 'did')))));
+  app.delete('/api/v1/services/:id/databases/:did', filesGuard, filesHandler((req) => { confirmed(req); return ok(() => panelApi.deleteDatabase(filesCtx(req), pid(req, 'did'))); }));
   app.get('/api/v1/services/:id/schedules', filesGuard, filesHandler((req) => panelApi.schedules(filesCtx(req))));
   app.post('/api/v1/services/:id/schedules', filesGuard, filesHandler((req) => ok(() => panelApi.saveSchedule(filesCtx(req), null, b(req)))));
   app.post('/api/v1/services/:id/schedules/:sid', filesGuard, filesHandler((req) => ok(() => panelApi.saveSchedule(filesCtx(req), pid(req, 'sid'), b(req)))));
@@ -2033,7 +2042,7 @@ export function buildServer(): FastifyInstance {
   app.put('/api/v1/services/:id/startup/image', filesGuard, filesHandler((req) => ok(() => panelApi.setImage(filesCtx(req), b(req)['image']))));
   app.get('/api/v1/services/:id/settings', filesGuard, filesHandler((req) => panelApi.settings(filesCtx(req))));
   app.post('/api/v1/services/:id/settings/rename', filesGuard, filesHandler((req) => ok(() => panelApi.rename(filesCtx(req), b(req)['name'], b(req)['description']))));
-  app.post('/api/v1/services/:id/settings/reinstall', filesGuard, filesHandler((req) => ok(() => panelApi.reinstall(filesCtx(req)))));
+  app.post('/api/v1/services/:id/settings/reinstall', filesGuard, filesHandler((req) => { confirmed(req); return ok(() => panelApi.reinstall(filesCtx(req))); }));
 
   // Services: AI Diagnostic Analysis (Tenant Isolated)
   app.post('/api/v1/services/:id/diagnostics', { preHandler: [requireAuth] }, async (req, reply) => {
@@ -3303,8 +3312,14 @@ export function buildServer(): FastifyInstance {
   });
 
   // --- Admin Subscription Renewal & Dunning Trigger ---
-  app.post('/api/v1/admin/billing/process-renewals', { preHandler: [requireAuth, requireStaffPermission('accounts:manage')] }, async (_req, reply) => {
-    const result = await processSubscriptionRenewals(getDatabase());
+  // NEW-379: a manual billing run is as consequential as a refund, so it needs a fresh step-up and leaves an audit event.
+  app.post('/api/v1/admin/billing/process-renewals', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const db = getDatabase();
+    const result = await processSubscriptionRenewals(db);
+    db.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, NULL, ?, 'STAFF', 'billing.renewals_run_manually', 'billing', 'renewals', ?, ?, ?)
+    `).run(generateId('aud'), req.auth!.user.id, req.ip, generateId('cor'), JSON.stringify(result));
     return reply.status(200).send(result);
   });
 
