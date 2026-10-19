@@ -5774,15 +5774,25 @@ ${selectedOr("code")}
     document.getElementById("doDeployBtn")?.addEventListener("click", beginCheckout);
     document.getElementById("revokeOtherSessionsBtn")?.addEventListener("click", revokeOtherSessions);
     document.getElementById("themeToggleBtn")?.addEventListener("click", () => appShell.toggleTheme());
-    document.getElementById("logoutBtn")?.addEventListener("click", async () => {
+    const doLogout = async () => {
       try {
         await api("/api/v1/auth/logout", { method: "POST" });
       } finally {
         window.location.href = "/login";
       }
-    });
+    };
+    document.getElementById("logoutBtn")?.addEventListener("click", doLogout);
+    document.getElementById("mobileLogoutBtn")?.addEventListener("click", doLogout);
     document.addEventListener("click", (event) => {
       const target = event.target;
+      if (target.closest("#mobileLogoutBtn")) {
+        doLogout();
+        return;
+      }
+      if (target.closest("#mobileThemeBtn")) {
+        appShell.toggleTheme();
+        return;
+      }
       if (target.closest("#mobileMoreBtn")) {
         const sheet = document.getElementById("mobileNavSheet");
         const trigger = document.getElementById("mobileMoreBtn");
@@ -5800,20 +5810,6 @@ ${selectedOr("code")}
         if (!target.closest(".tabbar a")) {
           return;
         }
-      }
-      if (target.closest("#mobileThemeBtn")) {
-        appShell.toggleTheme();
-        return;
-      }
-      if (target.closest("#mobileLogoutBtn")) {
-        try {
-          api("/api/v1/auth/logout", { method: "POST" }).finally(() => {
-            window.location.href = "/login";
-          });
-        } catch {
-          window.location.href = "/login";
-        }
-        return;
       }
       if (target.matches("#cmd .ov, #cmd [data-close], [data-close]")) {
         appShell.cmd.close();

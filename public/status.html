@@ -15,7 +15,12 @@
     (function(){
       try{
         var t = localStorage.getItem('fortless_theme') || localStorage.getItem('theme') || localStorage.getItem('ftv-theme');
-        if(t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+        if(t === 'light' || t === 'dark') {
+          document.documentElement.dataset.theme = t;
+          document.documentElement.dataset.dk = (t === 'dark') ? '1' : '0';
+        } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          document.documentElement.dataset.dk = '1';
+        }
       }catch(e){}
     })();
   </script>
@@ -35,7 +40,7 @@
       <a class="brand" href="/" style="padding:0;font-size:21px"><img src="/assets/fortless-icon.svg" width="30" height="30" alt="">fortless</a>
       <nav class="lnk" aria-label="Public navigation"><a href="/status" class="on" aria-current="page">Status</a><a href="/legal/terms">Legal</a><a href="/#faq">Docs</a></nav>
       <span class="sp"></span>
-      <button class="ib" id="themeToggleBtn" type="button" aria-label="Toggle theme" style="width:36px;height:36px"><svg class="ic" viewBox="0 0 24 24"><use id="themeIcon" href="/assets/petal-icons.svg#i-sun-03"></use></svg></button>
+      <button class="ib" id="themeToggleBtn" type="button" aria-label="Toggle theme" style="width:36px;height:36px"><span class="sun ic"><svg class="ic" viewBox="0 0 24 24"><use href="/assets/petal-icons.svg#i-sun-03"></use></svg></span><span class="moon ic"><svg class="ic" viewBox="0 0 24 24"><use href="/assets/petal-icons.svg#i-moon-01"></use></svg></span></button>
       <a class="btn s ghost hide-n" data-auth-guest href="/login">Sign in</a><a class="btn s pri" data-auth-guest href="/register">Get started</a><a class="btn s pri" data-auth-user href="/app">Dashboard</a>
     </div></header>
 
@@ -130,9 +135,9 @@
         var t = document.documentElement.dataset.theme;
         return t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches);
       }
-      function updateThemeIcon() {
-        var icon = document.getElementById('themeIcon');
-        if (icon) icon.setAttribute('href', '/assets/petal-icons.svg#i-' + (isDarkTheme() ? 'moon-01' : 'sun-03'));
+      function syncTheme() {
+        var dark = isDarkTheme();
+        document.documentElement.dataset.dk = dark ? '1' : '0';
       }
       function toggleTheme() {
         var next = isDarkTheme() ? 'light' : 'dark';
@@ -141,16 +146,17 @@
           localStorage.setItem('fortless_theme', next);
           localStorage.setItem('theme', next);
         } catch(e){}
-        updateThemeIcon();
+        syncTheme();
       }
       document.getElementById('themeToggleBtn')?.addEventListener('click', toggleTheme);
+      syncTheme();
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
       window.addEventListener('storage', function(e) {
         if ((e.key === 'fortless_theme' || e.key === 'theme') && (e.newValue === 'light' || e.newValue === 'dark')) {
           document.documentElement.dataset.theme = e.newValue;
-          updateThemeIcon();
+          syncTheme();
         }
       });
-      updateThemeIcon();
     })();
   </script>
 </body>

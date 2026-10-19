@@ -194,18 +194,28 @@ function bindDelegatedEvents() {
 
   // Theme & Logout
   document.getElementById('themeToggleBtn')?.addEventListener('click', () => appShell.toggleTheme());
-  document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+  const doLogout = async () => {
     try {
       await api('/api/v1/auth/logout', { method: 'POST' });
     } finally {
       window.location.href = '/login';
     }
-  });
+  };
+  document.getElementById('logoutBtn')?.addEventListener('click', doLogout);
+  document.getElementById('mobileLogoutBtn')?.addEventListener('click', doLogout);
 
   // Global Document Clicks
   document.addEventListener('click', (event: MouseEvent) => {
     const target = event.target as HTMLElement;
 
+    if (target.closest('#mobileLogoutBtn')) {
+      doLogout();
+      return;
+    }
+    if (target.closest('#mobileThemeBtn')) {
+      appShell.toggleTheme();
+      return;
+    }
     if (target.closest('#mobileMoreBtn')) {
       const sheet = document.getElementById('mobileNavSheet');
       const trigger = document.getElementById('mobileMoreBtn');
@@ -223,20 +233,6 @@ function bindDelegatedEvents() {
       if (!target.closest('.tabbar a')) {
         return;
       }
-    }
-    if (target.closest('#mobileThemeBtn')) {
-      appShell.toggleTheme();
-      return;
-    }
-    if (target.closest('#mobileLogoutBtn')) {
-      try {
-        api('/api/v1/auth/logout', { method: 'POST' }).finally(() => {
-          window.location.href = '/login';
-        });
-      } catch {
-        window.location.href = '/login';
-      }
-      return;
     }
 
     // Command palette close

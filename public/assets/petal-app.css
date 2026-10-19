@@ -90,6 +90,8 @@ h1,h2,h3,h4,p,ul,dl,dd{margin:0;padding:0}ul{list-style:none}
 .m h1,.m h2,.m h3{letter-spacing:-.04em}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 20px;border-radius:999px;font:700 14.5px/1 var(--font);letter-spacing:-.01em;background:var(--s3);color:var(--ink);transition:background .18s,color .18s,transform .2s var(--ease),opacity .2s;white-space:nowrap}
 .btn:hover:not(:disabled){background:var(--s4)}.btn:active:not(:disabled){transform:scale(.97)}
+.btn .ic{transition:transform .28s var(--ease)}
+.btn:hover .ic.go{transform:translate(2px,-2px)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .card .btn,.mdl .btn{background:var(--s2)}.card .btn:hover:not(:disabled),.mdl .btn:hover:not(:disabled){background:var(--s3)}
 .btn.pri,.card .btn.pri,.mdl .btn.pri{background:var(--accent);color:var(--on-accent)}.btn.pri:hover:not(:disabled){background:var(--accent-h)}
@@ -100,9 +102,10 @@ h1,h2,h3,h4,p,ul,dl,dd{margin:0;padding:0}ul{list-style:none}
 .btn.ghost,.card .btn.ghost{background:transparent}.btn.ghost:hover:not(:disabled){background:var(--s3)}
 .btn.s{height:36px;padding:0 14px;font-size:13.5px}.btn.xs{height:30px;padding:0 12px;font-size:12.5px}
 .btn.blk{width:100%}
+.theme-icon-wrap{width:20px;height:20px;display:grid;place-items:center;position:relative;flex:none}
 .ib{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:var(--ink2);background:transparent;flex:none;position:relative;transition:background .18s,color .18s,transform .2s var(--ease)}
 .ib:hover{background:var(--s3);color:var(--ink)}.ib:active{transform:scale(.92)}
-.ib .sun,.ib .moon,.theme-icon-wrap .sun,.theme-icon-wrap .moon{grid-area:1/1;transition:transform .5s var(--ease),opacity .3s;display:inline-grid;place-items:center}
+.ib .sun,.ib .moon,.theme-icon-wrap .sun,.theme-icon-wrap .moon{grid-area:1/1;transition:transform .5s var(--ease),opacity .3s;display:grid;place-items:center;transform-origin:50% 50%}
 .ib .moon,.theme-icon-wrap .moon{transform:rotate(-80deg) scale(.4);opacity:0}
 :root[data-dk="1"] .ib .sun,:root[data-theme="dark"] .ib .sun,:root[data-dk="1"] .theme-icon-wrap .sun,:root[data-theme="dark"] .theme-icon-wrap .sun{transform:rotate(80deg) scale(.4);opacity:0}
 :root[data-dk="1"] .ib .moon,:root[data-theme="dark"] .ib .moon,:root[data-dk="1"] .theme-icon-wrap .moon,:root[data-theme="dark"] .theme-icon-wrap .moon{transform:none;opacity:1}
