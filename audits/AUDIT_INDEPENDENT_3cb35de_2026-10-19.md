@@ -131,10 +131,26 @@ Reviewed at `2fc2350`; source traces only. NEW-381 also received an evidence not
 
 Evidence notes added to SEC-10 (live headers: no CSP, no HSTS; nginx sets X-Frame-Options, nosniff, Referrer-Policy) and NEW-361 (device cookie has no Secure flag in the live deployment). `npm audit --omit=dev` reported 0 known vulnerabilities at this date. Frontend XSS spot-check: the markdown renderer escapes first and only emits fixed tags; no unescaped server-data interpolation found by pattern search (not exhaustive, 185 innerHTML sites).
 
+## New findings, batch 7 (7) — panel SSO, email, notifications, exports
+
+Reviewed at `d036b0f`. The panel patch files were read from the repository copy (`panel-sso/`); the live panel host is not accessible from this server, so drift between the deployed copy and the repository is TEST_NEEDED. One unauthenticated GET to the live panel (`/auth/sso/fortless` redirect and `/auth/password` status) was used read-only.
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-396 | P1 | Panel access outlives Fortless authorization (remember-me, no back-channel logout, panel password-reset page live) |
+| NEW-397 | P2 | Panel API keys are not IP-bound unless configured; each mint revokes the previous key (NEEDS_VERIFICATION) |
+| NEW-398 | P2 | Verification/reset/invitation tokens stored in plaintext in `email_outbox.payload_json` |
+| NEW-399 | P2 | Customer activity export includes staff-internal audit data for any role |
+| NEW-400 | P2 | CSV exports do not neutralize spreadsheet formulas |
+| NEW-401 | P2 | Email templates filled by sequential sample-text replacement; values can be rewritten |
+| NEW-402 | P2 | 60 s email lease can duplicate security emails (NEEDS_VERIFICATION) |
+
+Checked and not filed: the SSO callback validates state, nonce, issuer, audience and expiry, matches users by `external_id` plus email and refuses root admins; the key-mint endpoint uses HMAC with a 60 s window and single-use nonces; notification routes are scoped by account and user; preference updates are strict booleans and audited.
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
 
 ## Not covered yet (scope checked, not "safe")
 
-Runtime timing behaviour, frontend permission and provider-outage states (UI hides tabs by permission; per-button gating not audited), Wings websocket behaviour in a browser, Pterodactyl SSO panel-side configuration, backups/schedules/databases/startup endpoints of the game-tools installers beyond the earlier read, notification and email-template paths, and the cPanel and Proxmox adapters (cPanel not implemented yet).
+Runtime timing behaviour, frontend permission and provider-outage states (UI hides tabs by permission; per-button gating not audited), Wings websocket behaviour in a browser, backups/schedules/databases/startup endpoints of the game-tools installers beyond the earlier read, and the cPanel and Proxmox adapters (cPanel not implemented yet).
