@@ -5,7 +5,7 @@ import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
 import { verifyQuote } from '../pricing/quote.js';
-import { redeemCouponAtomic } from '../catalog/catalog.js';
+import { redeemCouponAtomic, cancelCouponRedemptionAtomic } from '../catalog/catalog.js';
 import { createNotification } from '../notifications/notifications.js';
 import { queueEmail } from '../email/outbox.js';
 
@@ -73,6 +73,8 @@ export async function processCheckout(
     currency: string;
     planName: string;
     billingInterval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
+    recurringUnitAmount: number;
+    setupFeeTotal: number;
   } | null = null;
 
   try {
@@ -186,6 +188,9 @@ export async function processCheckout(
         data.idempotencyKey
       );
 
+      const recurringUnitAmount = quote.lines[0]?.unitPriceMinorUnits ?? quote.totalMinorUnits;
+      const setupFeeTotal = quote.lines.reduce((acc, l) => acc + (l.setupFeeMinorUnits || 0), 0);
+
       return {
         orderId,
         invoiceId,
@@ -194,6 +199,8 @@ export async function processCheckout(
         currency: quote.currency,
         planName: quote.lines[0] ? 'Fortless Hosting Plan' : 'Hosting Plan',
         billingInterval,
+        recurringUnitAmount,
+        setupFeeTotal,
       };
     }, db);
 
@@ -227,19 +234,35 @@ export async function processCheckout(
           break;
       }
 
-      const stripe = new Stripe(config.STRIPE_SECRET_KEY);
-      const session = await stripe.checkout.sessions.create({
-        mode: 'subscription',
-        payment_method_types: ['card'],
-        line_items: [{
+      // NEW-340: Separate recurring subscription line item from one-time setup fee
+      const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+        {
           price_data: {
             currency: txResult.currency.toLowerCase(),
             product_data: { name: txResult.planName },
             recurring: recurringConfig,
-            unit_amount: txResult.totalMinorUnits,
+            unit_amount: txResult.recurringUnitAmount,
           },
           quantity: 1,
-        }],
+        },
+      ];
+
+      if (txResult.setupFeeTotal > 0) {
+        lineItems.push({
+          price_data: {
+            currency: txResult.currency.toLowerCase(),
+            product_data: { name: `${txResult.planName} (Setup Fee)` },
+            unit_amount: txResult.setupFeeTotal,
+          },
+          quantity: 1,
+        });
+      }
+
+      const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: lineItems,
         success_url: `${config.APP_ORIGIN}/app?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${config.APP_ORIGIN}/app/deploy`,
         metadata: {
@@ -292,9 +315,10 @@ export async function processCheckout(
     // Reopen quote if external checkout provider failed so customer can retry
     db.prepare("UPDATE quotes SET status = 'OPEN' WHERE id = ? AND account_id = ? AND status = 'CONVERTED'")
       .run(data.quoteId, data.accountId);
-    // Compensate local order and invoice to prevent orphaned billable state on failure
+    // Compensate local order, coupon redemption, and invoice to prevent orphaned billable state on failure (NEW-341)
     if (txResult) {
       try {
+        cancelCouponRedemptionAtomic(txResult.orderId, db);
         db.prepare("UPDATE orders SET status = 'CANCELLED' WHERE id = ?").run(txResult.orderId);
         db.prepare("UPDATE invoices SET status = 'VOID' WHERE id = ?").run(txResult.invoiceId);
         db.prepare("UPDATE payment_attempts SET status = 'FAILED' WHERE id = ?").run(txResult.paymentAttemptId);

@@ -71,6 +71,7 @@ import {
   createCoupon,
   validateCoupon,
   redeemCouponAtomic,
+  cancelCouponRedemptionAtomic,
   listCoupons,
   createProduct,
   updateProductPublishStatus,
@@ -107,7 +108,7 @@ import {
   terminateService,
 } from '../src/modules/provisioning/services.js';
 import { renderInvoiceText } from '../src/modules/invoicing/invoicing.js';
-import { listSubscriptionsForAccount, cancelSubscription } from '../src/modules/billing/subscriptions.js';
+import { listSubscriptionsForAccount, cancelSubscription, reactivateSubscription } from '../src/modules/billing/subscriptions.js';
 import {
   createNotification,
   listNotifications,
@@ -2098,6 +2099,56 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(audit).toBeDefined();
     });
 
+    it('SUB-02: Customer can reactivate a CANCEL_SCHEDULED subscription or re-subscribe from CANCELED state', async () => {
+      const user = registerUser({ email: 'sub_reactivate@example.com', password: 'P@ssword123!', name: 'Reactivate Owner', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+
+      const subId = 'sub_reactivate_01';
+      db.prepare(`
+        INSERT INTO subscriptions (
+          id, account_id, service_id, status, billing_interval, current_period_start,
+          current_period_end, next_renewal_date, renewal_price_minor_units, currency, auto_renew, psp_subscription_id
+        ) VALUES (?, ?, 'svc_dummy_reactivate', 'CANCEL_SCHEDULED', 'MONTHLY', datetime('now', 'utc'), datetime('now', '+30 days', 'utc'), datetime('now', '+30 days', 'utc'), 1428, 'EUR', 0, 'sub_stripe_123')
+      `).run(subId, user.account.id);
+
+      // Reactivate from CANCEL_SCHEDULED
+      const res = await reactivateSubscription({
+        subscriptionId: subId,
+        accountId: user.account.id,
+        userId: user.user.id,
+      }, db);
+
+      expect(res.status).toBe('ACTIVE');
+
+      const subs = listSubscriptionsForAccount(user.account.id, db);
+      expect(subs[0]?.status).toBe('ACTIVE');
+      expect(subs[0]?.autoRenew).toBe(true);
+
+      // Check audit event
+      const audit = db.prepare("SELECT * FROM audit_events WHERE resource_type = 'subscription' AND resource_id = ? AND action = 'subscription.reactivate'").get(subId) as any;
+      expect(audit).toBeDefined();
+
+      // Check outbox event to resume Stripe subscription
+      const obx = db.prepare("SELECT * FROM outbox_events WHERE event_type = 'stripe.subscription.resume.v1' AND aggregate_id = ?").get(subId) as any;
+      expect(obx).toBeDefined();
+
+      // Now set to CANCELED to test CANCELED re-activation
+      db.prepare("UPDATE subscriptions SET status = 'CANCELED', auto_renew = 0 WHERE id = ?").run(subId);
+      const canceledSubs = listSubscriptionsForAccount(user.account.id, db);
+      expect(canceledSubs[0]?.status).toBe('CANCELED');
+
+      // Reactivate from CANCELED
+      const resCanceled = await reactivateSubscription({
+        subscriptionId: subId,
+        accountId: user.account.id,
+        userId: user.user.id,
+      }, db);
+
+      expect(resCanceled.status).toBe('ACTIVE');
+      const resumedSubs = listSubscriptionsForAccount(user.account.id, db);
+      expect(resumedSubs[0]?.status).toBe('ACTIVE');
+      expect(resumedSubs[0]?.autoRenew).toBe(true);
+    });
+
     it('NOTIF-01: Notifications persist, track read status, and count unread per tenant', () => {
       const user = registerUser({ email: 'notif_user@example.com', password: 'P@ssword123!', name: 'Notif User', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
@@ -3996,6 +4047,151 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
 
       const outboxEvt = db.prepare("SELECT * FROM outbox_events WHERE event_type = 'service.terminate.v1'").get() as any;
       expect(outboxEvt).toBeDefined();
+    });
+  });
+
+  describe('Category U: Auditor Delta Invariants & Lifecycle Precision (NEW-339 - NEW-343)', () => {
+    it('NEW-339: Outbox fails closed on unsupported event types and does not mark them COMPLETED', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const unknownId = `obx_${crypto.randomUUID()}`;
+
+      // Insert unsupported event
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'unsupported.custom.event.v99', 'custom', 'cust_123', '{}', 'PENDING')
+      `).run(unknownId);
+
+      await processOutboxQueue(adapter, db, { maxRetries: 1 });
+
+      const row = db.prepare('SELECT status, last_error FROM outbox_events WHERE id = ?').get(unknownId) as any;
+      expect(row.status).toBe('DEAD_LETTER');
+      expect(row.last_error).toContain('Unsupported outbox event type');
+      expect(row.status).not.toBe('COMPLETED');
+    });
+
+    it('NEW-339b: Outbox dispatches service.unsuspend.v1 to adapter and activates service state', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser({ name: 'Unsuspend User', email: 'unsuspend@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_unsusp_test', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_unsusp_test',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      await processOutboxQueue(adapter, db);
+
+      const service = db.prepare('SELECT id, node_id FROM services WHERE account_id = ?').get(user.account.id) as { id: string; node_id: string };
+
+      // Manually set service to SUSPENDED / STOPPED to simulate overdue suspension
+      db.prepare("UPDATE services SET contract_status = 'SUSPENDED' WHERE id = ?").run(service.id);
+      db.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(service.id);
+
+      // Now enqueue unsuspend
+      const obxId = `obx_${crypto.randomUUID()}`;
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'service.unsuspend.v1', 'service', ?, '{}', 'PENDING')
+      `).run(obxId, service.id);
+
+      await processOutboxQueue(adapter, db);
+
+      const obxRow = db.prepare('SELECT status FROM outbox_events WHERE id = ?').get(obxId) as any;
+      expect(obxRow.status).toBe('COMPLETED');
+
+      const svcRow = db.prepare('SELECT contract_status FROM services WHERE id = ?').get(service.id) as any;
+      expect(svcRow.contract_status).toBe('ACTIVE');
+
+      const obsRow = db.prepare('SELECT runtime_state FROM service_observed_states WHERE service_id = ?').get(service.id) as any;
+      expect(obsRow.runtime_state).toBe('RUNNING');
+    });
+
+    it('NEW-341: Coupon redemption compensation releases usage on failed/abandoned checkout', () => {
+      const user = registerUser({ name: 'Coupon Comp User', email: 'coupon.comp@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+      const coupon = createCoupon({
+        code: 'ONCEONLY50',
+        discountType: 'PERCENTAGE',
+        discountValue: 50,
+        maxRedemptions: 1,
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      }, db);
+
+      const orderId = `ord_${crypto.randomUUID()}`;
+
+      // Redeem coupon once -> reaches max_redemptions
+      redeemCouponAtomic(coupon.id, user.account.id, orderId, db);
+
+      const check1 = db.prepare('SELECT redemptions_count FROM coupon_rules WHERE id = ?').get(coupon.id) as any;
+      expect(check1.redemptions_count).toBe(1);
+
+      // Attempting to redeem again throws limit reached
+      expect(() => redeemCouponAtomic(coupon.id, user.account.id, 'ord_second_fail', db))
+        .toThrow('Coupon cannot be redeemed');
+
+      // Compensate / cancel redemption for failed checkout
+      cancelCouponRedemptionAtomic(orderId, db);
+
+      const check2 = db.prepare('SELECT redemptions_count FROM coupon_rules WHERE id = ?').get(coupon.id) as any;
+      expect(check2.redemptions_count).toBe(0);
+
+      const redemptions = db.prepare('SELECT * FROM coupon_redemptions WHERE order_id = ?').all(orderId);
+      expect(redemptions).toHaveLength(0);
+
+      // Coupon is now available again!
+      expect(() => redeemCouponAtomic(coupon.id, user.account.id, 'ord_retry_success', db)).not.toThrow();
+      const check3 = db.prepare('SELECT redemptions_count FROM coupon_rules WHERE id = ?').get(coupon.id) as any;
+      expect(check3.redemptions_count).toBe(1);
+    });
+
+    it('NEW-343: Outbox termination releases node capacity exactly once with idempotent deduplication', async () => {
+      const adapter = new MockPterodactylAdapter();
+      const user = registerUser({ name: 'Capacity Term User', email: 'cap.term@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test-agent' }, db);
+
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const checkout = await processCheckout({ accountId: user.account.id, quoteId: quote.id, idempotencyKey: 'idem_cap_test', regionId: 'reg_fra_1' }, db);
+      const payload: StripeWebhookPayload = {
+        id: 'evt_cap_test',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: checkout.paymentAttemptId, amount: 1428, currency: 'eur', status: 'succeeded', metadata: { orderId: checkout.orderId } } },
+      };
+      ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db);
+      await processOutboxQueue(adapter, db);
+
+      const service = db.prepare('SELECT id, node_id FROM services WHERE account_id = ?').get(user.account.id) as { id: string; node_id: string };
+      const desired = db.prepare('SELECT memory_limit_mb, disk_limit_mb FROM service_desired_configs WHERE service_id = ?').get(service.id) as { memory_limit_mb: number; disk_limit_mb: number };
+
+      const nodeBefore = db.prepare('SELECT allocated_memory_mb, allocated_disk_mb FROM nodes WHERE id = ?').get(service.node_id) as any;
+      expect(nodeBefore.allocated_memory_mb).toBeGreaterThanOrEqual(desired.memory_limit_mb);
+
+      // Terminate via outbox
+      const obxId = `obx_${crypto.randomUUID()}`;
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'service.terminate.v1', 'service', ?, '{}', 'PENDING')
+      `).run(obxId, service.id);
+
+      await processOutboxQueue(adapter, db);
+
+      const nodeAfter1 = db.prepare('SELECT allocated_memory_mb, allocated_disk_mb FROM nodes WHERE id = ?').get(service.node_id) as any;
+      expect(nodeAfter1.allocated_memory_mb).toBe(nodeBefore.allocated_memory_mb - desired.memory_limit_mb);
+      expect(nodeAfter1.allocated_disk_mb).toBe(nodeBefore.allocated_disk_mb - desired.disk_limit_mb);
+
+      const svcAfter1 = db.prepare('SELECT contract_status FROM services WHERE id = ?').get(service.id) as any;
+      expect(svcAfter1.contract_status).toBe('TERMINATED');
+
+      const obsAfter1 = db.prepare('SELECT runtime_state FROM service_observed_states WHERE service_id = ?').get(service.id) as any;
+      expect(obsAfter1.runtime_state).toBe('OFFLINE');
+
+      // Idempotent direct call: must NOT release capacity a second time
+      await terminateService({ serviceId: service.id, reason: 'Duplicate manual termination' }, adapter, db);
+
+      const nodeAfter2 = db.prepare('SELECT allocated_memory_mb, allocated_disk_mb FROM nodes WHERE id = ?').get(service.node_id) as any;
+      expect(nodeAfter2.allocated_memory_mb).toBe(nodeAfter1.allocated_memory_mb);
+      expect(nodeAfter2.allocated_disk_mb).toBe(nodeAfter1.allocated_disk_mb);
     });
   });
 });

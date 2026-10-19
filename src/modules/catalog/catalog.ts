@@ -891,6 +891,19 @@ export function redeemCouponAtomic(
   }, db);
 }
 
+export function cancelCouponRedemptionAtomic(
+  orderId: string,
+  db: Database.Database = getDatabase()
+): void {
+  runInTransaction((trx) => {
+    const redemptions = trx.prepare('SELECT id, coupon_id FROM coupon_redemptions WHERE order_id = ?').all(orderId) as Array<{ id: string; coupon_id: string }>;
+    for (const r of redemptions) {
+      trx.prepare('UPDATE coupon_rules SET redemptions_count = MAX(0, redemptions_count - 1) WHERE id = ?').run(r.coupon_id);
+      trx.prepare('DELETE FROM coupon_redemptions WHERE id = ?').run(r.id);
+    }
+  }, db);
+}
+
 export function listCoupons(db: Database.Database = getDatabase()): CouponRule[] {
   const rows = db.prepare('SELECT * FROM coupon_rules ORDER BY expires_at ASC, code ASC').all() as Array<{
     id: string;

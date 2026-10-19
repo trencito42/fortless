@@ -413,8 +413,12 @@ export async function terminateService(
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(params.serviceId) as any;
   if (!service) throw new Error('Service not found');
 
-  if (service.contract_status === 'TERMINATED') {
-    return; // Already terminated idempotently
+  const existingTerminateOp = db.prepare(`
+    SELECT status FROM provision_operations WHERE service_id = ? AND operation_type = 'TERMINATE'
+  `).get(params.serviceId) as { status: string } | undefined;
+
+  if (service.contract_status === 'TERMINATED' && existingTerminateOp?.status === 'SUCCEEDED') {
+    return; // Already terminated and capacity released idempotently
   }
 
   if (service.external_id) {
@@ -471,14 +475,34 @@ export async function terminateService(
       WHERE service_id = ?
     `).run(service.id);
 
-    // Release node capacity
-    if (desired && service.node_id) {
-      trx.prepare(`
-        UPDATE nodes
-        SET allocated_memory_mb = MAX(0, allocated_memory_mb - ?),
-            allocated_disk_mb = MAX(0, allocated_disk_mb - ?)
-        WHERE id = ?
-      `).run(desired.memory_limit_mb, desired.disk_limit_mb, service.node_id);
+    // Release node capacity exactly once (NEW-343)
+    const op = trx.prepare(`
+      SELECT id, status FROM provision_operations 
+      WHERE service_id = ? AND operation_type = 'TERMINATE'
+    `).get(service.id) as { id: string; status: string } | undefined;
+
+    if (!op || op.status !== 'SUCCEEDED') {
+      if (desired && service.node_id) {
+        trx.prepare(`
+          UPDATE nodes
+          SET allocated_memory_mb = MAX(0, allocated_memory_mb - ?),
+              allocated_disk_mb = MAX(0, allocated_disk_mb - ?)
+          WHERE id = ?
+        `).run(desired.memory_limit_mb, desired.disk_limit_mb, service.node_id);
+      }
+
+      if (!op) {
+        trx.prepare(`
+          INSERT INTO provision_operations (id, service_id, operation_type, status, idempotency_key, correlation_id, attempt_count, created_at, updated_at)
+          VALUES (?, ?, 'TERMINATE', 'SUCCEEDED', ?, ?, 1, datetime('now', 'utc'), datetime('now', 'utc'))
+        `).run(`pop_${crypto.randomUUID()}`, service.id, `idem_${service.id}_terminate`, `corr_${crypto.randomUUID()}`);
+      } else {
+        trx.prepare(`
+          UPDATE provision_operations
+          SET status = 'SUCCEEDED', updated_at = datetime('now', 'utc')
+          WHERE id = ?
+        `).run(op.id);
+      }
     }
 
     trx.prepare(`

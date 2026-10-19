@@ -747,26 +747,27 @@
   </div>
 </div>
 
-<!-- CANCEL SUBSCRIPTION MODAL -->
+<!-- MANAGE / CANCEL SUBSCRIPTION MODAL -->
 <div class="mdl" id="cancelSubModal" role="dialog" aria-modal="true" hidden>
   <div class="ov" data-close-cancel-sub></div>
   <div class="bx" data-c="Modal" style="max-width:480px">
     <div class="row" style="justify-content:space-between">
-      <h3 style="margin:0">Cancel at period end?</h3>
+      <h3 style="margin:0" id="manageSubTitle">Cancel at period end?</h3>
       <button class="ib" type="button" data-close-cancel-sub aria-label="Close dialog">
         <svg class="ic" aria-hidden="true"><use href="#i-cancel-01"/></svg>
       </button>
     </div>
     <p class="muted" style="font-weight:560;margin:0" id="cancelSubDesc">The service keeps running until the current period ends, then it is deleted.</p>
-    <div class="ban warn" data-c="Alert banner">
+    <div class="ban warn" id="manageSubWarn" data-c="Alert banner">
       <svg class="ic warn" aria-hidden="true"><use href="#i-alert-circle"/></svg>
       <div>
-        <b>Data is deleted after cancellation</b>
-        <p>Take a backup first if you need it.</p>
+        <b id="manageSubWarnTitle">Data is deleted after cancellation</b>
+        <p id="manageSubWarnText">Take a backup first if you need it.</p>
       </div>
     </div>
-    <div class="row" style="justify-content:flex-end;gap:8px">
-      <button class="btn" type="button" data-close-cancel-sub>Keep service</button>
+    <div class="row" style="justify-content:flex-end;gap:8px" id="manageSubActions">
+      <button class="btn" type="button" data-close-cancel-sub>Close</button>
+      <button class="btn good" type="button" id="reactivateSubModalBtn" hidden>Reactivate subscription</button>
       <button class="btn bad" type="button" id="confirmCancelSubBtn">Schedule cancellation</button>
     </div>
   </div>

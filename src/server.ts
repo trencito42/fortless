@@ -92,7 +92,7 @@ import {
   terminateService,
 } from './modules/provisioning/services.js';
 import { renderInvoiceText } from './modules/invoicing/invoicing.js';
-import { listSubscriptionsForAccount, cancelSubscription } from './modules/billing/subscriptions.js';
+import { listSubscriptionsForAccount, cancelSubscription, reactivateSubscription } from './modules/billing/subscriptions.js';
 import {
   listNotifications,
   markNotificationRead,
@@ -1851,6 +1851,22 @@ export function buildServer(): FastifyInstance {
       return { success: true, ...result };
     } catch (err: unknown) {
       return reply.status(404).send({ error: (err as Error).message });
+    }
+  });
+
+  // Subscriptions: Reactivate
+  app.post('/api/v1/subscriptions/:id/reactivate', { preHandler: [requireAuth, requireRole('OWNER', 'BILLING_MANAGER')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      const result = await reactivateSubscription({
+        subscriptionId: id,
+        accountId: req.auth!.account.id,
+        userId: req.auth!.user.id,
+        ipAddress: req.ip,
+      });
+      return { success: true, ...result };
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
     }
   });
 

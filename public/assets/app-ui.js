@@ -4447,12 +4447,55 @@ ${selectedOr("code")}
     }
   }
   var pendingCancelSubId = null;
-  function openCancelSubModal(subId, subName, renewalDate) {
+  function openCancelSubModal(subId, subName, renewalDate, status = "ACTIVE") {
     pendingCancelSubId = subId;
     const modal = document.getElementById("cancelSubModal");
+    const title = document.getElementById("manageSubTitle");
     const desc = document.getElementById("cancelSubDesc");
-    if (desc) {
-      desc.textContent = subName ? `${subName} keeps running until the current period ends${renewalDate ? " on " + renewalDate : ""}, then it is deleted.` : "The service keeps running until the current period ends, then it is deleted.";
+    const warn = document.getElementById("manageSubWarn");
+    const warnTitle = document.getElementById("manageSubWarnTitle");
+    const warnText = document.getElementById("manageSubWarnText");
+    const cancelBtn = document.getElementById("confirmCancelSubBtn");
+    const reactivateBtn = document.getElementById("reactivateSubModalBtn");
+    if (status === "CANCEL_SCHEDULED") {
+      if (title) title.textContent = "Manage Subscription";
+      if (desc) {
+        desc.textContent = subName ? `${subName} is scheduled to cancel on ${renewalDate}. You can reactivate auto-renewal at any time before the period ends to keep your server running without interruption.` : `This subscription is scheduled to cancel on ${renewalDate}. You can reactivate auto-renewal now.`;
+      }
+      if (warn) warn.hidden = false;
+      if (warnTitle) warnTitle.textContent = "Auto-renewal is paused";
+      if (warnText) warnText.textContent = "Reactivating will resume recurring renewals and preserve your server without data loss.";
+      if (cancelBtn) cancelBtn.hidden = true;
+      if (reactivateBtn) {
+        reactivateBtn.hidden = false;
+        reactivateBtn.textContent = "Reactivate subscription";
+      }
+    } else if (status === "CANCELED" || status === "TERMINATED") {
+      if (title) title.textContent = "Re-subscribe via Stripe";
+      if (desc) {
+        desc.textContent = subName ? `${subName} is currently canceled. Reactivate it to re-subscribe via Stripe and restore hosting service.` : "This subscription is canceled. Reactivate it to re-subscribe via Stripe.";
+      }
+      if (warn) warn.hidden = false;
+      if (warnTitle) warnTitle.textContent = "Stripe re-subscription";
+      if (warnText) warnText.textContent = "You will be redirected to Stripe Checkout to re-subscribe and reactivate your hosting plan.";
+      if (cancelBtn) cancelBtn.hidden = true;
+      if (reactivateBtn) {
+        reactivateBtn.hidden = false;
+        reactivateBtn.textContent = "Re-subscribe via Stripe";
+      }
+    } else {
+      if (title) title.textContent = "Cancel at period end?";
+      if (desc) {
+        desc.textContent = subName ? `${subName} keeps running until the current period ends${renewalDate ? " on " + renewalDate : ""}, then it is deleted.` : "The service keeps running until the current period ends, then it is deleted.";
+      }
+      if (warn) warn.hidden = false;
+      if (warnTitle) warnTitle.textContent = "Data is deleted after cancellation";
+      if (warnText) warnText.textContent = "Take a backup first if you need it.";
+      if (cancelBtn) {
+        cancelBtn.hidden = false;
+        cancelBtn.textContent = "Schedule cancellation";
+      }
+      if (reactivateBtn) reactivateBtn.hidden = true;
     }
     if (modal) modal.hidden = false;
   }
@@ -4479,6 +4522,34 @@ ${selectedOr("code")}
       toast(err.message, "bad");
     } finally {
       if (btn) btn.disabled = false;
+    }
+  }
+  async function executeReactivateSub(id) {
+    const subId = id || pendingCancelSubId;
+    if (!subId) return;
+    const reactivateModalBtn = document.getElementById("reactivateSubModalBtn");
+    if (reactivateModalBtn) reactivateModalBtn.disabled = true;
+    try {
+      const res = await api(
+        `/api/v1/subscriptions/${encodeURIComponent(subId)}/reactivate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+      if (res.checkoutUrl) {
+        toast("Redirecting to Stripe checkout to re-subscribe...", "info");
+        closeCancelSubModal();
+        window.location.href = res.checkoutUrl;
+        return;
+      }
+      toast(res.message || "Subscription reactivated successfully.", "good");
+      closeCancelSubModal();
+      await renderBilling();
+    } catch (err) {
+      toast(err.message || "Could not reactivate subscription.", "bad");
+    } finally {
+      if (reactivateModalBtn) reactivateModalBtn.disabled = false;
     }
   }
   async function renderBilling() {
@@ -4528,16 +4599,19 @@ ${selectedOr("code")}
           subHost.innerHTML = subscriptions.map((sub) => {
             const isCancelScheduled = sub.status === "CANCEL_SCHEDULED";
             const isCanceled = sub.status === "CANCELED" || sub.status === "TERMINATED";
-            const tone = sub.status === "ACTIVE" ? "good" : isCancelScheduled ? "warn" : "";
+            const tone = sub.status === "ACTIVE" ? "good" : isCancelScheduled ? "warn" : "bad";
             const statusLabel = isCancelScheduled ? "CANCELLATION SCHEDULED" : sub.status;
             return `<div class="li">
               <span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="#i-wallet-01"/></svg></span>
               <span class="tx">
                 <b>${esc(sub.serviceName)}</b>
-                <small>${isCancelScheduled ? "Cancels " + formatDate(sub.nextRenewalDate) : "Renews " + formatDate(sub.nextRenewalDate) + " \xB7 " + esc(sub.billingInterval.toLowerCase())}</small>
+                <small>${isCancelScheduled ? "Cancels " + formatDate(sub.nextRenewalDate) : isCanceled ? "Canceled \xB7 " + esc(sub.billingInterval.toLowerCase()) : "Renews " + formatDate(sub.nextRenewalDate) + " \xB7 " + esc(sub.billingInterval.toLowerCase())}</small>
               </span>
               <span class="pill ${tone}">${esc(statusLabel)}</span>
-              ${isCanceled ? "" : `<button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}">Manage</button>`}
+              <div class="row" style="gap:6px">
+                ${isCancelScheduled || isCanceled ? `<button type="button" class="btn xs good" data-reactivate-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}">Reactivate</button>` : ""}
+                <button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}" data-sub-status="${esc(sub.status)}">Manage</button>
+              </div>
             </div>`;
           }).join("");
         }
@@ -5978,7 +6052,21 @@ ${selectedOr("code")}
       }
       const cancelSub = target.closest("[data-cancel-sub]");
       if (cancelSub) {
-        openCancelSubModal(cancelSub.dataset.cancelSub, cancelSub.dataset.subName, cancelSub.dataset.renewalDate);
+        openCancelSubModal(
+          cancelSub.dataset.cancelSub,
+          cancelSub.dataset.subName,
+          cancelSub.dataset.renewalDate,
+          cancelSub.dataset.subStatus || "ACTIVE"
+        );
+        return;
+      }
+      const reactivateSub = target.closest("[data-reactivate-sub]");
+      if (reactivateSub) {
+        executeReactivateSub(reactivateSub.dataset.reactivateSub);
+        return;
+      }
+      if (target.closest("#reactivateSubModalBtn")) {
+        executeReactivateSub();
         return;
       }
       if (target.closest("#confirmCancelSubBtn")) {

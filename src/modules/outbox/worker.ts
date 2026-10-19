@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
+import Stripe from 'stripe';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
+import { config } from '../../config/index.js';
 import { type ProviderAdapter, MockPterodactylAdapter, MockCpanelAdapter, MockProxmoxAdapter } from '../provisioning/adapter.js';
 import { resolvePanelUserId } from '../provisioning/panel-link.js';
 import { queueEmail } from '../email/outbox.js';
@@ -134,11 +136,85 @@ export async function processOutboxQueue(
         if (extId) {
           await eventAdapter.suspend(extId);
         }
+        db.prepare("UPDATE services SET contract_status = 'SUSPENDED' WHERE id = ?").run(event.aggregate_id);
+        db.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(event.aggregate_id);
+      } else if (event.event_type === 'service.unsuspend.v1') {
+        const extId = service?.external_id || parsedPayload.externalId;
+        if (extId) {
+          await eventAdapter.unsuspend(extId);
+        }
+        db.prepare("UPDATE services SET contract_status = 'ACTIVE' WHERE id = ?").run(event.aggregate_id);
+        db.prepare("UPDATE service_observed_states SET runtime_state = 'RUNNING' WHERE service_id = ?").run(event.aggregate_id);
       } else if (event.event_type === 'service.terminate.v1') {
         const extId = service?.external_id || parsedPayload.externalId;
         if (extId) {
-          await eventAdapter.terminate(extId);
+          try {
+            await eventAdapter.terminate(extId);
+          } catch (err: unknown) {
+            const msg = String((err as Error)?.message || '');
+            const statusCode = (err as { statusCode?: number })?.statusCode;
+            const isNotFound = statusCode === 404 || msg.includes('404') || msg.toLowerCase().includes('not found');
+            if (!isNotFound) {
+              throw err;
+            }
+          }
         }
+        // Exactly-once node capacity release and state transition (NEW-343)
+        runInTransaction((trx) => {
+          const op = trx.prepare(`
+            SELECT id, status FROM provision_operations 
+            WHERE service_id = ? AND operation_type = 'TERMINATE'
+          `).get(event.aggregate_id) as { id: string; status: string } | undefined;
+
+          if (!op || op.status !== 'SUCCEEDED') {
+            const desired = trx.prepare('SELECT memory_limit_mb, disk_limit_mb FROM service_desired_configs WHERE service_id = ?').get(event.aggregate_id) as { memory_limit_mb: number; disk_limit_mb: number } | undefined;
+            const svcRow = trx.prepare('SELECT node_id FROM services WHERE id = ?').get(event.aggregate_id) as { node_id: string } | undefined;
+
+            if (desired && svcRow?.node_id) {
+              trx.prepare(`
+                UPDATE nodes
+                SET allocated_memory_mb = MAX(0, allocated_memory_mb - ?),
+                    allocated_disk_mb = MAX(0, allocated_disk_mb - ?)
+                WHERE id = ?
+              `).run(desired.memory_limit_mb, desired.disk_limit_mb, svcRow.node_id);
+            }
+
+            if (!op) {
+              trx.prepare(`
+                INSERT INTO provision_operations (id, service_id, operation_type, status, idempotency_key, correlation_id, attempt_count, created_at, updated_at)
+                VALUES (?, ?, 'TERMINATE', 'SUCCEEDED', ?, ?, 1, datetime('now', 'utc'), datetime('now', 'utc'))
+              `).run(`pop_${crypto.randomUUID()}`, event.aggregate_id, `idem_${event.aggregate_id}_terminate`, `corr_${crypto.randomUUID()}`);
+            } else {
+              trx.prepare(`
+                UPDATE provision_operations
+                SET status = 'SUCCEEDED', updated_at = datetime('now', 'utc')
+                WHERE id = ?
+              `).run(op.id);
+            }
+          }
+
+          trx.prepare("UPDATE services SET contract_status = 'TERMINATED', updated_at = datetime('now', 'utc') WHERE id = ?").run(event.aggregate_id);
+          trx.prepare("UPDATE service_observed_states SET runtime_state = 'OFFLINE', last_checked_at = datetime('now', 'utc') WHERE service_id = ?").run(event.aggregate_id);
+        }, db);
+      } else if (event.event_type === 'stripe.subscription.cancel.v1') {
+        const pspSubId = parsedPayload.pspSubscriptionId;
+        if (pspSubId && config.STRIPE_SECRET_KEY) {
+          const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+          if (parsedPayload.cancelAtPeriodEnd) {
+            await stripe.subscriptions.update(pspSubId, { cancel_at_period_end: true });
+          } else {
+            await stripe.subscriptions.cancel(pspSubId);
+          }
+        }
+      } else if (event.event_type === 'stripe.subscription.resume.v1') {
+        const pspSubId = parsedPayload.pspSubscriptionId;
+        if (pspSubId && config.STRIPE_SECRET_KEY) {
+          const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+          await stripe.subscriptions.update(pspSubId, { cancel_at_period_end: false });
+        }
+      } else {
+        // NEW-339: Explicitly fail closed on unrecognized event types to avoid false COMPLETED
+        throw new Error(`Unsupported outbox event type '${event.event_type}' (fail-closed to prevent dropped side effects)`);
       }
 
       db.prepare(`
@@ -152,7 +228,10 @@ export async function processOutboxQueue(
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
       const newRetries = event.retry_count + 1;
-      const isDeadLetter = newRetries >= maxRetries || errMsg.includes('Insufficient capacity') || errMsg.includes('maintenance mode');
+      const isDeadLetter = newRetries >= maxRetries ||
+        errMsg.includes('Insufficient capacity') ||
+        errMsg.includes('maintenance mode') ||
+        errMsg.includes('Unsupported outbox event type');
 
       if (isDeadLetter) {
         db.prepare(`
@@ -172,6 +251,11 @@ export async function processOutboxQueue(
             SELECT ?, account_id, 'SYSTEM', 'service.terminate_failed', 'service', id, ?, ?
             FROM services WHERE id = ?
           `).run(`aud_${crypto.randomUUID()}`, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }), event.aggregate_id);
+        } else if (event.event_type.startsWith('stripe.subscription.')) {
+          db.prepare(`
+            INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+            VALUES (?, 'SYSTEM', 'SYSTEM', 'billing.stripe_outbox_failed', 'subscription', ?, ?, ?)
+          `).run(`aud_${crypto.randomUUID()}`, event.aggregate_id, `corr_${crypto.randomUUID()}`, JSON.stringify({ eventType: event.event_type, reason: errMsg.slice(0, 200) }));
         } else {
           db.prepare(`
             UPDATE services

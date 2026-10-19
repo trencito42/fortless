@@ -21,6 +21,7 @@ import {
   openCancelSubModal,
   closeCancelSubModal,
   executeScheduledCancel,
+  executeReactivateSub,
 } from './pages/billing/index.js';
 import {
   renderTickets,
@@ -367,7 +368,21 @@ function bindDelegatedEvents() {
     // Subscriptions
     const cancelSub = target.closest<HTMLButtonElement>('[data-cancel-sub]');
     if (cancelSub) {
-      openCancelSubModal(cancelSub.dataset.cancelSub!, cancelSub.dataset.subName, cancelSub.dataset.renewalDate);
+      openCancelSubModal(
+        cancelSub.dataset.cancelSub!,
+        cancelSub.dataset.subName,
+        cancelSub.dataset.renewalDate,
+        cancelSub.dataset.subStatus || 'ACTIVE'
+      );
+      return;
+    }
+    const reactivateSub = target.closest<HTMLButtonElement>('[data-reactivate-sub]');
+    if (reactivateSub) {
+      executeReactivateSub(reactivateSub.dataset.reactivateSub!);
+      return;
+    }
+    if (target.closest('#reactivateSubModalBtn')) {
+      executeReactivateSub();
       return;
     }
     if (target.closest('#confirmCancelSubBtn')) {

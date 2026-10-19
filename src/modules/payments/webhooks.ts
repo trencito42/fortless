@@ -333,6 +333,50 @@ export function ingestPSPWebhook(
     return { status: 'IGNORED', eventId };
   }
 
+  // Handle Stripe re-subscription checkout for reactivating a canceled subscription
+  const meta = (paymentObj.metadata || {}) as Record<string, string | undefined>;
+  if (eventType === 'checkout.session.completed' && meta.isReactivation === 'true' && meta.subscriptionId) {
+    const subId = meta.subscriptionId;
+    const pspSubId = (paymentObj as Record<string, any>)['subscription'] as string | undefined;
+    runInTransaction((trx) => {
+      const now = new Date();
+      const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      trx.prepare(`
+        UPDATE subscriptions
+        SET status = 'ACTIVE',
+            psp_subscription_id = COALESCE(?, psp_subscription_id),
+            auto_renew = 1,
+            grace_period_end = NULL,
+            dunning_attempts = 0,
+            current_period_start = ?,
+            current_period_end = ?,
+            next_renewal_date = ?,
+            updated_at = datetime('now', 'utc')
+        WHERE id = ?
+      `).run(pspSubId || null, now.toISOString(), nextMonth.toISOString(), nextMonth.toISOString(), subId);
+
+      const sub = trx.prepare('SELECT service_id, account_id FROM subscriptions WHERE id = ?').get(subId) as { service_id: string; account_id: string } | undefined;
+      if (sub?.service_id) {
+        trx.prepare("UPDATE services SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc') WHERE id = ?").run(sub.service_id);
+        trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(sub.service_id);
+        trx.prepare(`
+          INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+          VALUES (?, 'service.unsuspend.v1', 'service', ?, ?, 'PENDING')
+        `).run(
+          generateId('obx'),
+          sub.service_id,
+          JSON.stringify({
+            serviceId: sub.service_id,
+            reason: 'Subscription reactivated via Stripe re-subscription',
+            actorType: 'SYSTEM',
+          })
+        );
+      }
+      trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+    }, db);
+    return { status: 'PROCESSED', eventId };
+  }
+
   const paymentAttemptId = paymentObj.metadata?.paymentAttemptId || paymentObj.id;
   const expectedOrderId = paymentObj.metadata?.orderId;
 
