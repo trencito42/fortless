@@ -18,7 +18,7 @@ interface EditorApi { mountEditor(parent: HTMLElement, hooks: { onDirty(p: strin
 const TEXT_EXT = /\.(txt|log|json|ya?ml|properties|conf|cfg|ini|toml|xml|md|js|mjs|cjs|ts|py|sh|bash|java|lua|cs|csv|env|html?|css|mcmeta|secret|sk|skript|lang|nbt\.txt)$/i;
 const ARCHIVE_EXT = /\.(zip|tar|tar\.gz|tgz)$/i;
 const MAX_EDIT = 1024 * 1024;
-const EDITOR_SRC = '/assets/editor-ui.js?v=1';
+const EDITOR_SRC = '/assets/editor-ui.js?v=2';
 
 let editorScript: Promise<EditorApi> | null = null;
 function loadEditor(): Promise<EditorApi> {

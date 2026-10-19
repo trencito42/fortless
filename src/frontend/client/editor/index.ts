@@ -3,10 +3,10 @@
  * Colours come from Petal tokens, so light and dark follow the app theme.
  */
 import { EditorState, type Extension } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, type Panel, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { HighlightStyle, StreamLanguage, syntaxHighlighting, indentOnInput, bracketMatching, foldGutter, foldKeymap } from '@codemirror/language';
-import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { SearchQuery, closeSearchPanel, findNext, findPrevious, getSearchQuery, highlightSelectionMatches, openSearchPanel, replaceAll, replaceNext, search, searchKeymap, setSearchQuery } from '@codemirror/search';
 import { tags as t } from '@lezer/highlight';
 import { json } from '@codemirror/lang-json';
 import { yaml } from '@codemirror/lang-yaml';
@@ -35,10 +35,72 @@ const theme = EditorView.theme({
   '.cm-selectionMatch': { backgroundColor: 'var(--s3)' },
   '.cm-matchingBracket': { backgroundColor: 'var(--s3)', outline: '1px solid var(--s4)' },
   '.cm-panels': { backgroundColor: 'var(--s2)', color: 'var(--ink)', borderColor: 'var(--s3)' },
-  '.cm-searchMatch': { backgroundColor: 'var(--warn-bg)' },
+  '.cm-panels-top': { borderBottom: '1px solid var(--s3)' },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--warn) 24%, transparent)', outline: '1px solid color-mix(in srgb, var(--warn) 46%, transparent)', borderRadius: '3px' },
+  '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, var(--accent) 34%, var(--s1))', outline: '2px solid var(--accent)' },
   '.cm-foldPlaceholder': { backgroundColor: 'var(--s3)', border: 'none', color: 'var(--ink2)' },
-  '.cm-panel input, .cm-panel button': { font: 'inherit', color: 'var(--ink)' },
+  '.cm-panel.card': { margin: '0', borderRadius: '0', border: '0', padding: '10px 12px', gap: '8px', flexWrap: 'wrap' },
+  '.cm-panel.card > .inp': { flex: '1 1 210px' },
+  '.cm-panel.card > .row': { gap: '6px', flexWrap: 'wrap' },
+  '.cm-panel.card .seg input': { position: 'absolute', opacity: '0', pointerEvents: 'none' },
 });
+
+function fortlessSearchPanel(view: EditorView): Panel {
+  const dom = document.createElement('div');
+  dom.className = 'card row';
+  const field = document.createElement('label'); field.className = 'inp s';
+  const queryInput = document.createElement('input'); queryInput.type = 'text'; queryInput.placeholder = 'Find in file'; queryInput.setAttribute('aria-label', 'Find in file');
+  field.append(queryInput);
+  const replaceField = field.cloneNode(false) as HTMLLabelElement;
+  const replaceInput = document.createElement('input'); replaceInput.type = 'text'; replaceInput.placeholder = 'Replace with'; replaceInput.setAttribute('aria-label', 'Replace with'); replaceField.append(replaceInput);
+  const actions = document.createElement('div'); actions.className = 'row';
+  const counter = document.createElement('span'); counter.className = 'pill'; counter.setAttribute('aria-live', 'polite');
+  const button = (label: string, title: string, run: () => boolean, primary = false) => {
+    const el = document.createElement('button'); el.type = 'button'; el.className = `btn xs${primary ? ' pri' : ''}`; el.textContent = label; el.title = title;
+    el.addEventListener('click', () => { run(); view.focus(); refresh(); }); actions.append(el); return el;
+  };
+  const reveal = () => view.dispatch({ effects: EditorView.scrollIntoView(view.state.selection.main, { y: 'center', x: 'center', yMargin: 48, xMargin: 32 }) });
+  const navigate = (previous = false) => { const ok = (previous ? findPrevious : findNext)(view); if (ok) reveal(); return ok; };
+  button('↑', 'Previous match (Shift+Enter)', () => navigate(true));
+  button('↓', 'Next match (Enter)', () => navigate(), true);
+  button('Replace', 'Replace current match', () => { const ok = replaceNext(view); if (ok) reveal(); return ok; });
+  button('All', 'Replace all matches', () => replaceAll(view));
+  button('×', 'Close search (Escape)', () => closeSearchPanel(view));
+  actions.append(counter);
+  const options = document.createElement('div'); options.className = 'seg';
+  const toggle = (label: string, title: string) => { const wrap = document.createElement('label'); wrap.title = title; const input = document.createElement('input'); input.type = 'checkbox'; const caption = document.createElement('span'); caption.className = 'seg-btn'; caption.textContent = label; wrap.append(input, caption); options.append(wrap); return input; };
+  const caseInput = toggle('Case', 'Match case'); const wordInput = toggle('Word', 'Match whole words'); const regexInput = toggle('Regex', 'Use a regular expression');
+  dom.append(field, replaceField, actions, options);
+
+  let syncing = false;
+  const commit = () => {
+    if (syncing) return;
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: queryInput.value, replace: replaceInput.value, caseSensitive: caseInput.checked, wholeWord: wordInput.checked, regexp: regexInput.checked })) });
+  };
+  const refresh = () => {
+    const query = getSearchQuery(view.state);
+    counter.className = 'pill';
+    if (!query.search) { counter.textContent = 'Type to search'; return; }
+    if (!query.valid) { counter.textContent = 'Invalid regex'; counter.classList.add('bad'); return; }
+    let total = 0; let active = 0; const selected = view.state.selection.main;
+    const cursor = query.getCursor(view.state.doc);
+    for (let match = cursor.next(); !match.done; match = cursor.next()) {
+      total++;
+      if (match.value.from === selected.from && match.value.to === selected.to) active = total;
+    }
+    counter.textContent = total ? `${active || 1} of ${total}` : 'No matches';
+    counter.classList.add(total ? 'info' : 'bad');
+  };
+  [queryInput, replaceInput].forEach((input) => input.addEventListener('input', () => { commit(); refresh(); }));
+  [caseInput, wordInput, regexInput].forEach((input) => input.addEventListener('change', () => { commit(); refresh(); }));
+  dom.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') { event.preventDefault(); navigate(event.shiftKey); refresh(); }
+    else if (event.key === 'Escape') { event.preventDefault(); closeSearchPanel(view); view.focus(); }
+  });
+  const initial = getSearchQuery(view.state); syncing = true;
+  queryInput.value = initial.search; replaceInput.value = initial.replace; caseInput.checked = initial.caseSensitive; wordInput.checked = initial.wholeWord; regexInput.checked = initial.regexp; syncing = false;
+  return { dom, top: true, mount: () => { queryInput.focus(); queryInput.select(); refresh(); }, update: (_update: ViewUpdate) => refresh() };
+}
 
 const highlight = HighlightStyle.define([
   { tag: [t.keyword, t.operatorKeyword, t.modifier], color: 'var(--violet)' },
@@ -95,10 +157,15 @@ export function mountEditor(parent: HTMLElement, hooks: { onDirty(path: string, 
     doc,
     extensions: [
       lineNumbers(), foldGutter(), highlightActiveLineGutter(), highlightActiveLine(), drawSelection(),
-      history(), indentOnInput(), bracketMatching(), highlightSelectionMatches(),
+      history(), indentOnInput(), bracketMatching(), highlightSelectionMatches(), search({ top: true, createPanel: fortlessSearchPanel }),
       syntaxHighlighting(highlight), theme, ...language(path.split('/').pop() || ''),
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: () => { hooks.onSave(path); return true; } },
+        { key: 'Mod-f', preventDefault: true, run: openSearchPanel },
+        { key: 'Mod-h', preventDefault: true, run: openSearchPanel },
+        { key: 'Mod-Alt-f', preventDefault: true, run: openSearchPanel },
+        { key: 'Mod-g', preventDefault: true, run: (v) => { const ok = findNext(v); if (ok) v.dispatch({ effects: EditorView.scrollIntoView(v.state.selection.main, { y: 'center', x: 'center' }) }); return ok; } },
+        { key: 'Shift-Mod-g', preventDefault: true, run: (v) => { const ok = findPrevious(v); if (ok) v.dispatch({ effects: EditorView.scrollIntoView(v.state.selection.main, { y: 'center', x: 'center' }) }); return ok; } },
         indentWithTab, ...defaultKeymap, ...historyKeymap, ...foldKeymap, ...searchKeymap,
       ]),
       EditorView.updateListener.of((u) => {

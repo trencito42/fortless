@@ -16,14 +16,14 @@ export class RconError extends Error {
   }
 }
 
-async function validateHost(host: string): Promise<string> {
+async function validateHost(host: string, trustedProviderTarget = false): Promise<string> {
   const isTest = process.env['NODE_ENV'] === 'test';
   let ip = host;
   if (!net.isIP(host)) {
     const lookup = await dns.lookup(host, { family: 4 });
     ip = lookup.address;
   }
-  if (!isTest && isPrivateOrReservedIp(ip)) {
+  if (!isTest && !trustedProviderTarget && isPrivateOrReservedIp(ip)) {
     throw new RconError(`SSRF blocked: ${host} resolves to a private or reserved address.`, 'SSRF_BLOCKED', 403);
   }
   return ip;
@@ -45,12 +45,13 @@ export class SourceRconClient implements GameRconClient {
     private readonly host: string,
     private readonly port: number,
     private readonly password: string,
-    private readonly timeoutMs = 4000
+    private readonly timeoutMs = 4000,
+    private readonly trustedProviderTarget = false
   ) {}
 
   async connect(): Promise<void> {
     if (this.socket && this.authed) return;
-    const ip = await validateHost(this.host);
+    const ip = await validateHost(this.host, this.trustedProviderTarget);
 
     return new Promise<void>((resolve, reject) => {
       const sock = new net.Socket();
@@ -197,12 +198,13 @@ export class GoldSrcRconClient implements GameRconClient {
     private readonly host: string,
     private readonly port: number,
     private readonly password: string,
-    private readonly timeoutMs = 3500
+    private readonly timeoutMs = 3500,
+    private readonly trustedProviderTarget = false
   ) {}
 
   async connect(): Promise<void> {
     if (this.client && this.challenge) return;
-    const ip = await validateHost(this.host);
+    const ip = await validateHost(this.host, this.trustedProviderTarget);
     const client = dgram.createSocket('udp4');
     this.client = client;
 
@@ -247,7 +249,7 @@ export class GoldSrcRconClient implements GameRconClient {
 
   async execute(command: string): Promise<string> {
     if (!this.client || !this.challenge) await this.connect();
-    const ip = await validateHost(this.host);
+    const ip = await validateHost(this.host, this.trustedProviderTarget);
     const client = this.client!;
 
     return new Promise<string>((resolve, reject) => {
@@ -329,7 +331,7 @@ export function buildBanCommand(
   switch (gameType) {
     case 'minecraft':
       // Minecraft Java: /ban <player> [reason]
-      return `ban ${safeTarget} ${safeReason} (${minutes > 0 ? `${minutes}m` : 'Permanent'})`;
+      return `ban ${safeTarget} ${safeReason}`;
     case 'source':
       // Source Engine: banid <minutes> <steamid_or_userid> kick
       const id = targetIdentifier && targetIdentifier !== '0' ? targetIdentifier : safeTarget;
@@ -341,5 +343,17 @@ export function buildBanCommand(
       return `ban "${targetIdentifier || safeTarget}" "${safeReason}"`;
     default:
       throw new RconError(`Moderation is unsupported for game type: ${gameType}`, 'UNSUPPORTED_GAME', 422);
+  }
+}
+
+export function buildUnbanCommand(gameType: string, targetIdentifier: string, targetName: string): string {
+  const safeTarget = targetName.replace(/["\r\n]/g, '').slice(0, 60);
+  const identifier = targetIdentifier.replace(/["\r\n;]/g, '').slice(0, 80);
+  switch (gameType) {
+    case 'minecraft': return `pardon ${safeTarget}`;
+    case 'source':
+    case 'goldsrc': return `removeid "${identifier || safeTarget}"; writeid`;
+    case 'rust': return `unban "${identifier || safeTarget}"`;
+    default: throw new RconError(`Unban is unsupported for game type: ${gameType}`, 'UNSUPPORTED_GAME', 422);
   }
 }

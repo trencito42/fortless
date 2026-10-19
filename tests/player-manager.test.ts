@@ -16,12 +16,17 @@ import {
   redactSecrets,
   createPlayerManagerService,
 } from '../src/modules/player-manager/service.js';
-import { PterodactylHttpAdapter } from '../src/modules/provisioning/adapter.js';
+import { ProviderNetworkError, PterodactylHttpAdapter } from '../src/modules/provisioning/adapter.js';
 import { ConsoleAccessError } from '../src/modules/provisioning/console.js';
 
 class MockPteroAdapter extends PterodactylHttpAdapter {
   eggName = 'Counter-Strike 2';
   fileContent = 'rcon_password "TestSecretPass123"';
+  submittedCommands: string[] = [];
+  allocationPorts = [27015];
+  commandTimeout = false;
+  writtenFile: { path: string; content: string } | null = null;
+  copiedFiles: string[] = [];
 
   constructor(egg = 'Counter-Strike 2', file = 'rcon_password "TestSecretPass123"') {
     super({ panelUrl: 'https://panel.example.test', apiKey: 'test_key_0123456789' });
@@ -37,8 +42,19 @@ class MockPteroAdapter extends PterodactylHttpAdapter {
     return 'ptlc_test_client_key_01234567890123456789';
   }
 
+  override async assignServerOwner() { return false; }
+
   override async readFile() {
     return this.fileContent;
+  }
+
+  override async writeFile(_externalId: string, path: string, content: string) { this.writtenFile = { path, content }; }
+  override async copyFile(_externalId: string, path: string) { this.copiedFiles.push(path); }
+
+  override async clientServerCall(_externalId: string, _key: string, _method: any, subpath: string, body?: any) {
+    if (subpath === '/network/allocations') return { data: this.allocationPorts.map((port, index) => ({ attributes: { id: index + 1, ip: '203.0.113.10', ip_alias: 'games.example.test', port, is_default: index === 0 } })) };
+    if (subpath === '/command') { this.submittedCommands.push(String(body?.command ?? '')); if (this.commandTimeout) throw new ProviderNetworkError('timeout'); return {}; }
+    return {};
   }
 }
 
@@ -197,8 +213,8 @@ describe('Player Manager & Game Administration', () => {
     });
 
     it('builds ban commands per engine', () => {
-      expect(buildBanCommand('minecraft', '1', 'Steve', 60, 'Rules')).toBe('ban Steve Rules (60m)');
-      expect(buildBanCommand('minecraft', '1', 'Steve', 0, 'Cheating')).toBe('ban Steve Cheating (Permanent)');
+      expect(buildBanCommand('minecraft', '1', 'Steve', 60, 'Rules')).toBe('ban Steve Rules');
+      expect(buildBanCommand('minecraft', '1', 'Steve', 0, 'Cheating')).toBe('ban Steve Cheating');
       expect(buildBanCommand('source', 'STEAM_0:1:12345', 'Player1', 120)).toBe('banid 120 "STEAM_0:1:12345" kick; writeid');
       expect(() => buildBanCommand('fivem', '1', 'Steve')).toThrow(RconError);
     });
@@ -235,6 +251,7 @@ describe('Player Manager & Game Administration', () => {
         INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, external_id, identifier, contract_status, node_id)
         VALUES (?, ?, 'item_1', 'PTERODACTYL', 'ptero_1', '101', 'srv101', 'ACTIVE', 'node_test_1')
       `).run(serviceId, accountA);
+      db.prepare("INSERT INTO panel_users (account_id, panel_user_id, panel_username, panel_email, correlation_tag) VALUES (?, 1001, 'tenant_a', 'a@test.com', 'acct-a')").run(accountA);
     });
 
     it('enforces multi-tenant isolation: Tenant B cannot query or moderate Tenant A service', async () => {
@@ -386,6 +403,101 @@ describe('Player Manager & Game Administration', () => {
       expect(logAfterBan.total).toBe(2);
       expect(logAfterBan.records[0]!.action).toBe('BAN');
       expect(logAfterBan.records[0]!.durationMinutes).toBe(1440);
+    });
+
+    it('uses native Pterodactyl commands for Minecraft kick, ban and unban without RCON', async () => {
+      const mockAdapter = new MockPteroAdapter('Paper Minecraft', 'enable-rcon=false\nrcon.port=25575\n');
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      const ctx = { serviceId, accountId: accountA, userId: userA, role: 'OWNER' };
+
+      expect((await pm.kickPlayer(ctx, { targetIdentifier: 'Steve', targetName: 'Steve', reason: 'AFK' })).outcome).toBe('SUBMITTED');
+      expect((await pm.banPlayer(ctx, { targetIdentifier: 'Alex', targetName: 'Alex', reason: 'Cheating' })).outcome).toBe('SUBMITTED');
+      expect((await pm.unbanPlayer(ctx, { targetIdentifier: 'Alex', targetName: 'Alex' })).outcome).toBe('SUBMITTED');
+      expect(mockAdapter.submittedCommands).toEqual(['kick Steve AFK', 'ban Alex Cheating', 'pardon Alex']);
+      expect((await pm.getAdministration(ctx)).effectiveProtocol).toBe('PTERODACTYL_CONSOLE');
+    });
+
+    it('discovers disabled Minecraft RCON and keeps its distinct administration port', async () => {
+      const mockAdapter = new MockPteroAdapter('Minecraft Java', 'server-port=25565\nenable-rcon=false\nrcon.port=25575\nrcon.password=secret-value\n');
+      mockAdapter.allocationPorts = [25565, 25575];
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      const status = await pm.getAdministration({ serviceId, accountId: accountA, userId: userA, role: 'OWNER' });
+      expect(status.queryPort).toBe(25565);
+      expect(status.selectedMethod).toBe('AUTOMATIC');
+      expect(status.effectiveProtocol).toBe('PTERODACTYL_CONSOLE');
+      expect(status.rconEnabled).toBe(false);
+    });
+
+    it('persists encrypted manual overrides without returning credentials and resets to automatic', async () => {
+      const mockAdapter = new MockPteroAdapter('Counter-Strike 1.6', 'rcon_password "detected-secret"');
+      mockAdapter.allocationPorts = [27015, 27020];
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      const ctx = { serviceId, accountId: accountA, userId: userA, role: 'OWNER' };
+      const saved = await pm.saveAdministration(ctx, { method: 'RCON', port: 27020, password: 'manual-secret-123' });
+      expect(saved.status.administrationPort).toBe(27020);
+      expect(saved.status.credentialsConfigured).toBe(true);
+      expect(JSON.stringify(saved)).not.toContain('manual-secret-123');
+      const row = db.prepare('SELECT encrypted_password FROM service_game_administration WHERE service_id=?').get(serviceId) as any;
+      expect(row.encrypted_password).not.toContain('manual-secret-123');
+      expect((await pm.resetAdministration(ctx)).selectedMethod).toBe('AUTOMATIC');
+    });
+
+    it('updates Minecraft RCON properties while preserving unrelated settings and creating recovery copy', async () => {
+      const mockAdapter = new MockPteroAdapter('Minecraft Java', '# keep this comment\nmotd=Fortless\nenable-rcon=false\nrcon.port=25575\n');
+      mockAdapter.allocationPorts = [25565, 25575];
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      const ctx = { serviceId, accountId: accountA, userId: userA, role: 'OWNER' };
+      const result = await pm.saveAdministration(ctx, { method: 'RCON', port: 25575, password: 'new-rcon-secret', syncToServer: true });
+      expect(mockAdapter.copiedFiles).toEqual(['server.properties']);
+      expect(mockAdapter.writtenFile?.content).toContain('# keep this comment');
+      expect(mockAdapter.writtenFile?.content).toContain('motd=Fortless');
+      expect(mockAdapter.writtenFile?.content).toContain('enable-rcon=true');
+      expect(mockAdapter.writtenFile?.content).toContain('rcon.password=new-rcon-secret');
+      expect(result.recoveryFile).toBe('server.properties.copy');
+      expect(result.status.restartRequired).toBe(true);
+    });
+
+    it('reports an unknown native-command outcome instead of claiming success or retrying', async () => {
+      const mockAdapter = new MockPteroAdapter('Paper Minecraft', 'enable-rcon=false\n');
+      mockAdapter.commandTimeout = true;
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      const result = await pm.kickPlayer({ serviceId, accountId: accountA, userId: 'usr_timeout', role: 'OWNER' }, { targetIdentifier: 'Steve', targetName: 'Steve' });
+      expect(result.success).toBe(false);
+      expect(result.outcome).toBe('UNKNOWN');
+      expect(mockAdapter.submittedCommands).toHaveLength(1);
+    });
+
+    it('reports missing and incorrect RCON credentials with typed failures', async () => {
+      const missingAdapter = new MockPteroAdapter('Counter-Strike 2', 'hostname "Fortless"');
+      const missing = createPlayerManagerService({ db, adapter: missingAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      const missingCtx = { serviceId, accountId: accountA, userId: 'usr_missing_rcon', role: 'OWNER' };
+      expect((await missing.getAdministration(missingCtx)).state).toBe('SETUP_REQUIRED');
+      await expect(missing.kickPlayer(missingCtx, { targetIdentifier: '1', targetName: 'Player' })).rejects.toMatchObject({ code: 'RCON_NOT_CONFIGURED' });
+
+      const badClient = { connect: async () => { throw new RconError('bad password', 'AUTH_FAILED', 401); }, execute: async () => '', disconnect: async () => {} };
+      const incorrect = createPlayerManagerService({ db, adapter: missingAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345', rconClientFactory: () => badClient });
+      await incorrect.saveAdministration(missingCtx, { method: 'RCON', port: 27015, password: 'incorrect-password' });
+      await expect(incorrect.testAdministration(missingCtx)).rejects.toMatchObject({ code: 'AUTH_FAILED', statusCode: 401 });
+    });
+
+    it('dispatches CS 1.6 moderation using the GoldSrc transport and game allocation', async () => {
+      const mockAdapter = new MockPteroAdapter('Counter-Strike 1.6', 'rcon_password "goldsrc-secret"');
+      let transport = ''; let targetPort = 0; let command = '';
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345', rconClientFactory: (game, _host, port) => {
+        transport = game; targetPort = port;
+        return { connect: async () => {}, execute: async (value) => { command = value; return 'ok'; }, disconnect: async () => {} };
+      } });
+      await pm.kickPlayer({ serviceId, accountId: accountA, userId: 'usr_goldsrc', role: 'OWNER' }, { targetIdentifier: '7', targetName: 'Player' });
+      expect(transport).toBe('goldsrc');
+      expect(targetPort).toBe(27015);
+      expect(command).toContain('kick #7');
+    });
+
+    it('prevents cross-account administration changes and unallocated RCON ports', async () => {
+      const mockAdapter = new MockPteroAdapter('Counter-Strike 2');
+      const pm = createPlayerManagerService({ db, adapter: mockAdapter, secret: 'test-keymint-secret-must-be-32-chars-long-012345' });
+      await expect(pm.saveAdministration({ serviceId, accountId: accountB, userId: userB, role: 'OWNER' }, { method: 'RCON', port: 27015, password: 'safe-password' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(pm.saveAdministration({ serviceId, accountId: accountA, userId: userA, role: 'OWNER' }, { method: 'RCON', port: 29999, password: 'safe-password' })).rejects.toMatchObject({ code: 'RCON_PORT_NOT_ALLOCATED' });
     });
 
     it('enforces moderation rate limiting (max 10 actions/minute per user)', async () => {

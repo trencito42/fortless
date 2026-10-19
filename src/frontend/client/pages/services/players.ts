@@ -40,7 +40,18 @@ interface ServerStatusResponse {
   adapter: string;
   info?: ServerInfo;
   players: PlayerInfo[];
+  playerListReliability?: 'AUTHORITATIVE' | 'SAMPLED' | 'BEST_EFFORT';
+  administration?: AdministrationStatus;
   error?: string;
+}
+
+interface AdministrationStatus {
+  gameIdentity: string;
+  effectiveProtocol: string;
+  state: 'AVAILABLE' | 'CONNECTED' | 'SETUP_REQUIRED' | 'DISABLED' | 'UNSUPPORTED' | 'UNREACHABLE';
+  message: string;
+  credentialsConfigured: boolean;
+  capabilities: { kick: boolean; ban: boolean; unban: boolean; reliablePlayerList: boolean };
 }
 
 interface ModerationRecord {
@@ -132,11 +143,11 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
     // 1. Unsupported game state
     if (!statusData.supported) {
       host.innerHTML = `
-        <div class="es" data-c="Empty state">
+        <div class="col">${renderAdministrationSection()}<div class="es" data-c="Empty state">
           <span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span>
           <h4>Player administration is unsupported</h4>
           <p>${esc(statusData.error || 'This service does not support native player management.')}</p>
-        </div>`;
+        </div></div>`;
       return;
     }
 
@@ -144,6 +155,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
     if (statusData.state === 'OFFLINE') {
       host.innerHTML = `
         <div class="col" style="gap:18px">
+          ${renderAdministrationSection()}
           <div class="alert info">
             <svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg>
             <div><b>Server is offline</b><span>Start the server to query connected players and perform moderation actions.</span></div>
@@ -157,6 +169,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
     // 3. Online State
     const info = statusData.info;
     const players = statusData.players;
+    const actionableRoster = statusData.playerListReliability !== 'SAMPLED';
     const filtered = players.filter((p) => {
       if (!filterText) return true;
       const q = filterText.toLowerCase();
@@ -182,7 +195,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
                 <th scope="col">Identifier</th>
                 <th scope="col" style="text-align:right">Score</th>
                 <th scope="col" style="text-align:right">Connected</th>
-                ${canModerate ? '<th scope="col" style="text-align:right">Actions</th>' : ''}
+                ${canModerate && actionableRoster ? '<th scope="col" style="text-align:right">Actions</th>' : ''}
               </tr>
             </thead>
             <tbody>
@@ -200,7 +213,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
                   <td style="text-align:right"><b class="faint">${p.score}</b></td>
                   <td style="text-align:right"><span class="faint">${formatDuration(p.duration)}</span></td>
                   ${
-                    canModerate
+                    canModerate && actionableRoster
                       ? `<td style="text-align:right">
                       <div class="row" style="justify-content:flex-end;gap:6px">
                         <button class="btn xs sec" type="button" data-act="kick" title="Disconnect player">Kick</button>
@@ -223,6 +236,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
 
     host.innerHTML = `
       <div class="col" style="gap:18px">
+        ${renderAdministrationSection()}
         <section class="card">
           <div class="ch">
             <div class="tx">
@@ -245,6 +259,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
           </div>
 
           ${playersTable}
+          ${statusData.playerListReliability === 'SAMPLED' ? '<div class="alert info"><div><b>Sampled player list</b><span>Minecraft Server List Ping may return only part of the roster, so moderation is disabled here to avoid targeting the wrong player. Use Console for a verified name.</span></div></div>' : ''}
         </section>
 
         ${renderHistorySection()}
@@ -252,6 +267,14 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
 
     bindTableEvents();
     bindHistoryEvents();
+  }
+
+  function renderAdministrationSection(): string {
+    const a = statusData?.administration;
+    if (!a) return '';
+    const label = a.effectiveProtocol === 'PTERODACTYL_CONSOLE' ? 'Native Console' : a.effectiveProtocol.replaceAll('_', ' ');
+    const tone = a.state === 'CONNECTED' || a.state === 'AVAILABLE' ? 'good' : a.state === 'SETUP_REQUIRED' || a.state === 'DISABLED' || a.state === 'UNREACHABLE' ? 'warn' : 'bad';
+    return `<section class="card flat server-tool-card"><div class="ch"><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span><div class="tx"><h3>Game administration</h3><p>${esc(a.gameIdentity)} · ${esc(a.message)}</p></div></div><div class="server-tool-actions"><span class="pill ${tone} d">${esc(label)} · ${esc(a.state.toLowerCase().replaceAll('_', ' '))}</span><a class="btn s" href="/app/services/${encodeURIComponent(serviceId)}/settings" data-app-route>Configure</a></div></section>`;
   }
 
   function renderHistorySection(): string {
@@ -289,6 +312,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
                 <th scope="col">Target</th>
                 <th scope="col">Reason</th>
                 <th scope="col" style="text-align:right">When</th>
+                ${canModerate && statusData?.administration?.capabilities.unban ? '<th scope="col" style="text-align:right">Manage</th>' : ''}
               </tr>
             </thead>
             <tbody>
@@ -307,6 +331,7 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
                     </td>
                     <td><span class="faint">${esc(r.reason || '—')}</span></td>
                     <td style="text-align:right"><span class="faint" title="${esc(r.createdAt)}">${formatTimeAgo(r.createdAt)}</span></td>
+                    ${canModerate && statusData?.administration?.capabilities.unban ? `<td style="text-align:right">${r.action === 'BAN' ? `<button class="btn xs" type="button" data-unban data-target-id="${esc(r.targetIdentifier)}" data-target-name="${esc(r.targetName)}">Unban</button>` : ''}</td>` : ''}
                   </tr>`;
                 })
                 .join('')}
@@ -362,12 +387,12 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
 
           btn.disabled = true;
           try {
-            await api.post(`${base}/players/kick`, {
+            const result = await api.post<{ message?: string; outcome?: string }>(`${base}/players/kick`, {
               targetIdentifier: targetId,
               targetName,
               reason: res['reason'] ? String(res['reason']) : undefined,
             });
-            toast(`Kicked "${targetName}"`, 'good');
+            toast(result.message || `Kick command submitted for “${targetName}”`, result.outcome === 'UNKNOWN' ? 'info' : 'good');
             await loadData();
             render();
           } catch (err: any) {
@@ -403,13 +428,13 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
 
           btn.disabled = true;
           try {
-            await api.post(`${base}/players/ban`, {
+            const result = await api.post<{ message?: string; outcome?: string }>(`${base}/players/ban`, {
               targetIdentifier: targetId,
               targetName,
               durationMinutes: Number(res['duration'] || 0),
               reason: res['reason'] ? String(res['reason']) : undefined,
             });
-            toast(`Banned "${targetName}"`, 'good');
+            toast(result.message || `Ban command submitted for “${targetName}”`, result.outcome === 'UNKNOWN' ? 'info' : 'good');
             await loadData();
             render();
           } catch (err: any) {
@@ -423,7 +448,19 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
   }
 
   function bindHistoryEvents(): void {
-    // History refresh or navigation if needed
+    host?.querySelectorAll<HTMLButtonElement>('[data-unban]').forEach((btn) => btn.addEventListener('click', async () => {
+      const targetIdentifier = btn.dataset['targetId'] || '';
+      const targetName = btn.dataset['targetName'] || targetIdentifier;
+      const confirmed = await formDialog({ title: 'Unban player', message: `Allow “${targetName}” to join this server again?`, confirmLabel: 'Unban player', fields: [] });
+      if (!confirmed) return;
+      btn.disabled = true;
+      try {
+        const result = await api.post<{ message?: string; outcome?: string }>(`${base}/players/unban`, { targetIdentifier, targetName });
+        toast(result.message || `Unban command submitted for “${targetName}”`, result.outcome === 'UNKNOWN' ? 'info' : 'good');
+        await loadData(); render();
+      } catch (err: any) { toast(err.message || 'Unban failed', 'bad'); }
+      finally { btn.disabled = false; }
+    }));
   }
 
   return {

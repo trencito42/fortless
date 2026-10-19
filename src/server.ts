@@ -1959,6 +1959,7 @@ export function buildServer(): FastifyInstance {
 
   // Player Manager & Console Command History
   const playerManager = createPlayerManagerService();
+  app.get('/api/v1/admin/game-administration', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async () => playerManager.inspectExistingServices());
   app.get('/api/v1/services/:id/players', filesGuard, filesHandler((req) => playerManager.getServerStatus(filesCtx(req))));
   app.post('/api/v1/services/:id/players/kick', filesGuard, filesHandler(async (req) => {
     const body = b(req);
@@ -1975,12 +1976,23 @@ export function buildServer(): FastifyInstance {
     const reason = body['reason'] ? String(body['reason']) : undefined;
     return playerManager.banPlayer(filesCtx(req), { targetIdentifier, targetName, durationMinutes, reason });
   }));
-  app.get('/api/v1/services/:id/players/history', filesGuard, filesHandler((req) => {
+  app.post('/api/v1/services/:id/players/unban', filesGuard, filesHandler(async (req) => {
+    const body = b(req);
+    const targetIdentifier = String(body['targetIdentifier'] ?? '');
+    const targetName = String(body['targetName'] ?? targetIdentifier);
+    return playerManager.unbanPlayer(filesCtx(req), { targetIdentifier, targetName });
+  }));
+  app.get('/api/v1/services/:id/game-administration', filesGuard, filesHandler(async (req) => ({ status: await playerManager.getAdministration(filesCtx(req)) })));
+  app.post('/api/v1/services/:id/game-administration/detect', filesGuard, filesHandler(async (req) => ({ status: await playerManager.getAdministration(filesCtx(req)) })));
+  app.put('/api/v1/services/:id/game-administration', filesGuard, filesHandler(async (req) => playerManager.saveAdministration(filesCtx(req), b(req))));
+  app.delete('/api/v1/services/:id/game-administration', filesGuard, filesHandler(async (req) => ({ status: await playerManager.resetAdministration(filesCtx(req)) })));
+  app.post('/api/v1/services/:id/game-administration/test', filesGuard, filesHandler(async (req) => playerManager.testAdministration(filesCtx(req))));
+  app.get('/api/v1/services/:id/players/history', filesGuard, filesHandler(async (req) => {
     const page = Number(q(req)['page'] ?? 0);
     const limit = Number(q(req)['limit'] ?? 25);
     return playerManager.getModerationHistory(filesCtx(req), page, limit);
   }));
-  app.get('/api/v1/services/:id/console/history', filesGuard, filesHandler((req) => {
+  app.get('/api/v1/services/:id/console/history', filesGuard, filesHandler(async (req) => {
     const limit = Number(q(req)['limit'] ?? 50);
     return { history: playerManager.getCommandHistory(filesCtx(req), limit) };
   }));

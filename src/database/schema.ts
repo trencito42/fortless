@@ -865,4 +865,58 @@ CREATE TABLE IF NOT EXISTS console_command_history (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 CREATE INDEX IF NOT EXISTS idx_console_cmd_hist_svc ON console_command_history(service_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS service_game_administration (
+  service_id TEXT PRIMARY KEY REFERENCES services(id) ON DELETE CASCADE,
+  selected_method TEXT NOT NULL DEFAULT 'AUTOMATIC' CHECK(selected_method IN ('AUTOMATIC','NATIVE_CONSOLE','RCON')),
+  administration_port INTEGER CHECK(administration_port IS NULL OR administration_port BETWEEN 1 AND 65535),
+  encrypted_password TEXT,
+  last_tested_at TEXT,
+  last_successful_test_at TEXT,
+  last_test_error TEXT,
+  restart_required INTEGER NOT NULL DEFAULT 0 CHECK(restart_required IN (0,1)),
+  updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS service_deployment_specs (
+  service_id TEXT PRIMARY KEY REFERENCES services(id) ON DELETE CASCADE,
+  workload_id TEXT NOT NULL,
+  setup_mode TEXT NOT NULL CHECK(setup_mode IN ('QUICK', 'CUSTOM')),
+  software_id TEXT NOT NULL,
+  software_version TEXT NOT NULL,
+  preset_id TEXT,
+  spec_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+
+CREATE TABLE IF NOT EXISTS service_deployment_tasks (
+  id TEXT PRIMARY KEY,
+  service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+  task_name TEXT NOT NULL,
+  task_type TEXT NOT NULL CHECK(task_type IN ('EGG_RESOLVE', 'PROVISION_CONTAINER', 'APPLY_CONFIG', 'INSTALL_ADDON', 'INITIALIZE_CODE')),
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED')),
+  error_message TEXT,
+  details_json TEXT NOT NULL DEFAULT '{}',
+  started_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+CREATE INDEX IF NOT EXISTS idx_deployment_tasks_svc ON service_deployment_tasks(service_id, created_at);
+
+CREATE TABLE IF NOT EXISTS provider_egg_mappings (
+  id TEXT PRIMARY KEY,
+  workload_id TEXT NOT NULL,
+  software_id TEXT NOT NULL,
+  egg_name_pattern TEXT NOT NULL,
+  resolved_egg_id INTEGER,
+  resolved_nest_id INTEGER,
+  default_docker_image TEXT,
+  default_startup TEXT,
+  environment_defaults TEXT NOT NULL DEFAULT '{}',
+  is_verified INTEGER NOT NULL DEFAULT 1 CHECK(is_verified IN (0, 1)),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+  UNIQUE(workload_id, software_id)
+);
 `;

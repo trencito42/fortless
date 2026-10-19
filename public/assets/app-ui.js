@@ -2164,7 +2164,7 @@ ${selectedOr("code")}
   var TEXT_EXT = /\.(txt|log|json|ya?ml|properties|conf|cfg|ini|toml|xml|md|js|mjs|cjs|ts|py|sh|bash|java|lua|cs|csv|env|html?|css|mcmeta|secret|sk|skript|lang|nbt\.txt)$/i;
   var ARCHIVE_EXT = /\.(zip|tar|tar\.gz|tgz)$/i;
   var MAX_EDIT = 1024 * 1024;
-  var EDITOR_SRC = "/assets/editor-ui.js?v=1";
+  var EDITOR_SRC = "/assets/editor-ui.js?v=2";
   var editorScript = null;
   function loadEditor() {
     editorScript ??= new Promise((resolve, reject) => {
@@ -3696,16 +3696,17 @@ ${selectedOr("code")}
       }
       if (!statusData.supported) {
         host.innerHTML = `
-        <div class="es" data-c="Empty state">
+        <div class="col">${renderAdministrationSection()}<div class="es" data-c="Empty state">
           <span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span>
           <h4>Player administration is unsupported</h4>
           <p>${esc(statusData.error || "This service does not support native player management.")}</p>
-        </div>`;
+        </div></div>`;
         return;
       }
       if (statusData.state === "OFFLINE") {
         host.innerHTML = `
         <div class="col" style="gap:18px">
+          ${renderAdministrationSection()}
           <div class="alert info">
             <svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg>
             <div><b>Server is offline</b><span>Start the server to query connected players and perform moderation actions.</span></div>
@@ -3717,6 +3718,7 @@ ${selectedOr("code")}
       }
       const info = statusData.info;
       const players = statusData.players;
+      const actionableRoster = statusData.playerListReliability !== "SAMPLED";
       const filtered = players.filter((p) => {
         if (!filterText) return true;
         const q = filterText.toLowerCase();
@@ -3737,7 +3739,7 @@ ${selectedOr("code")}
                 <th scope="col">Identifier</th>
                 <th scope="col" style="text-align:right">Score</th>
                 <th scope="col" style="text-align:right">Connected</th>
-                ${canModerate ? '<th scope="col" style="text-align:right">Actions</th>' : ""}
+                ${canModerate && actionableRoster ? '<th scope="col" style="text-align:right">Actions</th>' : ""}
               </tr>
             </thead>
             <tbody>
@@ -3753,7 +3755,7 @@ ${selectedOr("code")}
                   <td><code class="mono faint" style="font-size:12px">${esc(p.steamId || `#${p.index}`)}</code></td>
                   <td style="text-align:right"><b class="faint">${p.score}</b></td>
                   <td style="text-align:right"><span class="faint">${formatDuration(p.duration)}</span></td>
-                  ${canModerate ? `<td style="text-align:right">
+                  ${canModerate && actionableRoster ? `<td style="text-align:right">
                       <div class="row" style="justify-content:flex-end;gap:6px">
                         <button class="btn xs sec" type="button" data-act="kick" title="Disconnect player">Kick</button>
                         <button class="btn xs badt" type="button" data-act="ban" title="Ban player">Ban</button>
@@ -3770,6 +3772,7 @@ ${selectedOr("code")}
         </div>`;
       host.innerHTML = `
       <div class="col" style="gap:18px">
+        ${renderAdministrationSection()}
         <section class="card">
           <div class="ch">
             <div class="tx">
@@ -3792,12 +3795,20 @@ ${selectedOr("code")}
           </div>
 
           ${playersTable}
+          ${statusData.playerListReliability === "SAMPLED" ? '<div class="alert info"><div><b>Sampled player list</b><span>Minecraft Server List Ping may return only part of the roster, so moderation is disabled here to avoid targeting the wrong player. Use Console for a verified name.</span></div></div>' : ""}
         </section>
 
         ${renderHistorySection()}
       </div>`;
       bindTableEvents();
       bindHistoryEvents();
+    }
+    function renderAdministrationSection() {
+      const a = statusData?.administration;
+      if (!a) return "";
+      const label = a.effectiveProtocol === "PTERODACTYL_CONSOLE" ? "Native Console" : a.effectiveProtocol.replaceAll("_", " ");
+      const tone = a.state === "CONNECTED" || a.state === "AVAILABLE" ? "good" : a.state === "SETUP_REQUIRED" || a.state === "DISABLED" || a.state === "UNREACHABLE" ? "warn" : "bad";
+      return `<section class="card flat server-tool-card"><div class="ch"><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span><div class="tx"><h3>Game administration</h3><p>${esc(a.gameIdentity)} \xB7 ${esc(a.message)}</p></div></div><div class="server-tool-actions"><span class="pill ${tone} d">${esc(label)} \xB7 ${esc(a.state.toLowerCase().replaceAll("_", " "))}</span><a class="btn s" href="/app/services/${encodeURIComponent(serviceId)}/settings" data-app-route>Configure</a></div></section>`;
     }
     function renderHistorySection() {
       const records = historyData?.records ?? [];
@@ -3833,6 +3844,7 @@ ${selectedOr("code")}
                 <th scope="col">Target</th>
                 <th scope="col">Reason</th>
                 <th scope="col" style="text-align:right">When</th>
+                ${canModerate && statusData?.administration?.capabilities.unban ? '<th scope="col" style="text-align:right">Manage</th>' : ""}
               </tr>
             </thead>
             <tbody>
@@ -3850,6 +3862,7 @@ ${selectedOr("code")}
                     </td>
                     <td><span class="faint">${esc(r.reason || "\u2014")}</span></td>
                     <td style="text-align:right"><span class="faint" title="${esc(r.createdAt)}">${formatTimeAgo(r.createdAt)}</span></td>
+                    ${canModerate && statusData?.administration?.capabilities.unban ? `<td style="text-align:right">${r.action === "BAN" ? `<button class="btn xs" type="button" data-unban data-target-id="${esc(r.targetIdentifier)}" data-target-name="${esc(r.targetName)}">Unban</button>` : ""}</td>` : ""}
                   </tr>`;
       }).join("")}
             </tbody>
@@ -3899,12 +3912,12 @@ ${selectedOr("code")}
             if (!res) return;
             btn.disabled = true;
             try {
-              await api.post(`${base}/players/kick`, {
+              const result = await api.post(`${base}/players/kick`, {
                 targetIdentifier: targetId,
                 targetName,
                 reason: res["reason"] ? String(res["reason"]) : void 0
               });
-              toast(`Kicked "${targetName}"`, "good");
+              toast(result.message || `Kick command submitted for \u201C${targetName}\u201D`, result.outcome === "UNKNOWN" ? "info" : "good");
               await loadData();
               render();
             } catch (err) {
@@ -3939,13 +3952,13 @@ ${selectedOr("code")}
             if (!res) return;
             btn.disabled = true;
             try {
-              await api.post(`${base}/players/ban`, {
+              const result = await api.post(`${base}/players/ban`, {
                 targetIdentifier: targetId,
                 targetName,
                 durationMinutes: Number(res["duration"] || 0),
                 reason: res["reason"] ? String(res["reason"]) : void 0
               });
-              toast(`Banned "${targetName}"`, "good");
+              toast(result.message || `Ban command submitted for \u201C${targetName}\u201D`, result.outcome === "UNKNOWN" ? "info" : "good");
               await loadData();
               render();
             } catch (err) {
@@ -3958,6 +3971,23 @@ ${selectedOr("code")}
       });
     }
     function bindHistoryEvents() {
+      host?.querySelectorAll("[data-unban]").forEach((btn) => btn.addEventListener("click", async () => {
+        const targetIdentifier = btn.dataset["targetId"] || "";
+        const targetName = btn.dataset["targetName"] || targetIdentifier;
+        const confirmed = await formDialog({ title: "Unban player", message: `Allow \u201C${targetName}\u201D to join this server again?`, confirmLabel: "Unban player", fields: [] });
+        if (!confirmed) return;
+        btn.disabled = true;
+        try {
+          const result = await api.post(`${base}/players/unban`, { targetIdentifier, targetName });
+          toast(result.message || `Unban command submitted for \u201C${targetName}\u201D`, result.outcome === "UNKNOWN" ? "info" : "good");
+          await loadData();
+          render();
+        } catch (err) {
+          toast(err.message || "Unban failed", "bad");
+        } finally {
+          btn.disabled = false;
+        }
+      }));
     }
     return {
       open: () => {
@@ -4248,9 +4278,18 @@ ${selectedOr("code")}
   }
   function initSettings(serviceId) {
     const base = `/api/v1/services/${encodeURIComponent(serviceId)}/settings`;
+    const adminBase = `/api/v1/services/${encodeURIComponent(serviceId)}/game-administration`;
     const host = document.getElementById("dtlSettingsBody");
     async function render(h) {
-      const s = await api.get(base);
+      const [s, admin] = await Promise.all([
+        api.get(base),
+        api.get(adminBase)
+      ]);
+      const a = admin.status;
+      const hasRcon = a.supportedMethods.includes("RCON");
+      const automaticUsesRcon = a.effectiveProtocol.endsWith("_RCON");
+      const showRcon = a.selectedMethod === "RCON" || a.selectedMethod === "AUTOMATIC" && automaticUsesRcon;
+      const statusTone2 = a.state === "CONNECTED" || a.state === "AVAILABLE" ? "good" : a.state === "UNSUPPORTED" ? "bad" : "warn";
       h.innerHTML = `<div class="g g2" style="align-items:start">
       <section class="card"><div class="ch"><div class="tx"><h3>Details</h3></div></div>
         <div class="col" style="gap:12px">
@@ -4260,6 +4299,19 @@ ${selectedOr("code")}
         </div></section>
       <section class="card"><div class="ch"><div class="tx"><h3>SFTP</h3></div></div>
         <dl class="kv"><dt>Host</dt><dd>${copy(s.sftp.host, "SFTP host")}</dd><dt>Port</dt><dd>${copy(String(s.sftp.port), "SFTP port")}</dd>${s.sftp.username ? `<dt>Username</dt><dd>${copy(s.sftp.username, "SFTP username")}</dd>` : ""}</dl></section>
+      <section class="card" style="grid-column:1/-1"><div class="ch"><span class="tile ${statusTone2}">${hero("settings")}</span><div class="tx"><h3>Game Administration / RCON</h3><p>${esc(a.message)}</p></div><span class="pill ${statusTone2} d">${esc(a.state.toLowerCase().replaceAll("_", " "))}</span></div>
+        <div class="g g2">
+          <dl class="kv"><dt>Detected game</dt><dd>${esc(a.gameIdentity)}</dd><dt>Transport</dt><dd>${esc(a.effectiveProtocol.replaceAll("_", " "))}</dd><dt>Detection</dt><dd>${esc(a.detectionSource.replaceAll("_", " ").toLowerCase())}</dd><dt>Configuration source</dt><dd>${esc(a.configurationSource.replaceAll("_", " ").toLowerCase())}</dd>${a.administrationHost ? `<dt>Trusted host</dt><dd>${esc(a.administrationHost)}</dd>` : ""}<dt>Last connected</dt><dd>${a.lastSuccessfulTestAt ? esc(formatDate(a.lastSuccessfulTestAt)) : "Not tested"}</dd></dl>
+          <div class="col" style="gap:12px">
+            <div class="fld"><label for="gaMethod">Connection method</label><div class="inp sel"><select id="gaMethod" data-auto-rcon="${automaticUsesRcon}">${a.supportedMethods.map((m) => `<option value="${esc(m)}" ${m === a.selectedMethod ? "selected" : ""}>${esc(m === "AUTOMATIC" ? "Automatic" : m === "NATIVE_CONSOLE" ? "Native Console" : "RCON")}</option>`).join("")}</select></div></div>
+            ${hasRcon ? `<div id="gaRconFields" class="col" style="gap:12px" ${showRcon ? "" : "hidden"}><div class="fld"><label for="gaPort">Administration port</label><div class="inp"><input id="gaPort" type="number" min="1" max="65535" value="${a.administrationPort ?? ""}" placeholder="Allocated RCON port"></div><small class="hint">Must be an allocation assigned in Network. The host cannot be changed.</small></div>
+            <div class="fld"><label for="gaPassword">RCON password</label><div class="inp"><input id="gaPassword" type="password" maxlength="191" autocomplete="new-password" placeholder="${a.credentialsConfigured ? "Configured \u2014 leave blank to keep it" : "Set a strong password"}"></div><small class="hint">The existing password is never returned to the browser.</small></div>
+            <label class="row nw"><input id="gaSync" type="checkbox"> Write supported changes to the game configuration</label></div><div id="gaNativeHint" class="alert info" ${showRcon ? "hidden" : ""}><div><b>RCON is not needed</b><span>Automatic mode uses the authorized native console when the game supports it.</span></div></div>` : '<div class="alert info"><div><b>RCON is not needed</b><span>Fortless uses the authorized Pterodactyl console for this server.</span></div></div>'}
+            ${a.restartRequired ? '<div class="alert warn"><div><b>Restart required</b><span>Configuration was written, but Fortless will not restart the server without your explicit action.</span></div></div>' : ""}
+          </div>
+        </div>
+        <div class="row" style="margin-top:16px"><button class="btn s pri" type="button" data-set="admin-save">Save configuration</button><button class="btn s" type="button" data-set="admin-test">Test connection</button><button class="btn s" type="button" data-set="admin-detect">Refresh detection</button><button class="btn s ghost" type="button" data-set="admin-reset">Reset to automatic</button></div>
+      </section>
       <section class="card"><div class="ch"><div class="tx"><h3>Debug information</h3></div></div>
         <dl class="kv"><dt>Node</dt><dd>${esc(s.node || "\u2014")}</dd><dt>Server ID</dt><dd>${copy(s.identifier, "server ID")}</dd><dt>UUID</dt><dd>${copy(s.uuid, "UUID")}</dd></dl></section>
       <section class="card"><div class="ch"><div class="tx"><h3>Reinstall</h3><p>Runs the install script again. Files may be overwritten.</p></div></div>
@@ -4278,10 +4330,40 @@ ${selectedOr("code")}
           if (!await confirmDialog({ title: "Reinstall this server? The server will be stopped and the install script will run again.", confirmLabel: "Confirm", danger: true })) return;
           await sendJson(`${base}/reinstall`, "POST", { confirm: true });
           toast("Reinstall started", "good");
+        } else if (btn.dataset["set"] === "admin-save") {
+          const result = await sendJson(adminBase, "PUT", {
+            method: document.getElementById("gaMethod").value,
+            port: document.getElementById("gaPort")?.value || null,
+            password: document.getElementById("gaPassword")?.value || "",
+            syncToServer: document.getElementById("gaSync")?.checked === true
+          });
+          toast(result?.recoveryFile ? `Saved. Recovery copy: ${result.recoveryFile}. Restart when ready.` : "Game administration saved", "good");
+          if (host) await render(host);
+        } else if (btn.dataset["set"] === "admin-test") {
+          await sendJson(`${adminBase}/test`, "POST");
+          toast("Connection test passed", "good");
+          if (host) await render(host);
+        } else if (btn.dataset["set"] === "admin-detect") {
+          await sendJson(`${adminBase}/detect`, "POST");
+          toast("Detection refreshed", "good");
+          if (host) await render(host);
+        } else if (btn.dataset["set"] === "admin-reset") {
+          await sendJson(adminBase, "DELETE");
+          toast("Automatic detection restored", "good");
+          if (host) await render(host);
         }
       } catch (e) {
         fail2(e);
       }
+    });
+    host?.addEventListener("change", (ev) => {
+      const target = ev.target;
+      if (target.id !== "gaMethod") return;
+      const rcon = target.value === "RCON" || target.value === "AUTOMATIC" && target.dataset["autoRcon"] === "true";
+      const fields = document.getElementById("gaRconFields");
+      const hint = document.getElementById("gaNativeHint");
+      if (fields) fields.hidden = !rcon;
+      if (hint) hint.hidden = rcon;
     });
     return t;
   }

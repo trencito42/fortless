@@ -696,7 +696,7 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
     subpath: string,
     body?: unknown
   ): Promise<any> {
-    if (!/^\/(backups|network\/allocations|startup|settings|databases|users|schedules|activity)(\/[A-Za-z0-9_-]+){0,3}(\?(include=(password|tasks)|page=\d{1,5}))?$/.test(subpath) && subpath !== '') {
+    if (!/^\/(backups|network\/allocations|startup|settings|databases|users|schedules|activity)(\/[A-Za-z0-9_-]+){0,3}(\?(include=(password|tasks)|page=\d{1,5}))?$/.test(subpath) && subpath !== '' && subpath !== '/command') {
       throw new ProviderError('Unsupported panel path', 'UNSUPPORTED_PATH');
     }
     const id = await this.resolveIdentifier(externalId);

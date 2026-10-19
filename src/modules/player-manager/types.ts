@@ -1,4 +1,30 @@
 export type ProtocolType = 'goldsrc' | 'source' | 'minecraft' | 'rust' | 'unsupported';
+export type AdministrationMethod = 'AUTOMATIC' | 'NATIVE_CONSOLE' | 'RCON';
+export type AdministrationProtocol = 'PTERODACTYL_CONSOLE' | 'GOLDSRC_RCON' | 'SOURCE_RCON' | 'MINECRAFT_RCON' | 'RUST_WEBRCON' | 'UNSUPPORTED';
+
+export interface GameAdministrationStatus {
+  provider: 'PTERODACTYL';
+  gameIdentity: string;
+  detectionSource: 'GAME_PROFILE' | 'EGG_NAME_FALLBACK' | 'UNKNOWN';
+  gameProtocol: ProtocolType;
+  queryMethod: 'MINECRAFT_SLP' | 'A2S' | 'NONE';
+  supportedMethods: AdministrationMethod[];
+  selectedMethod: AdministrationMethod;
+  effectiveProtocol: AdministrationProtocol;
+  state: 'AVAILABLE' | 'CONNECTED' | 'SETUP_REQUIRED' | 'DISABLED' | 'UNSUPPORTED' | 'UNREACHABLE';
+  queryHost: string | null;
+  queryPort: number | null;
+  administrationHost: string | null;
+  administrationPort: number | null;
+  rconEnabled: boolean | null;
+  credentialsConfigured: boolean;
+  configurationSource: 'FORTLESS_OVERRIDE' | 'DETECTED_FILE' | 'EGG_ENVIRONMENT' | 'NATIVE_PROVIDER' | 'NONE';
+  lastSuccessfulTestAt: string | null;
+  lastTestError: string | null;
+  restartRequired: boolean;
+  capabilities: { kick: boolean; ban: boolean; unban: boolean; reliablePlayerList: boolean };
+  message: string;
+}
 
 export interface ServerInfo {
   name: string;
@@ -36,6 +62,8 @@ export interface ServerStatusResult {
   adapter: string;
   info?: ServerInfo;
   players: PlayerInfo[];
+  playerListReliability?: 'AUTHORITATIVE' | 'SAMPLED' | 'BEST_EFFORT';
+  administration?: GameAdministrationStatus;
   error?: string;
 }
 
@@ -77,4 +105,9 @@ export interface BanParams {
   targetName: string;
   durationMinutes?: number;
   reason?: string;
+}
+
+export interface UnbanParams {
+  targetIdentifier: string;
+  targetName: string;
 }

@@ -157,11 +157,26 @@ export function initStartup(serviceId: string): Tab {
 }
 
 // ---------------- Settings ----------------
+interface GameAdministrationStatus {
+  gameIdentity: string; detectionSource: string; effectiveProtocol: string; supportedMethods: string[]; selectedMethod: string;
+  state: string; administrationHost: string | null; administrationPort: number | null; credentialsConfigured: boolean;
+  configurationSource: string; lastSuccessfulTestAt: string | null; restartRequired: boolean; message: string;
+}
+
 export function initSettings(serviceId: string): Tab {
   const base = `/api/v1/services/${encodeURIComponent(serviceId)}/settings`;
+  const adminBase = `/api/v1/services/${encodeURIComponent(serviceId)}/game-administration`;
   const host = document.getElementById('dtlSettingsBody');
   async function render(h: HTMLElement) {
-    const s = await api.get<{ name: string; description: string; uuid: string; node: string; identifier: string; sftp: { host: string; port: number; username: string | null } }>(base);
+    const [s, admin] = await Promise.all([
+      api.get<{ name: string; description: string; uuid: string; node: string; identifier: string; sftp: { host: string; port: number; username: string | null } }>(base),
+      api.get<{ status: GameAdministrationStatus }>(adminBase),
+    ]);
+    const a = admin.status;
+    const hasRcon = a.supportedMethods.includes('RCON');
+    const automaticUsesRcon = a.effectiveProtocol.endsWith('_RCON');
+    const showRcon = a.selectedMethod === 'RCON' || (a.selectedMethod === 'AUTOMATIC' && automaticUsesRcon);
+    const statusTone = a.state === 'CONNECTED' || a.state === 'AVAILABLE' ? 'good' : a.state === 'UNSUPPORTED' ? 'bad' : 'warn';
     h.innerHTML = `<div class="g g2" style="align-items:start">
       <section class="card"><div class="ch"><div class="tx"><h3>Details</h3></div></div>
         <div class="col" style="gap:12px">
@@ -171,6 +186,19 @@ export function initSettings(serviceId: string): Tab {
         </div></section>
       <section class="card"><div class="ch"><div class="tx"><h3>SFTP</h3></div></div>
         <dl class="kv"><dt>Host</dt><dd>${copy(s.sftp.host, 'SFTP host')}</dd><dt>Port</dt><dd>${copy(String(s.sftp.port), 'SFTP port')}</dd>${s.sftp.username ? `<dt>Username</dt><dd>${copy(s.sftp.username, 'SFTP username')}</dd>` : ''}</dl></section>
+      <section class="card" style="grid-column:1/-1"><div class="ch"><span class="tile ${statusTone}">${hero('settings')}</span><div class="tx"><h3>Game Administration / RCON</h3><p>${esc(a.message)}</p></div><span class="pill ${statusTone} d">${esc(a.state.toLowerCase().replaceAll('_', ' '))}</span></div>
+        <div class="g g2">
+          <dl class="kv"><dt>Detected game</dt><dd>${esc(a.gameIdentity)}</dd><dt>Transport</dt><dd>${esc(a.effectiveProtocol.replaceAll('_', ' '))}</dd><dt>Detection</dt><dd>${esc(a.detectionSource.replaceAll('_', ' ').toLowerCase())}</dd><dt>Configuration source</dt><dd>${esc(a.configurationSource.replaceAll('_', ' ').toLowerCase())}</dd>${a.administrationHost ? `<dt>Trusted host</dt><dd>${esc(a.administrationHost)}</dd>` : ''}<dt>Last connected</dt><dd>${a.lastSuccessfulTestAt ? esc(formatDate(a.lastSuccessfulTestAt)) : 'Not tested'}</dd></dl>
+          <div class="col" style="gap:12px">
+            <div class="fld"><label for="gaMethod">Connection method</label><div class="inp sel"><select id="gaMethod" data-auto-rcon="${automaticUsesRcon}">${a.supportedMethods.map((m) => `<option value="${esc(m)}" ${m === a.selectedMethod ? 'selected' : ''}>${esc(m === 'AUTOMATIC' ? 'Automatic' : m === 'NATIVE_CONSOLE' ? 'Native Console' : 'RCON')}</option>`).join('')}</select></div></div>
+            ${hasRcon ? `<div id="gaRconFields" class="col" style="gap:12px" ${showRcon ? '' : 'hidden'}><div class="fld"><label for="gaPort">Administration port</label><div class="inp"><input id="gaPort" type="number" min="1" max="65535" value="${a.administrationPort ?? ''}" placeholder="Allocated RCON port"></div><small class="hint">Must be an allocation assigned in Network. The host cannot be changed.</small></div>
+            <div class="fld"><label for="gaPassword">RCON password</label><div class="inp"><input id="gaPassword" type="password" maxlength="191" autocomplete="new-password" placeholder="${a.credentialsConfigured ? 'Configured — leave blank to keep it' : 'Set a strong password'}"></div><small class="hint">The existing password is never returned to the browser.</small></div>
+            <label class="row nw"><input id="gaSync" type="checkbox"> Write supported changes to the game configuration</label></div><div id="gaNativeHint" class="alert info" ${showRcon ? 'hidden' : ''}><div><b>RCON is not needed</b><span>Automatic mode uses the authorized native console when the game supports it.</span></div></div>` : '<div class="alert info"><div><b>RCON is not needed</b><span>Fortless uses the authorized Pterodactyl console for this server.</span></div></div>'}
+            ${a.restartRequired ? '<div class="alert warn"><div><b>Restart required</b><span>Configuration was written, but Fortless will not restart the server without your explicit action.</span></div></div>' : ''}
+          </div>
+        </div>
+        <div class="row" style="margin-top:16px"><button class="btn s pri" type="button" data-set="admin-save">Save configuration</button><button class="btn s" type="button" data-set="admin-test">Test connection</button><button class="btn s" type="button" data-set="admin-detect">Refresh detection</button><button class="btn s ghost" type="button" data-set="admin-reset">Reset to automatic</button></div>
+      </section>
       <section class="card"><div class="ch"><div class="tx"><h3>Debug information</h3></div></div>
         <dl class="kv"><dt>Node</dt><dd>${esc(s.node || '—')}</dd><dt>Server ID</dt><dd>${copy(s.identifier, 'server ID')}</dd><dt>UUID</dt><dd>${copy(s.uuid, 'UUID')}</dd></dl></section>
       <section class="card"><div class="ch"><div class="tx"><h3>Reinstall</h3><p>Runs the install script again. Files may be overwritten.</p></div></div>
@@ -189,8 +217,32 @@ export function initSettings(serviceId: string): Tab {
         if (!(await confirmDialog({ title: 'Reinstall this server? The server will be stopped and the install script will run again.', confirmLabel: 'Confirm', danger: true }))) return;
         await sendJson(`${base}/reinstall`, 'POST', { confirm: true });
         toast('Reinstall started', 'good');
+      } else if (btn.dataset['set'] === 'admin-save') {
+        const result = await sendJson(adminBase, 'PUT', {
+          method: (document.getElementById('gaMethod') as HTMLSelectElement).value,
+          port: (document.getElementById('gaPort') as HTMLInputElement | null)?.value || null,
+          password: (document.getElementById('gaPassword') as HTMLInputElement | null)?.value || '',
+          syncToServer: (document.getElementById('gaSync') as HTMLInputElement | null)?.checked === true,
+        });
+        toast((result as any)?.recoveryFile ? `Saved. Recovery copy: ${(result as any).recoveryFile}. Restart when ready.` : 'Game administration saved', 'good');
+        if (host) await render(host);
+      } else if (btn.dataset['set'] === 'admin-test') {
+        await sendJson(`${adminBase}/test`, 'POST'); toast('Connection test passed', 'good'); if (host) await render(host);
+      } else if (btn.dataset['set'] === 'admin-detect') {
+        await sendJson(`${adminBase}/detect`, 'POST'); toast('Detection refreshed', 'good'); if (host) await render(host);
+      } else if (btn.dataset['set'] === 'admin-reset') {
+        await sendJson(adminBase, 'DELETE'); toast('Automatic detection restored', 'good'); if (host) await render(host);
       }
     } catch (e) { fail(e); }
+  });
+  host?.addEventListener('change', (ev) => {
+    const target = ev.target as HTMLSelectElement;
+    if (target.id !== 'gaMethod') return;
+    const rcon = target.value === 'RCON' || (target.value === 'AUTOMATIC' && target.dataset['autoRcon'] === 'true');
+    const fields = document.getElementById('gaRconFields');
+    const hint = document.getElementById('gaNativeHint');
+    if (fields) fields.hidden = !rcon;
+    if (hint) hint.hidden = rcon;
   });
   return t;
 }

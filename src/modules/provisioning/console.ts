@@ -24,6 +24,27 @@ function keyEncryptionKey(): Buffer {
   );
 }
 
+function serviceSecretKey(): Buffer {
+  return Buffer.from(
+    crypto.hkdfSync('sha256', Buffer.from(config.SESSION_SECRET), Buffer.from('fortless-service-secret-v1'), Buffer.from('game-administration'), 32)
+  );
+}
+
+export function encryptServiceSecret(plain: string): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', serviceSecretKey(), iv);
+  const ct = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  return `v1.${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${ct.toString('base64url')}`;
+}
+
+export function decryptServiceSecret(value: string): string {
+  const [version, iv, tag, ct] = value.split('.');
+  if (version !== 'v1' || !iv || !tag || !ct) throw new Error('Stored service secret is invalid');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', serviceSecretKey(), Buffer.from(iv, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+  return Buffer.concat([decipher.update(Buffer.from(ct, 'base64url')), decipher.final()]).toString('utf8');
+}
+
 export function encryptClientKey(plain: string): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', keyEncryptionKey(), iv);
