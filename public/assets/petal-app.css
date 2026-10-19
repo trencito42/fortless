@@ -267,8 +267,16 @@ code,.cd{font:600 12.5px var(--mono);background:var(--s2);padding:3px 8px;border
 .bigic{width:84px;height:84px;border-radius:28px;display:grid;place-items:center;animation:pop .5s var(--ease)}.bigic .ic{width:38px;height:38px}
 /* public */
 .pb{background:var(--bg)}
-.pn{position:sticky;top:0;z-index:6;padding:10px clamp(14px,3cqw,40px);background:var(--bg)}.pn .in{display:flex;align-items:center;gap:8px;background:var(--s1);border-radius:999px;padding:7px 8px 7px 12px;min-height:56px;max-width:1100px;margin:0 auto;width:100%}
-.pn .lnk{display:flex;gap:2px;margin:0 auto}.pn .lnk a{height:40px;padding:0 14px;display:flex;align-items:center;border-radius:999px;font-weight:650;color:var(--ink2)}.pn .lnk a:hover{background:var(--s2)}.pn .lnk a.on{color:var(--ink);background:var(--s2)}
+@view-transition{navigation:auto}
+::view-transition-old(public-nav-bar),::view-transition-new(public-nav-bar){animation-duration:.4s;animation-timing-function:var(--ease)}
+.pn{position:sticky;top:0;z-index:6;padding:10px clamp(14px,3cqw,40px);background:var(--bg)}
+.pn .in{display:flex;align-items:center;background:var(--s1);border-radius:999px;padding:7px 10px 7px 10px;min-height:56px;max-width:1100px;margin:0 auto;width:100%;view-transition-name:public-nav-bar}
+.pn .nl-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.pn .nl-right{display:flex;align-items:center;justify-content:flex-end;gap:6px;flex:1}
+.pn .lnk{position:relative;display:flex;align-items:center;gap:2px;flex:none}
+.pn .lnk a{position:relative;z-index:1;height:42px;padding:0 16px;display:flex;align-items:center;border-radius:999px;font-weight:650;font-size:14.5px;color:var(--ink2);transition:color .2s;text-decoration:none}
+.pn .lnk a:hover,.pn .lnk a.on{color:var(--ink)}
+.pn .lnk .ind{position:absolute;left:0;top:0;height:42px;width:0;border-radius:999px;background:var(--s2);transition:transform .35s var(--ease),width .35s var(--ease),opacity .2s;opacity:0;pointer-events:none}
 .pc{padding:clamp(16px,3cqw,40px) clamp(14px,3cqw,40px) 60px;max-width:1100px;margin:0 auto}
 .ban{border-radius:34px;padding:clamp(22px,4cqw,44px);display:grid;gap:12px;background:var(--good-bg);color:var(--good)}
 .ban h1{font:800 clamp(34px,5.6cqw,64px)/.98 var(--font);letter-spacing:-.055em}.ban p{font-weight:600;max-width:52ch;opacity:.92;line-height:1.45}
