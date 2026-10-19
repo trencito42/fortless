@@ -13,14 +13,17 @@ type Plan = {
   status: 'DRAFT' | 'ACTIVE' | 'RETIRED';
   resources: { memoryMb: number; cpuPct: number; diskMb: number; databases: number; backups: number; eggId?: number; dockerImage?: string };
   prices: Price[];
+  options: Array<{ id: string; key: string; label: string; inputType: string; isRequired: boolean; config: Record<string, unknown>; priceDeltaMinorUnits: number }>;
 };
 type Product = {
   id: string;
   slug: string;
   name: string;
+  description: string;
   providerType: string;
   isPublished: boolean;
   category: { id: string; slug: string; name: string };
+  restrictions: { allowedCountries: string[]; maxServicesPerAccount: number | null; availableFrom: string | null; availableUntil: string | null; requiresVerifiedEmail: boolean } | null;
   plans: Plan[];
 };
 type Inventory = {
@@ -78,6 +81,7 @@ function planRow(plan: Plan, _product?: Product): string {
       <div class="row nw" style="justify-content:flex-end;gap:6px">
         ${plan.status !== 'ACTIVE' ? `<button class="btn xs good" data-plan-status="ACTIVE" data-plan-id="${esc(plan.id)}" data-permission="catalog:manage">Activate</button>` : ''}
         ${plan.status !== 'RETIRED' ? `<button class="btn xs bad" data-plan-status="RETIRED" data-plan-id="${esc(plan.id)}" data-permission="catalog:manage">Retire</button>` : ''}
+        <button class="btn xs" data-edit-plan-options="${esc(plan.id)}" data-permission="catalog:manage">Options (${plan.options.length})</button>
       </div>
     </td>
   </tr>`;
@@ -113,6 +117,7 @@ function renderProducts(query = ''): void {
         <div>
           <h2>${esc(product.name)}</h2>
           <p>${esc(product.category.name)} · ${esc(product.providerType)} · <code class="mono">${esc(product.slug)}</code></p>
+          ${product.description ? `<small>${esc(product.description)}</small>` : ''}
         </div>
         <span class="pill ${product.isPublished ? 'good' : 'warn'} d">${product.isPublished ? 'Published' : 'Draft (Private)'}</span>
         <div class="row nw" style="gap:6px">
@@ -122,6 +127,7 @@ function renderProducts(query = ''): void {
           <button class="btn xs" data-new-plan-product="${esc(product.id)}" data-permission="catalog:manage">
             ${hero('plus', 'xs')}New plan
           </button>
+          <button class="btn xs" data-edit-product="${esc(product.id)}" data-permission="catalog:manage">Edit</button>
         </div>
       </div>
       ${plansToShow.length ? `
@@ -365,6 +371,57 @@ export function openProductCreator(): void {
   if (modal) modal.hidden = false;
 }
 
+export function openProductEditor(productId: string): void {
+  const product = products.find((item) => item.id === productId);
+  if (!product) return;
+  const form = document.getElementById('catalogProductEditForm') as HTMLFormElement | null;
+  if (!form) return;
+  (form.elements.namedItem('productId') as HTMLInputElement).value = product.id;
+  (form.elements.namedItem('name') as HTMLInputElement).value = product.name;
+  (form.elements.namedItem('description') as HTMLTextAreaElement).value = product.description || '';
+  const category = form.elements.namedItem('categoryId') as HTMLSelectElement;
+  category.innerHTML = cachedCategories.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join(''); category.value = product.category.id;
+  (form.elements.namedItem('allowedCountries') as HTMLInputElement).value = product.restrictions?.allowedCountries.join(', ') || '';
+  (form.elements.namedItem('maxServicesPerAccount') as HTMLInputElement).value = product.restrictions?.maxServicesPerAccount ? String(product.restrictions.maxServicesPerAccount) : '';
+  (form.elements.namedItem('availableFrom') as HTMLInputElement).value = product.restrictions?.availableFrom?.slice(0, 16) || '';
+  (form.elements.namedItem('availableUntil') as HTMLInputElement).value = product.restrictions?.availableUntil?.slice(0, 16) || '';
+  (form.elements.namedItem('requiresVerifiedEmail') as HTMLInputElement).checked = product.restrictions?.requiresVerifiedEmail ?? true;
+  const modal = document.getElementById('modalCatalogProductEdit'); if (modal) modal.hidden = false;
+}
+
+export function openPlanOptionsEditor(planId: string): void {
+  const plan = products.flatMap((product) => product.plans).find((item) => item.id === planId);
+  if (!plan) return;
+  const id = document.getElementById('catalogOptionsPlanId') as HTMLInputElement | null;
+  const text = document.getElementById('catalogOptionsJson') as HTMLTextAreaElement | null;
+  if (id) id.value = plan.id;
+  if (text) text.value = JSON.stringify(plan.options.map((option) => ({ key: option.key, label: option.label, inputType: option.inputType, isRequired: option.isRequired, config: option.config, priceDeltaMinorUnits: option.priceDeltaMinorUnits })), null, 2);
+  const modal = document.getElementById('modalCatalogOptions'); if (modal) modal.hidden = false;
+}
+
+export async function submitProductEdit(form: HTMLFormElement): Promise<void> {
+  const data = new FormData(form); const productId = String(data.get('productId'));
+  const date = (value: FormDataEntryValue | null) => value ? new Date(String(value)).toISOString() : null;
+  await api(`/api/v1/admin/catalog/products/${encodeURIComponent(productId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+    categoryId: data.get('categoryId'), name: data.get('name'), description: data.get('description'), restrictions: {
+      allowedCountries: String(data.get('allowedCountries') || '').split(',').map((item) => item.trim().toUpperCase()).filter(Boolean),
+      maxServicesPerAccount: data.get('maxServicesPerAccount') ? Number(data.get('maxServicesPerAccount')) : null,
+      availableFrom: date(data.get('availableFrom')), availableUntil: date(data.get('availableUntil')),
+      requiresVerifiedEmail: data.get('requiresVerifiedEmail') === 'on',
+    },
+  }) });
+  const modal = document.getElementById('modalCatalogProductEdit'); if (modal) modal.hidden = true; await renderCatalog();
+}
+
+export async function submitPlanOptions(_form: HTMLFormElement): Promise<void> {
+  const planId = (document.getElementById('catalogOptionsPlanId') as HTMLInputElement).value;
+  const raw = (document.getElementById('catalogOptionsJson') as HTMLTextAreaElement).value;
+  let options: unknown;
+  try { options = JSON.parse(raw); } catch { throw new Error('Options must be valid JSON.'); }
+  await api(`/api/v1/admin/catalog/plans/${encodeURIComponent(planId)}/options`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ options }) });
+  const modal = document.getElementById('modalCatalogOptions'); if (modal) modal.hidden = true; await renderCatalog();
+}
+
 export function openPlanCreator(productId?: string): void {
   const modal = document.getElementById('modalCatalogPlan');
   const select = document.getElementById('catalogPlanProduct') as HTMLSelectElement | null;
@@ -399,6 +456,7 @@ export async function submitProduct(form: HTMLFormElement): Promise<void> {
       categoryId: data.get('categoryId'),
       slug: data.get('slug'),
       name: data.get('name'),
+      description: data.get('description'),
       providerType: data.get('providerType'),
       isPublished: false,
     }),

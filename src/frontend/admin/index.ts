@@ -23,6 +23,10 @@ import {
   submitPlan,
   openCreateProductFromEgg,
   submitProductFromEgg,
+  openProductEditor,
+  openPlanOptionsEditor,
+  submitProductEdit,
+  submitPlanOptions,
 } from './pages/catalog/index.js';
 import { renderTickets, openTicketDetail, renderTicketDetail, getActiveTicketId } from './pages/tickets/index.js';
 import { renderAudit } from './pages/audit/index.js';
@@ -222,6 +226,10 @@ function bindAdminEvents() {
         .catch((error) => toast(error.message, 'bad'));
       return;
     }
+    const editProduct = target.closest<HTMLElement>('[data-edit-product]');
+    if (editProduct) { openProductEditor(editProduct.dataset.editProduct!); return; }
+    const editOptions = target.closest<HTMLElement>('[data-edit-plan-options]');
+    if (editOptions) { openPlanOptionsEditor(editOptions.dataset.editPlanOptions!); return; }
 
     const serviceAction = target.closest<HTMLElement>('[data-service-action]');
     if (serviceAction) {
@@ -276,6 +284,8 @@ function bindAdminEvents() {
       const m = document.getElementById('modalCatalogPlan');
       if (m) m.hidden = true;
     }
+    if (target.closest('[data-close-product-edit]')) { const m = document.getElementById('modalCatalogProductEdit'); if (m) m.hidden = true; }
+    if (target.closest('[data-close-plan-options]')) { const m = document.getElementById('modalCatalogOptions'); if (m) m.hidden = true; }
     if (target.closest('[data-close-egg-modal]')) {
       const m = document.getElementById('modalCreateProductFromEgg');
       if (m) m.hidden = true;
@@ -529,6 +539,16 @@ function bindAdminEvents() {
     } finally {
       if (button) button.disabled = false;
     }
+  });
+
+  document.getElementById('catalogProductEditForm')?.addEventListener('submit', async (e: Event) => {
+    e.preventDefault(); const form = e.currentTarget as HTMLFormElement; const button = form.querySelector<HTMLButtonElement>('button[type="submit"]'); if (button) button.disabled = true;
+    try { await submitProductEdit(form); toast('Product and sales restrictions updated.', 'good'); } catch (error: any) { toast(error.message, 'bad'); } finally { if (button) button.disabled = false; }
+  });
+
+  document.getElementById('catalogOptionsForm')?.addEventListener('submit', async (e: Event) => {
+    e.preventDefault(); const form = e.currentTarget as HTMLFormElement; const button = form.querySelector<HTMLButtonElement>('button[type="submit"]'); if (button) button.disabled = true;
+    try { await submitPlanOptions(form); toast('Configurable options updated.', 'good'); } catch (error: any) { toast(error.message, 'bad'); } finally { if (button) button.disabled = false; }
   });
 
   document.getElementById('createProductFromEggForm')?.addEventListener('submit', async (e: Event) => {

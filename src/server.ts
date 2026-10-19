@@ -1350,8 +1350,39 @@ export function buildServer(): FastifyInstance {
     categoryId: z.string(),
     slug: z.string().min(2).max(64),
     name: z.string().min(2).max(100),
+    description: z.string().max(2000).optional().default(''),
     providerType: z.enum(['PTERODACTYL', 'CPANEL', 'REGISTRAR', 'VPS']),
     isPublished: z.boolean().default(false),
+  });
+
+  const updateProductSchema = z.object({
+    categoryId: z.string().min(1), name: z.string().trim().min(2).max(100), description: z.string().trim().max(2000),
+    restrictions: z.object({
+      allowedCountries: z.array(z.string().length(2).transform((value) => value.toUpperCase())).max(50).default([]),
+      maxServicesPerAccount: z.number().int().min(1).max(1000).nullable().default(null),
+      availableFrom: z.string().datetime().nullable().default(null), availableUntil: z.string().datetime().nullable().default(null),
+      requiresVerifiedEmail: z.boolean().default(true),
+    }),
+  }).refine((value) => !value.restrictions.availableFrom || !value.restrictions.availableUntil || value.restrictions.availableFrom < value.restrictions.availableUntil, { message: 'Sale end must be after sale start.' });
+
+  app.put('/api/v1/admin/catalog/products/:id', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params);
+    const body = updateProductSchema.safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Valid product details and sales restrictions are required.', details: body.success ? undefined : body.error.issues });
+    const db = getDatabase();
+    const product = db.prepare('SELECT id FROM products WHERE id = ?').get(params.data.id);
+    if (!product) return reply.status(404).send({ error: 'Product not found.' });
+    db.transaction(() => {
+      db.prepare('UPDATE products SET category_id = ?, name = ?, description = ? WHERE id = ?').run(body.data.categoryId, body.data.name, body.data.description, params.data.id);
+      const r = body.data.restrictions;
+      db.prepare(`INSERT INTO product_sales_restrictions (product_id, allowed_countries, max_services_per_account, available_from, available_until, requires_verified_email)
+        VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(product_id) DO UPDATE SET allowed_countries=excluded.allowed_countries,
+        max_services_per_account=excluded.max_services_per_account, available_from=excluded.available_from, available_until=excluded.available_until,
+        requires_verified_email=excluded.requires_verified_email, updated_at=datetime('now','utc')`)
+        .run(params.data.id, JSON.stringify(r.allowedCountries), r.maxServicesPerAccount, r.availableFrom, r.availableUntil, r.requiresVerifiedEmail ? 1 : 0);
+      recordCatalogAudit(req, 'catalog.product_updated', 'catalog_product', params.data.id, { fields: ['categoryId', 'name', 'description', 'restrictions'] }, db);
+    })();
+    return { success: true, productId: params.data.id };
   });
 
   app.post('/api/v1/admin/catalog/products', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req, reply) => {
@@ -1469,6 +1500,33 @@ export function buildServer(): FastifyInstance {
       recordCatalogAudit(req, 'catalog.plan_status_changed', 'plan_version', id, { status: body.status }, db);
     })();
     return reply.send({ success: true, planVersionId: id, status: body.status });
+  });
+
+  const configurableOptionSchema = z.object({
+    key: z.string().regex(/^[a-z][a-zA-Z0-9_]{1,49}$/), label: z.string().trim().min(2).max(100),
+    inputType: z.enum(['BOOLEAN', 'SELECT', 'INTEGER']), isRequired: z.boolean().default(false),
+    config: z.object({ choices: z.array(z.string().min(1).max(100)).max(50).optional(), min: z.number().int().optional(), max: z.number().int().optional() }).default({}),
+    priceDeltaMinorUnits: z.number().int().min(0).max(10_000_000).default(0),
+  }).refine((option) => option.inputType !== 'SELECT' || Boolean(option.config.choices?.length), { message: 'Select options require at least one choice.' })
+    .refine((option) => option.inputType !== 'INTEGER' || option.config.min === undefined || option.config.max === undefined || option.config.min <= option.config.max, { message: 'Integer minimum must not exceed maximum.' });
+
+  app.put('/api/v1/admin/catalog/plans/:id/options', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({ options: z.array(configurableOptionSchema).max(30) }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Valid configurable options are required.', details: body.success ? undefined : body.error.issues });
+    const db = getDatabase();
+    const plan = db.prepare('SELECT id FROM plan_versions WHERE id = ?').get(params.data.id);
+    if (!plan) return reply.status(404).send({ error: 'Plan version not found.' });
+    const used = db.prepare('SELECT count(*) AS count FROM order_items WHERE plan_version_id = ?').get(params.data.id) as { count: number };
+    if (used.count) return reply.status(409).send({ error: 'This plan version is already contracted. Create a new plan version instead of changing its options.', code: 'PLAN_VERSION_IMMUTABLE' });
+    db.transaction(() => {
+      db.prepare('DELETE FROM plan_configurable_options WHERE plan_version_id = ?').run(params.data.id);
+      const insert = db.prepare(`INSERT INTO plan_configurable_options (id, plan_version_id, option_key, label, input_type, is_required, config_json, price_delta_minor_units, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      body.data.options.forEach((option, index) => insert.run(generateId('opt'), params.data.id, option.key, option.label, option.inputType, option.isRequired ? 1 : 0, JSON.stringify(option.config), option.priceDeltaMinorUnits, index));
+      recordCatalogAudit(req, 'catalog.plan_options_updated', 'plan_version', params.data.id, { optionKeys: body.data.options.map((option) => option.key) }, db);
+    })();
+    return { success: true, planVersionId: params.data.id };
   });
 
   // Admin Catalog: Coupons

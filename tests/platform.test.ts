@@ -789,6 +789,20 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(Number.isInteger(minecraft?.plans[0]?.prices[0]?.priceMinorUnits)).toBe(true);
     });
 
+    it('CAT-12: configurable options affect authoritative quotes and sales restrictions fail closed', () => {
+      const pending = registerUser({ email: 'catalog_rules@example.com', password: 'Password123!', name: 'Catalog Rules', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const verified = verifyEmail(pending.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const product = db.prepare("SELECT product_id FROM plan_versions WHERE id = 'plv_mc_4gb'").get() as { product_id: string };
+      db.prepare(`INSERT INTO product_sales_restrictions (product_id, allowed_countries, requires_verified_email) VALUES (?, '[]', 1)`).run(product.product_id);
+      db.prepare(`INSERT INTO plan_configurable_options (id, plan_version_id, option_key, label, input_type, is_required, config_json, price_delta_minor_units)
+        VALUES ('opt_priority', 'plv_mc_4gb', 'prioritySupport', 'Priority support', 'BOOLEAN', 0, '{}', 500)`).run();
+      const base = createQuote(verified.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1, customOptions: { prioritySupport: false } }], 'DE', false, undefined, db);
+      const upgraded = createQuote(verified.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1, customOptions: { prioritySupport: true } }], 'DE', false, undefined, db);
+      expect(upgraded.subtotalMinorUnits - base.subtotalMinorUnits).toBe(500);
+      db.prepare(`UPDATE product_sales_restrictions SET allowed_countries = '["RO"]' WHERE product_id = ?`).run(product.product_id);
+      expect(() => createQuote(verified.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db)).toThrow('not available in the selected billing country');
+    });
+
     it('CAT-06: Capacity engine reserves node memory/disk atomically and releases properly', () => {
       const res = reserveCapacity(
         { planVersionId: 'plv_mc_4gb', regionId: 'reg_fra_1', cartItemId: 'cart_item_abc_1' },

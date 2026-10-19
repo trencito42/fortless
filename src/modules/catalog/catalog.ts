@@ -476,9 +476,11 @@ export interface AdminCatalogProduct {
   id: string;
   slug: string;
   name: string;
+  description: string;
   providerType: string;
   isPublished: boolean;
   category: { id: string; slug: string; name: string };
+  restrictions: { allowedCountries: string[]; maxServicesPerAccount: number | null; availableFrom: string | null; availableUntil: string | null; requiresVerifiedEmail: boolean } | null;
   plans: Array<{
     id: string;
     version: number;
@@ -486,19 +488,23 @@ export interface AdminCatalogProduct {
     status: 'DRAFT' | 'ACTIVE' | 'RETIRED';
     resources: PlanResourceSpec;
     prices: PlanPrice[];
+    options: Array<{ id: string; key: string; label: string; inputType: string; isRequired: boolean; config: Record<string, unknown>; priceDeltaMinorUnits: number }>;
   }>;
 }
 
 /** Staff catalog read model, including drafts and retired immutable versions. */
 export function listAdminCatalog(db: Database.Database = getDatabase()): AdminCatalogProduct[] {
   const products = db.prepare(`
-    SELECT p.id, p.slug, p.name, p.provider_type, p.is_published,
+    SELECT p.id, p.slug, p.name, p.description, p.provider_type, p.is_published,
+           psr.allowed_countries, psr.max_services_per_account, psr.available_from, psr.available_until, psr.requires_verified_email,
            c.id AS category_id, c.slug AS category_slug, c.name AS category_name
     FROM products p
     JOIN categories c ON c.id = p.category_id
+    LEFT JOIN product_sales_restrictions psr ON psr.product_id = p.id
     ORDER BY c.sort_order ASC, p.name ASC
   `).all() as Array<{
-    id: string; slug: string; name: string; provider_type: string; is_published: number;
+    id: string; slug: string; name: string; description: string; provider_type: string; is_published: number;
+    allowed_countries: string | null; max_services_per_account: number | null; available_from: string | null; available_until: string | null; requires_verified_email: number | null;
     category_id: string; category_slug: string; category_name: string;
   }>;
 
@@ -518,6 +524,15 @@ export function listAdminCatalog(db: Database.Database = getDatabase()): AdminCa
     plan_version_id: string; currency: string; interval: PlanPrice['interval'];
     price_minor_units: number; setup_fee_minor_units: number;
   }>;
+
+  const configurableOptions = db.prepare(`SELECT id, plan_version_id, option_key, label, input_type, is_required, config_json, price_delta_minor_units
+    FROM plan_configurable_options ORDER BY plan_version_id, sort_order, label`).all() as any[];
+  const optionMap = new Map<string, AdminCatalogProduct['plans'][number]['options']>();
+  for (const option of configurableOptions) {
+    const values = optionMap.get(option.plan_version_id) || [];
+    values.push({ id: option.id, key: option.option_key, label: option.label, inputType: option.input_type, isRequired: Boolean(option.is_required), config: JSON.parse(option.config_json), priceDeltaMinorUnits: option.price_delta_minor_units });
+    optionMap.set(option.plan_version_id, values);
+  }
 
   const priceMap = new Map<string, PlanPrice[]>();
   for (const price of prices) {
@@ -541,6 +556,7 @@ export function listAdminCatalog(db: Database.Database = getDatabase()): AdminCa
       status: plan.status,
       resources: JSON.parse(plan.resource_specs) as PlanResourceSpec,
       prices: priceMap.get(plan.id) || [],
+      options: optionMap.get(plan.id) || [],
     });
     planMap.set(plan.product_id, values);
   }
@@ -549,8 +565,16 @@ export function listAdminCatalog(db: Database.Database = getDatabase()): AdminCa
     id: product.id,
     slug: product.slug,
     name: product.name,
+    description: product.description,
     providerType: product.provider_type,
     isPublished: Boolean(product.is_published),
+    restrictions: product.allowed_countries === null ? null : {
+      allowedCountries: JSON.parse(product.allowed_countries) as string[],
+      maxServicesPerAccount: product.max_services_per_account,
+      availableFrom: product.available_from,
+      availableUntil: product.available_until,
+      requiresVerifiedEmail: Boolean(product.requires_verified_email),
+    },
     category: {
       id: product.category_id,
       slug: product.category_slug,
@@ -929,14 +953,14 @@ export function listCoupons(db: Database.Database = getDatabase()): CouponRule[]
 }
 
 export function createProduct(
-  data: { categoryId: string; slug: string; name: string; providerType: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS'; isPublished?: boolean },
+  data: { categoryId: string; slug: string; name: string; description?: string; providerType: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS'; isPublished?: boolean },
   db: Database.Database = getDatabase()
 ): { id: string } {
   const id = generateId('prd');
   db.prepare(`
-    INSERT INTO products (id, category_id, slug, name, provider_type, is_published)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, data.categoryId, data.slug, data.name, data.providerType, data.isPublished ? 1 : 0);
+    INSERT INTO products (id, category_id, slug, name, description, provider_type, is_published)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, data.categoryId, data.slug, data.name, data.description || '', data.providerType, data.isPublished ? 1 : 0);
   return { id };
 }
 

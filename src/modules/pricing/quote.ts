@@ -139,7 +139,7 @@ export function createQuote(
 
     const interval = item.interval ?? 'MONTHLY';
     const priceRow = db.prepare(`
-      SELECT pp.price_minor_units, coalesce(pp.setup_fee_minor_units, 0) as setup_fee_minor_units
+      SELECT pp.price_minor_units, coalesce(pp.setup_fee_minor_units, 0) as setup_fee_minor_units, p.id AS product_id
       FROM plan_prices pp
       JOIN plan_versions pv ON pv.id = pp.plan_version_id
       JOIN products p ON p.id = pv.product_id
@@ -148,14 +148,48 @@ export function createQuote(
         AND pv.status = 'ACTIVE'
         AND p.is_published = 1
         AND c.is_active = 1
-    `).get(item.planVersionId, interval) as { price_minor_units: number; setup_fee_minor_units: number } | undefined;
+    `).get(item.planVersionId, interval) as { price_minor_units: number; setup_fee_minor_units: number; product_id: string } | undefined;
 
     if (!priceRow) {
       throw new Error(`Plan version ${item.planVersionId} is not available for purchase on interval ${interval}.`);
     }
 
+    const restriction = db.prepare(`SELECT allowed_countries, max_services_per_account, available_from, available_until, requires_verified_email
+      FROM product_sales_restrictions WHERE product_id = ?`).get(priceRow.product_id) as any;
+    if (restriction) {
+      const now = Date.now();
+      if (restriction.available_from && new Date(restriction.available_from).getTime() > now) throw new Error('This product is not available for sale yet.');
+      if (restriction.available_until && new Date(restriction.available_until).getTime() < now) throw new Error('This product is no longer available for sale.');
+      const countries = JSON.parse(restriction.allowed_countries || '[]') as string[];
+      if (countries.length && !countries.includes(billingCountry.toUpperCase())) throw new Error('This product is not available in the selected billing country.');
+      if (restriction.requires_verified_email) {
+        const verified = db.prepare('SELECT u.email_verified_at FROM accounts a JOIN users u ON u.id = a.owner_user_id WHERE a.id = ?').get(accountId) as { email_verified_at: string | null } | undefined;
+        if (!verified?.email_verified_at) throw new Error('A verified account email is required for this product.');
+      }
+      if (restriction.max_services_per_account) {
+        const existing = db.prepare(`SELECT count(*) AS count FROM services s JOIN order_items oi ON oi.id = s.order_item_id JOIN plan_versions pv ON pv.id = oi.plan_version_id
+          WHERE s.account_id = ? AND pv.product_id = ? AND s.contract_status != 'TERMINATED'`).get(accountId, priceRow.product_id) as { count: number };
+        if (existing.count + item.quantity > restriction.max_services_per_account) throw new Error('This product has reached its per-account purchase limit.');
+      }
+    }
+
+    let optionDelta = 0;
+    const configuredOptions = db.prepare(`SELECT option_key, label, input_type, is_required, config_json, price_delta_minor_units
+      FROM plan_configurable_options WHERE plan_version_id = ? ORDER BY sort_order, label`).all(item.planVersionId) as any[];
+    for (const option of configuredOptions) {
+      const value = item.customOptions?.[option.option_key];
+      if (option.is_required && (value === undefined || value === null || value === '')) throw new Error(`${option.label} is required.`);
+      if (value === undefined || value === null || value === '') continue;
+      const configValue = JSON.parse(option.config_json || '{}') as { choices?: string[]; min?: number; max?: number };
+      if (option.input_type === 'BOOLEAN' && typeof value !== 'boolean') throw new Error(`${option.label} must be true or false.`);
+      if (option.input_type === 'SELECT' && (typeof value !== 'string' || !configValue.choices?.includes(value))) throw new Error(`${option.label} has an invalid selection.`);
+      if (option.input_type === 'INTEGER' && (!Number.isInteger(value) || (configValue.min !== undefined && Number(value) < configValue.min) || (configValue.max !== undefined && Number(value) > configValue.max))) throw new Error(`${option.label} is outside the allowed range.`);
+      if (option.input_type !== 'BOOLEAN' || value === true) optionDelta += Number(option.price_delta_minor_units || 0);
+    }
+
     const setupFee = (priceRow.setup_fee_minor_units || 0) * item.quantity;
-    const lineTotal = (priceRow.price_minor_units * item.quantity) + setupFee;
+    const unitPrice = priceRow.price_minor_units + optionDelta;
+    const lineTotal = (unitPrice * item.quantity) + setupFee;
     subtotal += lineTotal;
 
     lines.push({
@@ -163,7 +197,7 @@ export function createQuote(
       quantity: item.quantity,
       interval,
       regionId: item.regionId,
-      unitPriceMinorUnits: priceRow.price_minor_units,
+      unitPriceMinorUnits: unitPrice,
       setupFeeMinorUnits: setupFee,
       totalMinorUnits: lineTotal,
     });
