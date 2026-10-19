@@ -267,14 +267,76 @@ export function initPlayers(serviceId: string): { open(): void; refresh(): Promi
 
     bindTableEvents();
     bindHistoryEvents();
+    bindAdminEvents();
   }
 
   function renderAdministrationSection(): string {
     const a = statusData?.administration;
     if (!a) return '';
     const label = a.effectiveProtocol === 'PTERODACTYL_CONSOLE' ? 'Native Console' : a.effectiveProtocol.replaceAll('_', ' ');
-    const tone = a.state === 'CONNECTED' || a.state === 'AVAILABLE' ? 'good' : a.state === 'SETUP_REQUIRED' || a.state === 'DISABLED' || a.state === 'UNREACHABLE' ? 'warn' : 'bad';
-    return `<section class="card flat server-tool-card"><div class="ch"><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span><div class="tx"><h3>Game administration</h3><p>${esc(a.gameIdentity)} · ${esc(a.message)}</p></div></div><div class="server-tool-actions"><span class="pill ${tone} d">${esc(label)} · ${esc(a.state.toLowerCase().replaceAll('_', ' '))}</span><a class="btn s" href="/app/services/${encodeURIComponent(serviceId)}/settings" data-app-route>Configure</a></div></section>`;
+    const isReady = a.state === 'CONNECTED' || a.state === 'AVAILABLE';
+    const isSetup = a.state === 'SETUP_REQUIRED';
+    const tone = isReady ? 'good' : isSetup ? 'warn' : a.state === 'DISABLED' || a.state === 'UNREACHABLE' ? 'warn' : 'bad';
+
+    if (isSetup) {
+      return `
+        <section class="card flat server-tool-card" style="border-left:3px solid var(--c-warn, #f59e0b)">
+          <div class="ch">
+            <span class="tile warn"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span>
+            <div class="tx">
+              <h3>Game administration needs setup</h3>
+              <p>${esc(a.gameIdentity)} · ${esc(a.message)}</p>
+            </div>
+          </div>
+          <div class="server-tool-actions">
+            <button class="btn s pri" type="button" data-auto-configure>Configure automatically</button>
+            <a class="btn s" href="/app/services/${encodeURIComponent(serviceId)}/settings" data-app-route>Manual setup</a>
+          </div>
+        </section>`;
+    }
+
+    return `
+      <section class="card flat server-tool-card">
+        <div class="ch">
+          <span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-settings"/></svg></span>
+          <div class="tx">
+            <h3>Game administration</h3>
+            <p>${esc(a.gameIdentity)} · ${esc(a.message)}</p>
+          </div>
+        </div>
+        <div class="server-tool-actions">
+          <span class="pill ${tone} d">${esc(label)} · ${esc(isReady ? 'Ready' : a.state.toLowerCase().replaceAll('_', ' '))}</span>
+          <a class="btn s" href="/app/services/${encodeURIComponent(serviceId)}/settings" data-app-route>Configure</a>
+        </div>
+      </section>`;
+  }
+
+  function bindAdminEvents(): void {
+    const btn = host?.querySelector<HTMLButtonElement>('[data-auto-configure]');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const confirmed = await formDialog({
+        title: 'Configure game administration',
+        message: 'Fortless will automatically configure the appropriate administration settings, generate secure credentials, and prepare the server for Player Manager. Existing game settings will be preserved.',
+        confirmLabel: 'Configure automatically',
+        fields: [],
+      });
+      if (!confirmed) return;
+      btn.disabled = true;
+      try {
+        const res = await api.post<{ success: boolean; message: string; recoveryFile: string | null }>(
+          `${base}/game-administration/auto-configure`,
+          {}
+        );
+        toast(res.message || 'Game administration configured successfully', 'good');
+        await loadData();
+        render();
+      } catch (err: any) {
+        toast(err.message || 'Failed to auto-configure administration', 'bad');
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   function renderHistorySection(): string {

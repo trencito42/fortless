@@ -16,6 +16,7 @@ import {
   SourceRconClient,
   type GameRconClient,
 } from './rcon.js';
+import { getGameCapability } from './game-registry.js';
 import type {
   BanParams,
   AdministrationMethod,
@@ -80,6 +81,10 @@ function checkModerationRateLimit(userId: string): void {
 
 export function detectGameProtocol(eggName: string | null): { protocol: ProtocolType; gameType: string } {
   if (!eggName) return { protocol: 'unsupported', gameType: 'unknown' };
+  const cap = getGameCapability(eggName);
+  if (cap) {
+    return { protocol: cap.gameProtocol, gameType: cap.id };
+  }
   const lower = eggName.toLowerCase();
 
   // FiveM check
@@ -238,11 +243,36 @@ export function createPlayerManagerService(deps: PlayerManagerDeps = {}) {
       }
     }
 
-    const selected = cfg?.selected_method ?? 'AUTOMATIC';
+    let selected = cfg?.selected_method ?? 'AUTOMATIC';
     const native = detected.protocol === 'minecraft';
-    const effectiveNative = selected === 'NATIVE_CONSOLE' || (selected === 'AUTOMATIC' && native);
+    if (selected === 'NATIVE_CONSOLE' && !native) {
+      selected = 'AUTOMATIC';
+    }
+    const effectiveNative = native && (selected === 'NATIVE_CONSOLE' || selected === 'AUTOMATIC');
     const rconPort = cfg?.administration_port ?? detectedPort ?? (detected.protocol === 'goldsrc' || detected.protocol === 'source' ? allocation.port : null);
     const allocated = rconPort !== null && allocation.allocations.some((a) => a.port === rconPort);
+
+    // Auto-adopt detected file credentials for existing servers without prior DB entry
+    if (!cfg) {
+      if (effectiveNative) {
+        try {
+          db().prepare(`
+            INSERT INTO service_game_administration (service_id, selected_method, administration_port, encrypted_password, updated_at)
+            VALUES (?, 'NATIVE_CONSOLE', NULL, NULL, datetime('now', 'utc'))
+            ON CONFLICT(service_id) DO NOTHING
+          `).run(ctx.serviceId);
+        } catch {}
+      } else if (password && (detected.protocol === 'goldsrc' || detected.protocol === 'source')) {
+        try {
+          db().prepare(`
+            INSERT INTO service_game_administration (service_id, selected_method, administration_port, encrypted_password, updated_at)
+            VALUES (?, 'AUTOMATIC', ?, ?, datetime('now', 'utc'))
+            ON CONFLICT(service_id) DO NOTHING
+          `).run(ctx.serviceId, rconPort, encryptServiceSecret(password));
+        } catch {}
+      }
+    }
+
     const supportedMethods: AdministrationMethod[] = native ? ['AUTOMATIC', 'NATIVE_CONSOLE', 'RCON'] : detected.protocol === 'rust' || detected.protocol === 'unsupported' ? ['AUTOMATIC'] : ['AUTOMATIC', 'RCON'];
     const effectiveProtocol = effectiveNative ? 'PTERODACTYL_CONSOLE'
       : detected.protocol === 'minecraft' ? 'MINECRAFT_RCON'
@@ -254,9 +284,9 @@ export function createPlayerManagerService(deps: PlayerManagerDeps = {}) {
     if (effectiveNative) { state = 'AVAILABLE'; message = 'Fortless sends authorized commands through the native server console. RCON is not required.'; source = 'NATIVE_PROVIDER'; }
     else if (detected.protocol === 'rust' || detected.protocol === 'unsupported') { state = 'UNSUPPORTED'; message = detected.protocol === 'rust' ? 'Rust WebRCON is detected but is not enabled in this Fortless release.' : 'No verified administration transport is available for this game.'; }
     else if (detected.protocol === 'minecraft' && rconEnabled === false) { state = 'DISABLED'; message = 'RCON is disabled in the game configuration.'; }
-    else if (!password) { state = 'SETUP_REQUIRED'; message = 'An RCON password is required.'; }
+    else if (!password) { state = 'SETUP_REQUIRED'; message = detected.protocol === 'goldsrc' ? 'GoldSrc RCON needs setup. Fortless can configure RCON automatically.' : detected.protocol === 'source' ? 'Source RCON needs setup. Fortless can configure RCON automatically.' : 'An RCON password is required.'; }
     else if (!rconPort || !allocated) { state = 'UNREACHABLE'; message = 'The RCON port is not assigned to this server. Add the port in Network before testing it.'; }
-    else { state = cfg?.last_successful_test_at ? 'CONNECTED' : 'AVAILABLE'; message = 'RCON is configured. Test the connection before moderation.'; }
+    else { state = cfg?.last_successful_test_at ? 'CONNECTED' : 'AVAILABLE'; message = `${detected.protocol === 'goldsrc' ? 'GoldSrc RCON' : 'RCON'} is configured and ready.`; }
 
     return {
       externalId: service.external_id, ptero, password, config: cfg,
@@ -482,6 +512,114 @@ export function createPlayerManagerService(deps: PlayerManagerDeps = {}) {
       }
       audit(ctx, 'service.game_administration.updated', { method, port, credentialsChanged: Boolean(newPassword), syncedToServer: input['syncToServer'] === true, recoveryFile });
       return { status: (await resolveAdministration(ctx)).status, recoveryFile };
+    },
+
+    async autoConfigureAdministration(
+      ctx: Ctx,
+      input: Record<string, unknown> = {}
+    ): Promise<{ success: boolean; status: GameAdministrationStatus; recoveryFile: string | null; message: string }> {
+      const resolved = await resolveAdministration(ctx, 'startup.update');
+      const game = resolved.status.gameProtocol;
+      if (game === 'unsupported') {
+        throw new ConsoleAccessError('Automatic administration configuration is not supported for this game.', 'UNSUPPORTED_OPERATION', 422);
+      }
+
+      const ptero = resolved.ptero;
+      const allocation = await resolveTargetAllocation(ctx);
+      let recoveryFile: string | null = null;
+      let passwordToSave: string | null = null;
+      let portToSave: number | null = null;
+      let methodToSave: AdministrationMethod = 'AUTOMATIC';
+      let requiresRestart = false;
+
+      if (game === 'minecraft') {
+        // Minecraft defaults to Native Console (zero RCON required)
+        methodToSave = 'NATIVE_CONSOLE';
+        portToSave = null;
+        passwordToSave = null;
+      } else if (game === 'goldsrc' || game === 'source') {
+        const defaultPath = game === 'goldsrc' ? 'cstrike/server.cfg' : 'cfg/server.cfg';
+        const fallbackPaths = game === 'goldsrc'
+          ? ['cstrike/server.cfg', 'valve/server.cfg', 'server.cfg']
+          : ['game/csgo/cfg/server.cfg', 'csgo/cfg/server.cfg', 'cfg/server.cfg', 'server.cfg'];
+
+        let targetPath = defaultPath;
+        let beforeContent = '';
+
+        for (const p of fallbackPaths) {
+          const content = await safeFile(ptero, resolved.externalId, ctx.accountId, p);
+          if (content !== null) {
+            targetPath = p;
+            beforeContent = content;
+            break;
+          }
+        }
+
+        portToSave = allocation.port;
+        methodToSave = 'AUTOMATIC';
+
+        const existingMatch = beforeContent.match(/^\s*rcon_password\s+["']?([^"'\r\n]+)["']?/im);
+        const existingPass = existingMatch?.[1]?.trim();
+
+        if (existingPass && input['forceNewPassword'] !== true) {
+          // Adopt existing password without altering file!
+          passwordToSave = existingPass;
+        } else {
+          // Generate new secure password
+          const newPass = crypto.randomBytes(16).toString('hex');
+          passwordToSave = newPass;
+          recoveryFile = `${targetPath}.copy`;
+
+          const newLine = `rcon_password "${newPass}"`;
+          const updatedContent = /^\s*rcon_password\s+.*$/im.test(beforeContent)
+            ? beforeContent.replace(/^\s*rcon_password\s+.*$/im, newLine)
+            : `${beforeContent.replace(/\s*$/, '\n')}${newLine}\n`;
+
+          await withAccountClientKey(ctx.accountId, ptero, db(), secret(), async (key) => {
+            if (beforeContent) {
+              await ptero.copyFile(resolved.externalId, targetPath, key);
+            }
+            await ptero.writeFile(resolved.externalId, targetPath, updatedContent, key);
+          });
+          requiresRestart = true;
+        }
+      }
+
+      const encrypted = passwordToSave ? encryptServiceSecret(passwordToSave) : null;
+      db().prepare(`
+        INSERT INTO service_game_administration (
+          service_id, selected_method, administration_port, encrypted_password,
+          last_tested_at, last_successful_test_at, last_test_error, restart_required,
+          updated_by_user_id, updated_at
+        ) VALUES (?, ?, ?, ?, datetime('now', 'utc'), datetime('now', 'utc'), NULL, ?, ?, datetime('now', 'utc'))
+        ON CONFLICT(service_id) DO UPDATE SET
+          selected_method = excluded.selected_method,
+          administration_port = excluded.administration_port,
+          encrypted_password = CASE WHEN excluded.encrypted_password IS NOT NULL THEN excluded.encrypted_password ELSE service_game_administration.encrypted_password END,
+          last_successful_test_at = excluded.last_successful_test_at,
+          last_test_error = NULL,
+          restart_required = excluded.restart_required,
+          updated_by_user_id = excluded.updated_by_user_id,
+          updated_at = datetime('now', 'utc')
+      `).run(ctx.serviceId, methodToSave, portToSave, encrypted, requiresRestart ? 1 : 0, ctx.userId);
+
+      audit(ctx, 'service.game_administration.auto_configured', {
+        method: methodToSave,
+        port: portToSave,
+        credentialsCreated: Boolean(passwordToSave && !resolved.password),
+        recoveryFile,
+        restartRequired: requiresRestart,
+      });
+
+      const updated = await resolveAdministration(ctx);
+      return {
+        success: true,
+        status: updated.status,
+        recoveryFile,
+        message: requiresRestart
+          ? 'Game administration configured. Restart the server when convenient to apply changes.'
+          : 'Game administration configured and ready.',
+      };
     },
 
     async resetAdministration(ctx: Ctx): Promise<GameAdministrationStatus> {

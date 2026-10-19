@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase } from '../../database/index.js';
 import type { ProviderAdapter } from '../provisioning/adapter.js';
 import { PterodactylHttpAdapter as HttpAdapter } from '../provisioning/adapter.js';
-import { withAccountClientKey } from '../provisioning/console.js';
+import { encryptServiceSecret, withAccountClientKey } from '../provisioning/console.js';
 import { applyProperties } from '../provisioning/game-profiles.js';
 import type { DeploymentSpecification, DeploymentTaskRecord } from './types.js';
 
@@ -109,6 +109,18 @@ export async function runPostProvisionTasks(
             logTask('Configure Server Properties', 'APPLY_CONFIG', 'FAILED', {}, err.message);
           }
         }
+
+        // Configure default Native Console Administration
+        try {
+          db.prepare(`
+            INSERT INTO service_game_administration (service_id, selected_method, administration_port, encrypted_password, updated_at)
+            VALUES (?, 'NATIVE_CONSOLE', NULL, NULL, datetime('now', 'utc'))
+            ON CONFLICT(service_id) DO NOTHING
+          `).run(serviceId);
+          logTask('Configure Native Console Administration', 'APPLY_CONFIG', 'COMPLETED', { method: 'NATIVE_CONSOLE' });
+        } catch (err: any) {
+          logTask('Configure Native Console Administration', 'APPLY_CONFIG', 'FAILED', {}, err.message);
+        }
       });
     }
 
@@ -116,9 +128,12 @@ export async function runPostProvisionTasks(
     if (spec.workloadId === 'cs16') {
       await withKey(async (key) => {
         try {
+          // Generate secure random RCON password for automatic GoldSrc administration
+          const rconPass = crypto.randomBytes(16).toString('hex');
           const cfg = [
             `// Fortless CS 1.6 Server Configuration`,
             `hostname "${(spec.serverName || 'Fortless CS 1.6').replace(/"/g, '')}"`,
+            `rcon_password "${rconPass}"`,
             `maxplayers ${spec.cs16Config?.maxPlayers || 24}`,
             `mp_timelimit 25`,
             `mp_roundtime 1.75`,
@@ -132,6 +147,23 @@ export async function runPostProvisionTasks(
           ].join('\n') + '\n';
           await ptero.writeFile(externalId, 'cstrike/server.cfg', cfg, key);
           logTask('Configure CS 1.6 server.cfg', 'APPLY_CONFIG', 'COMPLETED', { path: 'cstrike/server.cfg' });
+
+          // Encrypt and persist RCON credentials in service_game_administration
+          try {
+            const encrypted = encryptServiceSecret(rconPass);
+            db.prepare(`
+              INSERT INTO service_game_administration (service_id, selected_method, administration_port, encrypted_password, last_successful_test_at, updated_at)
+              VALUES (?, 'AUTOMATIC', NULL, ?, datetime('now', 'utc'), datetime('now', 'utc'))
+              ON CONFLICT(service_id) DO UPDATE SET
+                selected_method = 'AUTOMATIC',
+                encrypted_password = excluded.encrypted_password,
+                last_successful_test_at = excluded.last_successful_test_at,
+                updated_at = datetime('now', 'utc')
+            `).run(serviceId, encrypted);
+            logTask('Provision Game Administration (GoldSrc RCON)', 'APPLY_CONFIG', 'COMPLETED', { protocol: 'GOLDSRC_RCON' });
+          } catch (admErr: any) {
+            logTask('Provision Game Administration (GoldSrc RCON)', 'APPLY_CONFIG', 'FAILED', {}, admErr.message);
+          }
         } catch (err: any) {
           logTask('Configure CS 1.6 server.cfg', 'APPLY_CONFIG', 'FAILED', {}, err.message);
         }

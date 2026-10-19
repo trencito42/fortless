@@ -2044,6 +2044,7 @@ export function buildServer(): FastifyInstance {
   app.put('/api/v1/services/:id/game-administration', filesGuard, filesHandler(async (req) => playerManager.saveAdministration(filesCtx(req), b(req))));
   app.delete('/api/v1/services/:id/game-administration', filesGuard, filesHandler(async (req) => ({ status: await playerManager.resetAdministration(filesCtx(req)) })));
   app.post('/api/v1/services/:id/game-administration/test', filesGuard, filesHandler(async (req) => playerManager.testAdministration(filesCtx(req))));
+  app.post('/api/v1/services/:id/game-administration/auto-configure', filesGuard, filesHandler(async (req) => playerManager.autoConfigureAdministration(filesCtx(req), b(req))));
   app.get('/api/v1/services/:id/players/history', filesGuard, filesHandler(async (req) => {
     const page = Number(q(req)['page'] ?? 0);
     const limit = Number(q(req)['limit'] ?? 25);

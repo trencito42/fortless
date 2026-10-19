@@ -188,7 +188,7 @@ export function initSettings(serviceId: string): Tab {
         <dl class="kv"><dt>Host</dt><dd>${copy(s.sftp.host, 'SFTP host')}</dd><dt>Port</dt><dd>${copy(String(s.sftp.port), 'SFTP port')}</dd>${s.sftp.username ? `<dt>Username</dt><dd>${copy(s.sftp.username, 'SFTP username')}</dd>` : ''}</dl></section>
       <section class="card" style="grid-column:1/-1"><div class="ch"><span class="tile ${statusTone}">${hero('settings')}</span><div class="tx"><h3>Game Administration / RCON</h3><p>${esc(a.message)}</p></div><span class="pill ${statusTone} d">${esc(a.state.toLowerCase().replaceAll('_', ' '))}</span></div>
         <div class="g g2">
-          <dl class="kv"><dt>Detected game</dt><dd>${esc(a.gameIdentity)}</dd><dt>Transport</dt><dd>${esc(a.effectiveProtocol.replaceAll('_', ' '))}</dd><dt>Detection</dt><dd>${esc(a.detectionSource.replaceAll('_', ' ').toLowerCase())}</dd><dt>Configuration source</dt><dd>${esc(a.configurationSource.replaceAll('_', ' ').toLowerCase())}</dd>${a.administrationHost ? `<dt>Trusted host</dt><dd>${esc(a.administrationHost)}</dd>` : ''}<dt>Last connected</dt><dd>${a.lastSuccessfulTestAt ? esc(formatDate(a.lastSuccessfulTestAt)) : 'Not tested'}</dd></dl>
+          <dl class="kv"><dt>Detected game</dt><dd>${esc(a.gameIdentity)}</dd><dt>Transport</dt><dd>${esc(a.effectiveProtocol.replaceAll('_', ' '))}</dd><dt>Detection</dt><dd>${esc(a.detectionSource.replaceAll('_', ' ').toLowerCase())}</dd><dt>Configuration source</dt><dd>${esc(a.configurationSource.replaceAll('_', ' ').toLowerCase())}</dd>${a.administrationHost ? `<dt>Trusted host</dt><dd>${esc(a.administrationHost)}</dd>` : ''}<dt>Credentials</dt><dd>${a.credentialsConfigured ? '<span class="pill good xs">Configured &amp; Encrypted</span>' : '<span class="pill neu xs">Not configured</span>'}</dd><dt>Last connected</dt><dd>${a.lastSuccessfulTestAt ? esc(formatDate(a.lastSuccessfulTestAt)) : 'Not tested'}</dd></dl>
           <div class="col" style="gap:12px">
             <div class="fld"><label for="gaMethod">Connection method</label><div class="inp sel"><select id="gaMethod" data-auto-rcon="${automaticUsesRcon}">${a.supportedMethods.map((m) => `<option value="${esc(m)}" ${m === a.selectedMethod ? 'selected' : ''}>${esc(m === 'AUTOMATIC' ? 'Automatic' : m === 'NATIVE_CONSOLE' ? 'Native Console' : 'RCON')}</option>`).join('')}</select></div></div>
             ${hasRcon ? `<div id="gaRconFields" class="col" style="gap:12px" ${showRcon ? '' : 'hidden'}><div class="fld"><label for="gaPort">Administration port</label><div class="inp"><input id="gaPort" type="number" min="1" max="65535" value="${a.administrationPort ?? ''}" placeholder="Allocated RCON port"></div><small class="hint">Must be an allocation assigned in Network. The host cannot be changed.</small></div>
@@ -197,7 +197,7 @@ export function initSettings(serviceId: string): Tab {
             ${a.restartRequired ? '<div class="alert warn"><div><b>Restart required</b><span>Configuration was written, but Fortless will not restart the server without your explicit action.</span></div></div>' : ''}
           </div>
         </div>
-        <div class="row" style="margin-top:16px"><button class="btn s pri" type="button" data-set="admin-save">Save configuration</button><button class="btn s" type="button" data-set="admin-test">Test connection</button><button class="btn s" type="button" data-set="admin-detect">Refresh detection</button><button class="btn s ghost" type="button" data-set="admin-reset">Reset to automatic</button></div>
+        <div class="row" style="margin-top:16px"><button class="btn s pri" type="button" data-set="admin-auto">Configure automatically</button><button class="btn s" type="button" data-set="admin-save">Save configuration</button><button class="btn s" type="button" data-set="admin-test">Test connection</button><button class="btn s" type="button" data-set="admin-detect">Refresh detection</button><button class="btn s ghost" type="button" data-set="admin-reset">Reset to automatic</button></div>
       </section>
       <section class="card"><div class="ch"><div class="tx"><h3>Debug information</h3></div></div>
         <dl class="kv"><dt>Node</dt><dd>${esc(s.node || '—')}</dd><dt>Server ID</dt><dd>${copy(s.identifier, 'server ID')}</dd><dt>UUID</dt><dd>${copy(s.uuid, 'UUID')}</dd></dl></section>
@@ -217,6 +217,15 @@ export function initSettings(serviceId: string): Tab {
         if (!(await confirmDialog({ title: 'Reinstall this server? The server will be stopped and the install script will run again.', confirmLabel: 'Confirm', danger: true }))) return;
         await sendJson(`${base}/reinstall`, 'POST', { confirm: true });
         toast('Reinstall started', 'good');
+      } else if (btn.dataset['set'] === 'admin-auto') {
+        const confirmed = await confirmDialog({
+          title: 'Configure game administration automatically? Fortless will detect the game, generate secure credentials, update game configuration, and preserve existing settings.',
+          confirmLabel: 'Configure automatically',
+        });
+        if (!confirmed) return;
+        const res = await sendJson(`${adminBase}/auto-configure`, 'POST', {});
+        toast((res as any)?.message || 'Game administration configured', 'good');
+        if (host) await render(host);
       } else if (btn.dataset['set'] === 'admin-save') {
         const result = await sendJson(adminBase, 'PUT', {
           method: (document.getElementById('gaMethod') as HTMLSelectElement).value,

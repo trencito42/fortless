@@ -179,3 +179,13 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 - [x] **Slice 6.2: Automated Knowledge Base & Documentation Retrieval**
   - Migration 16 applied (`knowledge_articles`); seeded authoritative guides for Minecraft EULA/OOM, Node.js port binding, cPanel SPF/DKIM, apex CNAME collisions, and VPS SSH hardening; multi-field keyword and tag ranking; public search API (`/api/v1/kb/articles`, `/api/v1/kb/articles/:slug`) (`AI-06`).
 
+---
+
+### Phase 7: Universal Deployment Experience & Automated Game Administration
+*Goal: Provide a unified, production-ready onboarding experience across all workloads, with zero manual RCON configuration required for game moderation.*
+
+- [x] **Slice 7.1: Universal Deployment Experience & Workload Catalog Engine**
+  - Data-driven workload catalog across Game Servers, Discord Bots, Web & Cloud Apps, Databases, and VPS; 5-step contextual onboarding wizard with Petal UI; server-side spec validation with mod loader isolation; dynamic egg resolution from live inventory; post-provisioning file initialization (`DEP-01` to `DEP-16`).
+- [x] **Slice 7.2: Automatic Game Administration & RCON Provisioning**
+  - Game capability registry (`GAME_PROFILES`) covering Minecraft Java, Bedrock, CS 1.6, CS:S, CS2, Rust, and FiveM; native Pterodactyl console default for Minecraft moderation with zero RCON overhead; automated GoldSrc RCON password generation and assignment to `cstrike/server.cfg` using primary game port; auto-adoption of working pre-existing configurations for legacy servers; one-click "Configure automatically" with `.copy` recovery backups; capability rediscovery on egg or port changes; encrypted secret storage at rest with zero client/audit leakage (`ADM-01` to `ADM-20`).
+
