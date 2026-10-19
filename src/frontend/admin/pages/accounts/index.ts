@@ -83,14 +83,18 @@ export async function renderAccounts(q = ''): Promise<void> {
   }
 }
 
-export async function openAccountDetail(accountId: string): Promise<void> {
+export function openAccountDetail(accountId: string): void {
+  const path = `/admin/accounts/${encodeURIComponent(accountId)}`;
+  if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+export async function renderAccountDetail(accountId: string): Promise<void> {
   activeAccountId = accountId;
-  const modal = document.getElementById('modalAccountDetail');
   const content = document.getElementById('adminAccountContent');
-  if (!modal || !content) return;
+  if (!content) return;
 
   content.innerHTML = '<div style="padding:24px;text-align:center;color:var(--ink2)"><div class="sk"><i></i><i></i><i></i></div></div>';
-  modal.hidden = false;
 
   try {
     const d = await api<{
@@ -136,7 +140,7 @@ export async function openAccountDetail(accountId: string): Promise<void> {
       <!-- Account Members -->
       <div>
         <div class="dh" style="margin-bottom:6px">ORGANIZATION MEMBERS (${d.members.length})</div>
-        <div class="table-scroll" style="max-height:160px">
+        <div class="table-scroll">
           <table class="tbl rsp">
             <thead>
               <tr>
@@ -161,7 +165,7 @@ export async function openAccountDetail(accountId: string): Promise<void> {
       <!-- Account Services -->
       <div>
         <div class="dh" style="margin-bottom:6px">HOSTED SERVICES & INSTANCES (${d.services.length})</div>
-        <div class="table-scroll" style="max-height:180px">
+        <div class="table-scroll">
           <table class="tbl rsp">
             <thead>
               <tr>
@@ -188,7 +192,7 @@ export async function openAccountDetail(accountId: string): Promise<void> {
       <!-- Account Invoices -->
       <div>
         <div class="dh" style="margin-bottom:6px">RECENT INVOICES (${d.invoices.length})</div>
-        <div class="table-scroll" style="max-height:160px">
+        <div class="table-scroll">
           <table class="tbl rsp">
             <thead>
               <tr>
@@ -207,6 +211,13 @@ export async function openAccountDetail(accountId: string): Promise<void> {
               </tr>`).join('') : '<tr><td colspan="4"><div class="empty"><b>No invoices recorded.</b></div></td></tr>'}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="dh" style="margin-bottom:6px">SUPPORT CONTEXT (${d.tickets.length})</div>
+        <div class="col" style="gap:8px">
+          ${d.tickets.length ? d.tickets.map((t) => `<a class="li" href="/admin/tickets" data-route="tickets"><span class="tx"><b>${esc(t.subject)}</b><small>${esc(t.id)} · updated ${formatDate(t.updated_at)}</small></span>${badge(t.priority)}${badge(t.status)}</a>`).join('') : '<div class="empty"><b>No support conversations recorded.</b></div>'}
         </div>
       </div>
     `;

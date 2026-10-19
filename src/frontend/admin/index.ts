@@ -10,8 +10,8 @@ import { AdminShell } from './shell/admin-shell.js';
 
 // Feature Pages
 import { renderOverview } from './pages/overview/index.js';
-import { renderAccounts, openAccountDetail, getActiveAccountId } from './pages/accounts/index.js';
-import { renderServices, openServiceDetail } from './pages/services/index.js';
+import { renderAccounts, openAccountDetail, renderAccountDetail, getActiveAccountId } from './pages/accounts/index.js';
+import { renderServices, openServiceDetail, renderServiceDetail } from './pages/services/index.js';
 import {
   renderCatalog,
   filterCatalog,
@@ -38,7 +38,9 @@ function updateAdminChrome(routeName: string) {
   const titles: Record<string, [string, string]> = {
     overview: ['Operations overview', 'Real platform records, without simulated operational controls.'],
     accounts: ['Customer accounts', 'Ownership, membership and workload counts. Click an account to inspect or lock.'],
+    'account-detail': ['Customer account', 'Identity, access, services, billing and support context.'],
     services: ['Service inventory', 'Contract and provider-observed state.'],
+    'admin-service-detail': ['Service operations', 'Provider state, allocation, lifecycle controls and audit history.'],
     orders: ['Orders', 'Commercial order lifecycle and fulfillment state.'],
     billing: ['Billing operations', 'Invoices, credit notes and payment state.'],
     infrastructure: ['Infrastructure', 'Capacity pools and provider readiness.'],
@@ -72,9 +74,18 @@ router.register('accounts', async () => {
   await renderAccounts();
 });
 
+router.register('account-detail', async (match) => {
+  updateAdminChrome('account-detail');
+  await renderAccountDetail(match.params.id!);
+});
+
 router.register('services', async () => {
   updateAdminChrome('services');
   await renderServices();
+});
+router.register('admin-service-detail', async (match) => {
+  updateAdminChrome('admin-service-detail');
+  await renderServiceDetail(match.params.id!);
 });
 router.register('orders', async () => { updateAdminChrome('orders'); await renderOrders(); });
 router.register('billing', async () => { updateAdminChrome('billing'); await renderBilling(); });
@@ -230,10 +241,6 @@ function bindAdminEvents() {
       const m = document.getElementById('modalTicketDetail');
       if (m) m.hidden = true;
     }
-    if (target.closest('[data-close-account-modal]')) {
-      const m = document.getElementById('modalAccountDetail');
-      if (m) m.hidden = true;
-    }
     if (target.closest('[data-close-staff-modal]')) {
       const m = document.getElementById('modalStaffEditor');
       if (m) m.hidden = true;
@@ -248,10 +255,6 @@ function bindAdminEvents() {
     }
     if (target.closest('[data-close-catalog-plan]')) {
       const m = document.getElementById('modalCatalogPlan');
-      if (m) m.hidden = true;
-    }
-    if (target.closest('[data-close-service-modal]')) {
-      const m = document.getElementById('modalAdminServiceDetail');
       if (m) m.hidden = true;
     }
     if (target.closest('[data-close-egg-modal]')) {
@@ -397,9 +400,7 @@ function bindAdminEvents() {
         body: JSON.stringify({ status, reason }),
       });
       toast('Account status updated successfully.', 'good');
-      const m = document.getElementById('modalAccountDetail');
-      if (m) m.hidden = true;
-      renderAccounts();
+      await renderAccountDetail(activeAccountId);
     } catch (err: any) {
       toast(`Error updating account status: ${err.message}`, 'bad');
     } finally {

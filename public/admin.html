@@ -84,6 +84,26 @@
         </div>
       </section>
 
+      <section class="page" id="page-account-detail">
+        <div class="hd">
+          <div class="tx"><a class="eyebrow" href="/admin/accounts" data-route="accounts">← Customer accounts</a><h2 id="adminAccountTitle">Account profile</h2><p id="adminAccountMeta">Loading account record…</p></div>
+        </div>
+        <div id="adminAccountContent" class="col" style="gap:14px"></div>
+        <form id="adminAccountStatusForm" class="card col" style="gap:12px;margin-top:14px">
+          <div class="ch"><div class="tx"><h3>Access restriction</h3><p>Sensitive changes require MFA step-up and an audit reason.</p></div></div>
+          <label class="field"><span>Account status</span><div class="inp"><select id="adminAccountStatusSelect"><option value="ACTIVE">ACTIVE — normal access</option><option value="LOCKED">LOCKED — access blocked</option><option value="FLAGGED_FRAUD">FLAGGED FRAUD — review required</option></select></div></label>
+          <label class="field"><span>Audit reason</span><div class="inp"><input type="text" id="adminAccountReason" required minlength="5" maxlength="500" placeholder="Why this account status is changing"></div></label>
+          <div class="row" style="justify-content:flex-end"><button type="submit" class="btn pri" id="adminUpdateAccountBtn">Apply status change</button></div>
+        </form>
+      </section>
+
+      <section class="page" id="page-admin-service-detail">
+        <div class="hd">
+          <div class="tx"><a class="eyebrow" href="/admin/services" data-route="services">← Service inventory</a><h2 id="adminServiceTitle">Service operations</h2><p id="adminServiceEyebrow">Loading provider and customer context…</p></div>
+        </div>
+        <div id="adminServiceBody" class="col" style="gap:14px"></div>
+      </section>
+
       <section class="page" id="page-orders"><div class="hd"><div><h2>Orders</h2><p>Immutable totals and current fulfillment state.</p></div></div><div id="orderMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search order or customer" data-search="orders"></div><div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Order</th><th>Account</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody id="ordersList"></tbody></table></div>
         <div class="row wrap" id="adminOrdersPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
           <span class="muted" id="adminOrdersPageInfo" style="font-size:12.5px"></span>
@@ -346,50 +366,6 @@
           <button type="submit" class="btn" id="adminSendReplyBtn">Submit Reply</button>
         </div>
       </form>
-    </div>
-  </div>
-
-  <div id="modalAccountDetail" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminAccountTitle">
-    <span class="ov" aria-hidden="true"></span><div class="bx wide" style="max-width:880px">
-      <div class="row" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--s3);padding-bottom:12px">
-        <div>
-          <h3 id="adminAccountTitle" style="margin:0;font:700 18px var(--font)">Account Profile</h3>
-          <small id="adminAccountMeta" class="muted"></small>
-        </div>
-        <button class="btn ghost sq s" type="button" data-close-account-modal aria-label="Close">✕</button>
-      </div>
-      <div id="adminAccountContent" style="max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:8px 0"></div>
-      <form id="adminAccountStatusForm" class="col" style="gap:12px;border-top:1px solid var(--s3);padding-top:12px">
-        <div style="display:flex;gap:12px;align-items:center">
-          <label style="font-size:13px;font-weight:600">Lock Status:</label>
-          <select id="adminAccountStatusSelect" style="padding:4px 8px;border-radius:8px;border:1px solid var(--s3);background:var(--s1)">
-            <option value="ACTIVE">ACTIVE (Normal Access)</option>
-            <option value="LOCKED">LOCKED (Access Blocked)</option>
-            <option value="FLAGGED_FRAUD">FLAGGED FRAUD</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="adminAccountReason">Audit Reason for Status Mutation</label>
-          <div class="inp"><input type="text" id="adminAccountReason" required minlength="5" placeholder="Reason for status change (min 5 chars)…"></div>
-        </div>
-        <div style="display:flex;justify-content:flex-end;gap:8px">
-          <button type="button" class="btn sec" data-close-account-modal>Close</button>
-          <button type="submit" class="btn" id="adminUpdateAccountBtn">Apply Status Change</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div id="modalAdminServiceDetail" class="mdl" hidden role="dialog" aria-modal="true" aria-labelledby="adminServiceTitle">
-    <span class="ov" aria-hidden="true"></span><div class="bx wide" style="max-width:860px">
-      <div class="modal-head" style="margin-bottom:12px">
-        <div>
-          <span class="eyebrow" id="adminServiceEyebrow">Infrastructure Instance</span>
-          <h3 id="adminServiceTitle">Service Management</h3>
-        </div>
-        <button class="ib" type="button" data-close-service-modal aria-label="Close">✕</button>
-      </div>
-      <div id="adminServiceBody" style="max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:4px 0"></div>
     </div>
   </div>
 

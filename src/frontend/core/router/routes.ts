@@ -95,11 +95,25 @@ export const ADMIN_ROUTES: Record<string, RouteDefinition> = {
     title: 'Customer Accounts · FORTLESS',
     subtitle: 'Ownership, membership and workload counts. Click an account to inspect or lock.',
   },
+  'account-detail': {
+    id: 'account-detail',
+    path: '/admin/accounts/:id',
+    title: 'Customer Account · FORTLESS',
+    subtitle: 'Account identity, access, services, billing, support and lifecycle history.',
+    pattern: /^\/admin\/accounts\/(?<id>[^/]+)$/,
+  },
   services: {
     id: 'services',
     path: '/admin/services',
     title: 'Service Inventory · FORTLESS',
     subtitle: 'Contract and provider-observed state.',
+  },
+  'admin-service-detail': {
+    id: 'admin-service-detail',
+    path: '/admin/services/:id',
+    title: 'Service Operations · FORTLESS',
+    subtitle: 'Provider state, allocation, lifecycle controls and audit history.',
+    pattern: /^\/admin\/services\/(?<id>[^/]+)$/,
   },
   orders: {
     id: 'orders', path: '/admin/orders', title: 'Orders · FORTLESS', subtitle: 'Commercial order lifecycle and fulfillment state.',

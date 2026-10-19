@@ -150,7 +150,7 @@
       return null;
     }
     updateActiveLinks(activeId) {
-      const navId = activeId === "service-detail" ? "services" : activeId === "ticket-detail" || activeId === "ticket-new" ? "tickets" : activeId;
+      const navId = activeId === "service-detail" || activeId === "admin-service-detail" ? "services" : activeId === "account-detail" ? "accounts" : activeId === "ticket-detail" || activeId === "ticket-new" ? "tickets" : activeId;
       document.querySelectorAll("[data-app-route], [data-route]").forEach((el) => {
         const rId = el.dataset.appRoute || el.dataset.route;
         if (rId === navId) {
@@ -184,11 +184,25 @@
       title: "Customer Accounts \xB7 FORTLESS",
       subtitle: "Ownership, membership and workload counts. Click an account to inspect or lock."
     },
+    "account-detail": {
+      id: "account-detail",
+      path: "/admin/accounts/:id",
+      title: "Customer Account \xB7 FORTLESS",
+      subtitle: "Account identity, access, services, billing, support and lifecycle history.",
+      pattern: /^\/admin\/accounts\/(?<id>[^/]+)$/
+    },
     services: {
       id: "services",
       path: "/admin/services",
       title: "Service Inventory \xB7 FORTLESS",
       subtitle: "Contract and provider-observed state."
+    },
+    "admin-service-detail": {
+      id: "admin-service-detail",
+      path: "/admin/services/:id",
+      title: "Service Operations \xB7 FORTLESS",
+      subtitle: "Provider state, allocation, lifecycle controls and audit history.",
+      pattern: /^\/admin\/services\/(?<id>[^/]+)$/
     },
     orders: {
       id: "orders",
@@ -1104,13 +1118,16 @@
       host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
     }
   }
-  async function openAccountDetail(accountId) {
+  function openAccountDetail(accountId) {
+    const path = `/admin/accounts/${encodeURIComponent(accountId)}`;
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+  async function renderAccountDetail(accountId) {
     activeAccountId = accountId;
-    const modal = document.getElementById("modalAccountDetail");
     const content = document.getElementById("adminAccountContent");
-    if (!modal || !content) return;
+    if (!content) return;
     content.innerHTML = '<div style="padding:24px;text-align:center;color:var(--ink2)"><div class="sk"><i></i><i></i><i></i></div></div>';
-    modal.hidden = false;
     try {
       const d = await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}`);
       const titleEl = document.getElementById("adminAccountTitle");
@@ -1146,7 +1163,7 @@
       <!-- Account Members -->
       <div>
         <div class="dh" style="margin-bottom:6px">ORGANIZATION MEMBERS (${d.members.length})</div>
-        <div class="table-scroll" style="max-height:160px">
+        <div class="table-scroll">
           <table class="tbl rsp">
             <thead>
               <tr>
@@ -1171,7 +1188,7 @@
       <!-- Account Services -->
       <div>
         <div class="dh" style="margin-bottom:6px">HOSTED SERVICES & INSTANCES (${d.services.length})</div>
-        <div class="table-scroll" style="max-height:180px">
+        <div class="table-scroll">
           <table class="tbl rsp">
             <thead>
               <tr>
@@ -1198,7 +1215,7 @@
       <!-- Account Invoices -->
       <div>
         <div class="dh" style="margin-bottom:6px">RECENT INVOICES (${d.invoices.length})</div>
-        <div class="table-scroll" style="max-height:160px">
+        <div class="table-scroll">
           <table class="tbl rsp">
             <thead>
               <tr>
@@ -1217,6 +1234,13 @@
               </tr>`).join("") : '<tr><td colspan="4"><div class="empty"><b>No invoices recorded.</b></div></td></tr>'}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="dh" style="margin-bottom:6px">SUPPORT CONTEXT (${d.tickets.length})</div>
+        <div class="col" style="gap:8px">
+          ${d.tickets.length ? d.tickets.map((t) => `<a class="li" href="/admin/tickets" data-route="tickets"><span class="tx"><b>${esc(t.subject)}</b><small>${esc(t.id)} \xB7 updated ${formatDate(t.updated_at)}</small></span>${badge(t.priority)}${badge(t.status)}</a>`).join("") : '<div class="empty"><b>No support conversations recorded.</b></div>'}
         </div>
       </div>
     `;
@@ -1284,13 +1308,16 @@
       host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
   }
-  async function openServiceDetail(serviceId) {
+  function openServiceDetail(serviceId) {
+    const path = `/admin/services/${encodeURIComponent(serviceId)}`;
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+  async function renderServiceDetail(serviceId) {
     activeServiceId = serviceId;
-    const modal = document.getElementById("modalAdminServiceDetail");
     const body = document.getElementById("adminServiceBody");
-    if (!modal || !body) return;
+    if (!body) return;
     body.innerHTML = '<div style="padding:28px;text-align:center;color:var(--ink2)"><div class="sk"><i></i><i></i><i></i></div></div>';
-    modal.hidden = false;
     try {
       const data = await api(`/api/v1/admin/services/${encodeURIComponent(serviceId)}`);
       const s = data.service;
@@ -1457,7 +1484,7 @@
         );
         feedback.className = "alert good";
         feedback.innerHTML = `<span>Power action <b>${res.action}</b> acknowledged. State: <b>${res.runtimeState}</b>.</span>`;
-        setTimeout(() => openServiceDetail(serviceId), 1200);
+        setTimeout(() => renderServiceDetail(serviceId), 1200);
       } catch (err) {
         feedback.className = "alert bad";
         feedback.innerHTML = `<span>Power command failed: ${esc(err.message)}</span>`;
@@ -1479,7 +1506,7 @@
           );
           feedback.className = "alert good";
           feedback.innerHTML = `<span>Synchronized. Current runtime state: <b>${res.runtimeState}</b>.</span>`;
-          setTimeout(() => openServiceDetail(serviceId), 1e3);
+          setTimeout(() => renderServiceDetail(serviceId), 1e3);
         } catch (err) {
           feedback.className = "alert bad";
           feedback.innerHTML = `<span>Sync failed: ${esc(err.message)}</span>`;
@@ -1501,7 +1528,7 @@
           body: JSON.stringify({ reason })
         });
         alert(`Service ${action} completed successfully.`);
-        await openServiceDetail(serviceId);
+        await renderServiceDetail(serviceId);
         await renderServices();
       } catch (err) {
         alert(`Operation failed: ${err.message}`);
@@ -2522,7 +2549,9 @@
     const titles = {
       overview: ["Operations overview", "Real platform records, without simulated operational controls."],
       accounts: ["Customer accounts", "Ownership, membership and workload counts. Click an account to inspect or lock."],
+      "account-detail": ["Customer account", "Identity, access, services, billing and support context."],
       services: ["Service inventory", "Contract and provider-observed state."],
+      "admin-service-detail": ["Service operations", "Provider state, allocation, lifecycle controls and audit history."],
       orders: ["Orders", "Commercial order lifecycle and fulfillment state."],
       billing: ["Billing operations", "Invoices, credit notes and payment state."],
       infrastructure: ["Infrastructure", "Capacity pools and provider readiness."],
@@ -2550,9 +2579,17 @@
     updateAdminChrome("accounts");
     await renderAccounts();
   });
+  router.register("account-detail", async (match) => {
+    updateAdminChrome("account-detail");
+    await renderAccountDetail(match.params.id);
+  });
   router.register("services", async () => {
     updateAdminChrome("services");
     await renderServices();
+  });
+  router.register("admin-service-detail", async (match) => {
+    updateAdminChrome("admin-service-detail");
+    await renderServiceDetail(match.params.id);
   });
   router.register("orders", async () => {
     updateAdminChrome("orders");
@@ -2713,10 +2750,6 @@
         const m = document.getElementById("modalTicketDetail");
         if (m) m.hidden = true;
       }
-      if (target.closest("[data-close-account-modal]")) {
-        const m = document.getElementById("modalAccountDetail");
-        if (m) m.hidden = true;
-      }
       if (target.closest("[data-close-staff-modal]")) {
         const m = document.getElementById("modalStaffEditor");
         if (m) m.hidden = true;
@@ -2731,10 +2764,6 @@
       }
       if (target.closest("[data-close-catalog-plan]")) {
         const m = document.getElementById("modalCatalogPlan");
-        if (m) m.hidden = true;
-      }
-      if (target.closest("[data-close-service-modal]")) {
-        const m = document.getElementById("modalAdminServiceDetail");
         if (m) m.hidden = true;
       }
       if (target.closest("[data-close-egg-modal]")) {
@@ -2867,9 +2896,7 @@
           body: JSON.stringify({ status, reason })
         });
         toast("Account status updated successfully.", "good");
-        const m = document.getElementById("modalAccountDetail");
-        if (m) m.hidden = true;
-        renderAccounts();
+        await renderAccountDetail(activeAccountId2);
       } catch (err) {
         toast(`Error updating account status: ${err.message}`, "bad");
       } finally {

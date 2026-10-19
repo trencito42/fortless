@@ -81,14 +81,18 @@ export async function renderServices(q = ''): Promise<void> {
   }
 }
 
-export async function openServiceDetail(serviceId: string): Promise<void> {
+export function openServiceDetail(serviceId: string): void {
+  const path = `/admin/services/${encodeURIComponent(serviceId)}`;
+  if (window.location.pathname !== path) window.history.pushState(null, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+export async function renderServiceDetail(serviceId: string): Promise<void> {
   activeServiceId = serviceId;
-  const modal = document.getElementById('modalAdminServiceDetail');
   const body = document.getElementById('adminServiceBody');
-  if (!modal || !body) return;
+  if (!body) return;
 
   body.innerHTML = '<div style="padding:28px;text-align:center;color:var(--ink2)"><div class="sk"><i></i><i></i><i></i></div></div>';
-  modal.hidden = false;
 
   try {
     const data = await api<{
@@ -262,7 +266,7 @@ function wireServiceDetailEvents(serviceId: string): void {
       );
       feedback.className = 'alert good';
       feedback.innerHTML = `<span>Power action <b>${res.action}</b> acknowledged. State: <b>${res.runtimeState}</b>.</span>`;
-      setTimeout(() => openServiceDetail(serviceId), 1200);
+        setTimeout(() => renderServiceDetail(serviceId), 1200);
     } catch (err: any) {
       feedback.className = 'alert bad';
       feedback.innerHTML = `<span>Power command failed: ${esc(err.message)}</span>`;
@@ -286,7 +290,7 @@ function wireServiceDetailEvents(serviceId: string): void {
         );
         feedback.className = 'alert good';
         feedback.innerHTML = `<span>Synchronized. Current runtime state: <b>${res.runtimeState}</b>.</span>`;
-        setTimeout(() => openServiceDetail(serviceId), 1000);
+        setTimeout(() => renderServiceDetail(serviceId), 1000);
       } catch (err: any) {
         feedback.className = 'alert bad';
         feedback.innerHTML = `<span>Sync failed: ${esc(err.message)}</span>`;
@@ -310,7 +314,7 @@ function wireServiceDetailEvents(serviceId: string): void {
         body: JSON.stringify({ reason }),
       });
       alert(`Service ${action} completed successfully.`);
-      await openServiceDetail(serviceId);
+      await renderServiceDetail(serviceId);
       await renderServices();
     } catch (err: any) {
       alert(`Operation failed: ${err.message}`);

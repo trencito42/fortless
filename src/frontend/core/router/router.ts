@@ -182,7 +182,13 @@ export class Router {
   }
 
   private updateActiveLinks(activeId: string): void {
-    const navId = activeId === 'service-detail' ? 'services' : activeId === 'ticket-detail' || activeId === 'ticket-new' ? 'tickets' : activeId;
+    const navId = activeId === 'service-detail' || activeId === 'admin-service-detail'
+      ? 'services'
+      : activeId === 'account-detail'
+        ? 'accounts'
+        : activeId === 'ticket-detail' || activeId === 'ticket-new'
+          ? 'tickets'
+          : activeId;
     document.querySelectorAll<HTMLElement>('[data-app-route], [data-route]').forEach((el) => {
       const rId = el.dataset.appRoute || el.dataset.route;
       if (rId === navId) {

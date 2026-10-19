@@ -543,6 +543,23 @@ export function buildServer(): FastifyInstance {
     return reply.status(503).send('Admin shell is not installed.');
   });
 
+  app.get('/admin/:view/:id', async (req, reply) => {
+    const { view, id } = req.params as { view: string; id: string };
+    const viewPermissions: Record<string, StaffPermission> = {
+      accounts: 'accounts:read',
+      services: 'services:read',
+    };
+    if (!viewPermissions[view] || !id) return reply.redirect('/admin');
+    const destination = `/admin/${view}/${encodeURIComponent(id)}`;
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(destination)}`);
+    if (!hasStaffPermission(req.auth.user.id, viewPermissions[view]!, getDatabase()) || !req.auth.session.mfaVerifiedAt) {
+      return reply.status(403).type('text/plain').send('Staff MFA and route permission are required.');
+    }
+    const filePath = path.join(publicDir, 'admin.html');
+    if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('admin.html'));
+    return reply.status(503).send('Admin shell is not installed.');
+  });
+
   app.get('/favicon.svg', async (_req, reply) => {
     const filePath = path.join(publicDir, 'favicon.svg');
     if (fs.existsSync(filePath)) {
