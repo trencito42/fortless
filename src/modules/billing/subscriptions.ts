@@ -1,3 +1,4 @@
+import { calculateNextPeriod } from './renewal-dunning.js';
 import crypto from 'node:crypto';
 import Stripe from 'stripe';
 import type Database from 'better-sqlite3';
@@ -64,7 +65,7 @@ export async function cancelSubscription(
     reason?: string;
   },
   db: Database.Database = getDatabase()
-): Promise<{ status: string }> {
+): Promise<{ status: string; terminationPending?: boolean }> {
   const sub = db.prepare(`
     SELECT * FROM subscriptions WHERE id = ? AND account_id = ?
   `).get(params.subscriptionId, params.accountId) as any;
@@ -137,16 +138,29 @@ export async function cancelSubscription(
     }
   }, db);
 
+  let terminationPending = false;
   if (params.immediate && sub.service_id) {
-    await terminateService({
-      serviceId: sub.service_id,
-      reason: params.reason || 'Immediate subscription cancellation',
-      actorUserId: params.userId,
-      actorType: 'USER',
-    }, undefined, db);
+    try {
+      await terminateService({
+        serviceId: sub.service_id,
+        reason: params.reason || 'Immediate subscription cancellation',
+        actorUserId: params.userId,
+        actorType: 'USER',
+      }, undefined, db);
+    } catch (err) {
+      // NEW-301/NEW-302: a provider failure is never reported as a finished deletion. The termination is queued for
+      // retry through the outbox (terminateService already audited the failure) and the caller is told it is pending.
+      terminationPending = true;
+      console.error(`[Subscriptions] immediate termination of ${sub.service_id} failed, queued for retry:`, (err as Error).message);
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        SELECT ?, 'service.terminate.v1', 'service', ?, ?, 'PENDING'
+        WHERE NOT EXISTS (SELECT 1 FROM outbox_events WHERE event_type = 'service.terminate.v1' AND aggregate_id = ? AND status IN ('PENDING', 'PROCESSING'))
+      `).run(`obx_${crypto.randomUUID()}`, sub.service_id, JSON.stringify({ serviceId: sub.service_id, reason: params.reason || 'Immediate subscription cancellation', actorType: 'USER', actorUserId: params.userId }), sub.service_id);
+    }
   }
 
-  return { status: targetStatus };
+  return terminationPending ? { status: targetStatus, terminationPending } : { status: targetStatus };
 }
 
 export async function reactivateSubscription(
@@ -212,14 +226,8 @@ export async function reactivateSubscription(
       }
     }, db);
 
-    if (config.STRIPE_SECRET_KEY && !config.STRIPE_SECRET_KEY.includes('dummy') && sub.psp_subscription_id) {
-      try {
-        const stripe = new Stripe(config.STRIPE_SECRET_KEY);
-        await stripe.subscriptions.update(sub.psp_subscription_id, { cancel_at_period_end: false });
-      } catch (err) {
-        console.error('[Stripe] Failed to clear cancel_at_period_end:', err);
-      }
-    }
+    // The Stripe side (cancel_at_period_end=false) is sent by the stripe.subscription.resume.v1 outbox event above,
+    // so a Stripe outage retries instead of being logged and forgotten.
 
     return {
       status: 'ACTIVE',
@@ -229,20 +237,32 @@ export async function reactivateSubscription(
 
   // 2. If already CANCELED or TERMINATED (period ended, need to re-subscribe to Stripe)
   if (sub.status === 'CANCELED' || sub.status === 'TERMINATED') {
+    // NEW-352: a terminated service no longer has a provider resource or reserved capacity. Taking payment for it would
+    // sell something that cannot be delivered, so the customer has to place a new order.
+    const svc = sub.service_id
+      ? db.prepare('SELECT contract_status FROM services WHERE id = ?').get(sub.service_id) as { contract_status: string } | undefined
+      : undefined;
+    const pendingTermination = sub.service_id
+      ? db.prepare("SELECT 1 FROM outbox_events WHERE event_type = 'service.terminate.v1' AND aggregate_id = ? AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')").get(sub.service_id)
+      : undefined;
+    if (!svc || svc.contract_status === 'TERMINATED' || sub.status === 'TERMINATED' || pendingTermination) {
+      throw new Error('REACTIVATION_NOT_POSSIBLE: this service has been terminated and cannot be restored. Order a new service instead.');
+    }
+
+    // NEW-351: payment is never skipped. Only a genuinely free plan (renewal price 0) reactivates without Stripe.
     if (sub.renewal_price_minor_units === 0) {
       runInTransaction((trx) => {
-        const now = new Date();
-        const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const next = calculateNextPeriod(new Date().toISOString(), sub.billing_interval).periodEnd;
         trx.prepare(`
           UPDATE subscriptions
           SET status = 'ACTIVE',
               auto_renew = 1,
-              current_period_start = ?,
+              current_period_start = datetime('now', 'utc'),
               current_period_end = ?,
               next_renewal_date = ?,
               updated_at = datetime('now', 'utc')
           WHERE id = ?
-        `).run(now.toISOString(), nextMonth.toISOString(), nextMonth.toISOString(), sub.id);
+        `).run(next, next, sub.id);
 
         if (sub.service_id) {
           trx.prepare("UPDATE services SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc') WHERE id = ?").run(sub.service_id);
@@ -256,32 +276,8 @@ export async function reactivateSubscription(
       };
     }
 
-    // In test environment or unconfigured Stripe dummy key
-    if (!config.STRIPE_SECRET_KEY || config.STRIPE_SECRET_KEY.includes('dummy') || process.env.NODE_ENV === 'test') {
-      runInTransaction((trx) => {
-        const now = new Date();
-        const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-        trx.prepare(`
-          UPDATE subscriptions
-          SET status = 'ACTIVE',
-              auto_renew = 1,
-              current_period_start = ?,
-              current_period_end = ?,
-              next_renewal_date = ?,
-              updated_at = datetime('now', 'utc')
-          WHERE id = ?
-        `).run(now.toISOString(), nextMonth.toISOString(), nextMonth.toISOString(), sub.id);
-
-        if (sub.service_id) {
-          trx.prepare("UPDATE services SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc') WHERE id = ?").run(sub.service_id);
-          trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(sub.service_id);
-        }
-      }, db);
-
-      return {
-        status: 'ACTIVE',
-        message: 'Subscription reactivated successfully (test mode).',
-      };
+    if (!config.STRIPE_SECRET_KEY) {
+      throw new Error('PAYMENTS_NOT_CONFIGURED: payments are not available, so this subscription cannot be reactivated right now.');
     }
 
     // Live Stripe: create Checkout Session for re-subscribing

@@ -402,6 +402,14 @@ export async function unsuspendService(
  * Destructively terminates a service, calls provider deletion, releases node allocation,
  * and updates database status to TERMINATED.
  */
+/**
+ * NEW-357: node capacity is reserved by the provisioning worker and only counts once the CREATE operation succeeded.
+ * A service that never got that far (paid but not provisioned, failed, refunded early) holds nothing to release.
+ */
+export function capacityIsHeld(db: Database.Database, serviceId: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM provision_operations WHERE service_id = ? AND operation_type = 'CREATE' AND status = 'SUCCEEDED'").get(serviceId));
+}
+
 export async function terminateService(
   params: {
     serviceId: string;
@@ -484,7 +492,7 @@ export async function terminateService(
     `).get(service.id) as { id: string; status: string } | undefined;
 
     if (!op || op.status !== 'SUCCEEDED') {
-      if (desired && service.node_id) {
+      if (desired && service.node_id && capacityIsHeld(trx, service.id)) {
         trx.prepare(`
           UPDATE nodes
           SET allocated_memory_mb = MAX(0, allocated_memory_mb - ?),

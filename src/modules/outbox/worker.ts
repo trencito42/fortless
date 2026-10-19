@@ -5,6 +5,7 @@ import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { type ProviderAdapter, MockPterodactylAdapter, MockCpanelAdapter, MockProxmoxAdapter } from '../provisioning/adapter.js';
 import { resolvePanelUserId } from '../provisioning/panel-link.js';
+import { capacityIsHeld } from '../provisioning/services.js';
 import { queueEmail } from '../email/outbox.js';
 import { createNotification } from '../notifications/notifications.js';
 
@@ -23,9 +24,11 @@ export function getAdapterForService(providerType?: string, currentAdapter: Prov
   if (currentAdapter && currentAdapter.providerType === norm) {
     return currentAdapter;
   }
-  if (process.env.NODE_ENV === 'production') {
+  // NEW-332: in-memory cPanel/Proxmox adapters exist for the automated tests only. Any other process (including a
+  // development or mis-labelled deployment) must fail closed instead of fabricating a provisioned resource.
+  if (process.env.NODE_ENV !== 'test') {
     if (norm === 'CPANEL' || norm === 'PROXMOX' || norm === 'VPS') {
-      throw new Error(`[Adapter] Provider adapter for '${norm}' is not configured in live production mode.`);
+      throw new Error(`[Adapter] Provider adapter for '${norm}' is not configured; the in-memory adapter is only available in tests.`);
     }
   }
   switch (norm) {
@@ -171,7 +174,7 @@ export async function processOutboxQueue(
             const desired = trx.prepare('SELECT memory_limit_mb, disk_limit_mb FROM service_desired_configs WHERE service_id = ?').get(event.aggregate_id) as { memory_limit_mb: number; disk_limit_mb: number } | undefined;
             const svcRow = trx.prepare('SELECT node_id FROM services WHERE id = ?').get(event.aggregate_id) as { node_id: string } | undefined;
 
-            if (desired && svcRow?.node_id) {
+            if (desired && svcRow?.node_id && capacityIsHeld(trx, event.aggregate_id)) {
               trx.prepare(`
                 UPDATE nodes
                 SET allocated_memory_mb = MAX(0, allocated_memory_mb - ?),
@@ -214,6 +217,31 @@ export async function processOutboxQueue(
             // A subscription that is already gone at the PSP is the desired end state, not a failure.
             if ((err as { code?: string }).code !== 'resource_missing') throw err;
           }
+        }
+      } else if (event.event_type === 'stripe.refund.create.v1') {
+        // NEW-334: send a staff refund to Stripe exactly once (idempotency key = refund id).
+        const refund = db.prepare(`
+          SELECT r.id, r.status, r.amount_minor_units, pa.psp_payment_intent_id, pa.psp_session_id
+          FROM refunds r JOIN payment_attempts pa ON pa.id = r.payment_attempt_id WHERE r.id = ?
+        `).get(parsedPayload.refundId) as { id: string; status: string; amount_minor_units: number; psp_payment_intent_id: string | null; psp_session_id: string | null } | undefined;
+        if (!refund) throw new Error('Refund record not found.');
+        if (refund.status !== 'SUCCEEDED') {
+          if (!config.STRIPE_SECRET_KEY) throw new Error('Stripe is not configured, so the refund cannot be sent to the payment provider.');
+          const stripe = new Stripe(config.STRIPE_SECRET_KEY);
+          let paymentIntent = refund.psp_payment_intent_id;
+          if (!paymentIntent && refund.psp_session_id?.startsWith('cs_')) {
+            const session = await stripe.checkout.sessions.retrieve(refund.psp_session_id, { expand: ['payment_intent', 'invoice.payment_intent'] });
+            const pi = session.payment_intent ?? (session.invoice && typeof session.invoice !== 'string' ? session.invoice.payment_intent : null);
+            paymentIntent = typeof pi === 'string' ? pi : pi?.id ?? null;
+          }
+          if (!paymentIntent) throw new Error('No Stripe payment intent is recorded for this payment, so the refund cannot be sent.');
+          const created = await stripe.refunds.create({
+            payment_intent: paymentIntent,
+            amount: refund.amount_minor_units,
+            reason: 'requested_by_customer',
+            metadata: { refundId: refund.id },
+          }, { idempotencyKey: `refund_${refund.id}` });
+          db.prepare("UPDATE refunds SET status = 'SUCCEEDED', psp_refund_id = ? WHERE id = ?").run(created.id, refund.id);
         }
       } else if (event.event_type === 'stripe.subscription.resume.v1') {
         const pspSubId = parsedPayload.pspSubscriptionId;
@@ -261,6 +289,13 @@ export async function processOutboxQueue(
             SELECT ?, account_id, 'SYSTEM', 'service.terminate_failed', 'service', id, ?, ?
             FROM services WHERE id = ?
           `).run(`aud_${crypto.randomUUID()}`, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }), event.aggregate_id);
+        } else if (event.event_type === 'stripe.refund.create.v1') {
+          // The credit note exists but the money did not move: make that visible to staff instead of looking refunded.
+          db.prepare("UPDATE refunds SET status = 'FAILED' WHERE id = ? AND status = 'REQUESTED'").run(event.aggregate_id);
+          db.prepare(`
+            INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+            VALUES (?, (SELECT i.account_id FROM refunds r JOIN payment_attempts pa ON pa.id = r.payment_attempt_id JOIN invoices i ON i.id = pa.invoice_id WHERE r.id = ?), 'SYSTEM', 'payment.refund_failed', 'refund', ?, ?, ?)
+          `).run(`aud_${crypto.randomUUID()}`, event.aggregate_id, event.aggregate_id, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }));
         } else if (event.event_type.startsWith('stripe.subscription.')) {
           db.prepare(`
             INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)

@@ -3,7 +3,9 @@ import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
+import { pickNodeForService } from '../provisioning/placement.js';
 import { markInvoicePaid, getNextCreditNoteNumber } from '../invoicing/invoicing.js';
+import { cancelCouponRedemptionAtomic } from '../catalog/catalog.js';
 import { queueEmail } from '../email/outbox.js';
 import { createNotification } from '../notifications/notifications.js';
 import { calculateNextPeriod } from '../billing/renewal-dunning.js';
@@ -149,9 +151,19 @@ function dispatchInboundEvent(
       return { status: 'ANOMALY_HELD', eventId };
     }
 
+    // NEW-334: staff refunds are recorded locally first and then sent to Stripe; the echo from Stripe must not apply them twice.
+    const alreadyRecorded = (db.prepare("SELECT COALESCE(SUM(amount_minor_units), 0) AS total FROM refunds WHERE payment_attempt_id = ? AND status IN ('REQUESTED', 'SUCCEEDED')").get(attempt.id) as { total: number }).total;
+    if (Number.isFinite(amountRefunded) && amountRefunded <= alreadyRecorded) {
+      db.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+      return { status: 'PROCESSED', eventId, orderId: attempt.order_id };
+    }
+
     runInTransaction((trx) => {
       const creditNoteNumber = getNextCreditNoteNumber(undefined, trx);
       const isFullRefund = amountRefunded >= attempt.total_minor_units;
+      // Refund issued outside Fortless (for example in the Stripe dashboard): keep the refunds ledger complete.
+      trx.prepare("INSERT INTO refunds (id, payment_attempt_id, amount_minor_units, reason, status) VALUES (?, ?, ?, 'Recorded from Stripe charge.refunded', 'SUCCEEDED')")
+        .run(generateId('rfd'), attempt.id, Math.max(1, amountRefunded - alreadyRecorded));
 
       trx.prepare(`
         UPDATE invoices
@@ -351,6 +363,28 @@ function dispatchInboundEvent(
     }
   }
 
+  // NEW-341: an abandoned checkout must not hold a coupon redemption, an order or an open invoice forever.
+  if (eventType === 'checkout.session.expired') {
+    const raw = payload.data.object as Record<string, any>;
+    const attemptId = raw.metadata?.paymentAttemptId as string | undefined;
+    const attempt = attemptId
+      ? db.prepare(`
+          SELECT pa.id, pa.invoice_id, i.order_id FROM payment_attempts pa JOIN invoices i ON i.id = pa.invoice_id
+          WHERE (pa.id = ? OR pa.psp_session_id = ?) AND pa.status IN ('CREATED', 'REQUIRES_ACTION')
+        `).get(attemptId, raw.id) as { id: string; invoice_id: string; order_id: string } | undefined
+      : undefined;
+    runInTransaction((trx) => {
+      if (attempt) {
+        cancelCouponRedemptionAtomic(attempt.order_id, trx);
+        trx.prepare("UPDATE orders SET status = 'CANCELED', idempotency_key = idempotency_key || '#expired_' || id, updated_at = datetime('now', 'utc') WHERE id = ? AND status = 'AWAITING_PAYMENT'").run(attempt.order_id);
+        trx.prepare("UPDATE invoices SET status = 'VOIDED' WHERE id = ? AND status IN ('DRAFT', 'ISSUED')").run(attempt.invoice_id);
+        trx.prepare("UPDATE payment_attempts SET status = 'CANCELED', idempotency_key = idempotency_key || '#expired_' || id WHERE id = ?").run(attempt.id);
+      }
+      trx.prepare("UPDATE psp_inbox_events SET status = ?, processed_at = datetime('now', 'utc') WHERE event_id = ?").run(attempt ? 'PROCESSED' : 'IGNORED', eventId);
+    }, db);
+    return { status: attempt ? 'PROCESSED' : 'IGNORED', eventId };
+  }
+
   // We are interested in payment intent successes and checkout completions
   if (eventType !== 'payment_intent.succeeded' && eventType !== 'checkout.session.completed' && eventType !== 'checkout.session.async_payment_succeeded') {
     db.prepare("UPDATE psp_inbox_events SET status = 'IGNORED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
@@ -371,8 +405,10 @@ function dispatchInboundEvent(
     const subId = meta.subscriptionId;
     const pspSubId = (paymentObj as Record<string, any>)['subscription'] as string | undefined;
     runInTransaction((trx) => {
+      // NEW-353: the new period follows the subscription's own billing interval, not a fixed 30 days.
       const now = new Date();
-      const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+      const interval = (trx.prepare('SELECT billing_interval FROM subscriptions WHERE id = ?').get(subId) as { billing_interval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL' } | undefined)?.billing_interval ?? 'MONTHLY';
+      const nextMonth = new Date(calculateNextPeriod(now.toISOString(), interval).periodEnd);
       trx.prepare(`
         UPDATE subscriptions
         SET status = 'ACTIVE',
@@ -388,7 +424,16 @@ function dispatchInboundEvent(
       `).run(pspSubId || null, now.toISOString(), nextMonth.toISOString(), nextMonth.toISOString(), subId);
 
       const sub = trx.prepare('SELECT service_id, account_id FROM subscriptions WHERE id = ?').get(subId) as { service_id: string; account_id: string } | undefined;
-      if (sub?.service_id) {
+      const targetStatus = sub?.service_id
+        ? (trx.prepare('SELECT contract_status FROM services WHERE id = ?').get(sub.service_id) as { contract_status: string } | undefined)?.contract_status
+        : undefined;
+      if (sub?.service_id && targetStatus === 'TERMINATED') {
+        // NEW-352: money arrived for a service that no longer exists; never pretend it was restored. Staff must refund.
+        trx.prepare(`
+          INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+          VALUES (?, ?, 'PSP_WEBHOOK', 'billing.reactivation_payment_for_terminated_service', 'subscription', ?, ?, ?)
+        `).run(generateId('aud'), sub.account_id, subId, eventId, JSON.stringify({ serviceId: sub.service_id }));
+      } else if (sub?.service_id) {
         trx.prepare("UPDATE services SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc') WHERE id = ?").run(sub.service_id);
         trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(sub.service_id);
         trx.prepare(`
@@ -494,19 +539,10 @@ function dispatchInboundEvent(
       };
 
       const itemRegion = item.region_id || 'reg_fra_1';
-      const node = trx.prepare(`
-        SELECT id FROM nodes
-        WHERE region_id = ? AND maintenance_mode = 0
-          AND (allocated_memory_mb + ?) <= max_memory_mb
-          AND (allocated_disk_mb + ?) <= max_disk_mb
-        ORDER BY allocated_memory_mb ASC
-        LIMIT 1
-      `).get(itemRegion, desired.memoryMb, desired.diskMb) as { id: string } | undefined
-        || trx.prepare('SELECT id FROM nodes WHERE region_id = ? AND maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get(itemRegion) as { id: string } | undefined
-        || trx.prepare('SELECT id FROM nodes WHERE maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get() as { id: string } | undefined;
+      const node = pickNodeForService(trx, itemRegion, desired.memoryMb, desired.diskMb);
 
       if (!node) {
-        throw new Error(`No available node found with capacity in region ${itemRegion}`);
+        throw new Error(`No available node found in region ${itemRegion}`);
       }
       const assignedNodeId = node.id;
 
@@ -647,7 +683,7 @@ export function processStaffRefund(
     ipAddress: string;
   },
   db: Database.Database = getDatabase()
-): { creditNoteNumber: string; refundedAmount: number } {
+): { creditNoteNumber: string; refundedAmount: number; pspRefund: 'REQUESTED' | 'NOT_REQUIRED'; refundId: string | null } {
   return runInTransaction((trx) => {
     const invoice = trx.prepare('SELECT id, account_id, order_id, total_minor_units, amount_paid_minor_units, status FROM invoices WHERE id = ?').get(data.invoiceId) as {
       id: string;
@@ -713,6 +749,24 @@ export function processStaffRefund(
       JSON.stringify({ amount: data.amountMinorUnits, reason: data.reason, creditNoteNumber })
     );
 
-    return { creditNoteNumber, refundedAmount: data.amountMinorUnits };
+    // NEW-334: the money has to go back through the PSP. The refund request is committed with the ledger entry
+    // and executed by the outbox worker with an idempotency key, so a crash or retry never refunds twice.
+    const attempt = trx.prepare(`
+      SELECT id, psp_name FROM payment_attempts
+      WHERE invoice_id = ? AND status = 'SUCCEEDED' AND amount_minor_units > 0
+      ORDER BY created_at DESC LIMIT 1
+    `).get(data.invoiceId) as { id: string; psp_name: string } | undefined;
+    let refundId: string | null = null;
+    if (attempt && attempt.psp_name === 'stripe') {
+      refundId = generateId('rfd');
+      trx.prepare("INSERT INTO refunds (id, payment_attempt_id, amount_minor_units, reason, status) VALUES (?, ?, ?, ?, 'REQUESTED')")
+        .run(refundId, attempt.id, data.amountMinorUnits, data.reason);
+      trx.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'stripe.refund.create.v1', 'refund', ?, ?, 'PENDING')
+      `).run(generateId('obx'), refundId, JSON.stringify({ refundId, paymentAttemptId: attempt.id, invoiceId: data.invoiceId, amountMinorUnits: data.amountMinorUnits }));
+    }
+
+    return { creditNoteNumber, refundedAmount: data.amountMinorUnits, pspRefund: refundId ? 'REQUESTED' : 'NOT_REQUIRED', refundId };
   }, db);
 }

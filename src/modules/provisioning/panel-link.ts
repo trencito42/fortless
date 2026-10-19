@@ -3,6 +3,15 @@ import type Database from 'better-sqlite3';
 import { getDatabase } from '../../database/index.js';
 import { PterodactylHttpAdapter, type ProviderAdapter } from './adapter.js';
 
+/**
+ * SSO-01: the panel's own "forgot password" flow mails a reset link to the panel user's address. Customer panel users
+ * therefore get a reserved, undeliverable address (RFC 2606 .invalid) so nobody can set a panel password through
+ * email and sidestep Fortless login, MFA and account locks. Fortless sends its own notifications.
+ */
+export const PANEL_EMAIL_DOMAIN = 'panel.fortless.invalid';
+export const panelEmailFor = (accountId: string): string =>
+  `fl-${crypto.createHash('sha256').update(accountId).digest('hex').slice(0, 24)}@${PANEL_EMAIL_DOMAIN}`;
+
 export async function resolvePanelUserId(
   accountId: string,
   adapter: ProviderAdapter,
@@ -23,7 +32,7 @@ export async function resolvePanelUserId(
   const parts = owner.name.trim().split(/\s+/);
   const created = await adapter.ensurePanelUser({
     correlationTag,
-    email: owner.email,
+    email: panelEmailFor(accountId),
     username: `fl_${accountId.replace(/^acc_/, '').slice(0, 16)}`,
     firstName: (parts[0] || 'Fortless').slice(0, 100),
     lastName: (parts.slice(1).join(' ') || 'Customer').slice(0, 100),
@@ -69,4 +78,27 @@ export async function ensureAccountPanelAccess(
     }
   }
   return panelUserId;
+}
+
+/**
+ * Moves a panel user created with the owner's real address to the reserved address (SSO-01). Safe to call repeatedly;
+ * a failure is reported to the caller, which may continue, and is retried on the next call.
+ */
+export async function secureLegacyPanelEmail(
+  accountId: string,
+  adapter: ProviderAdapter,
+  db: Database.Database = getDatabase()
+): Promise<boolean> {
+  if (!(adapter instanceof PterodactylHttpAdapter)) return false;
+  const row = db.prepare("SELECT panel_user_id, panel_email FROM panel_users WHERE account_id = ? AND provider_type = 'PTERODACTYL'")
+    .get(accountId) as { panel_user_id: number; panel_email: string } | undefined;
+  if (!row || row.panel_email.toLowerCase().endsWith(`@${PANEL_EMAIL_DOMAIN}`)) return false;
+  const next = panelEmailFor(accountId);
+  await adapter.updatePanelUserEmail(row.panel_user_id, next);
+  db.prepare("UPDATE panel_users SET panel_email = ? WHERE account_id = ? AND provider_type = 'PTERODACTYL'").run(next, accountId);
+  db.prepare(`
+    INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+    VALUES (?, ?, 'SYSTEM', 'panel_user.email_secured', 'account', ?, ?, '{}')
+  `).run(`aud_${crypto.randomUUID()}`, accountId, accountId, `corr_${crypto.randomUUID()}`);
+  return true;
 }

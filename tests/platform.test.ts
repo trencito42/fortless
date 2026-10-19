@@ -2136,17 +2136,12 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       const canceledSubs = listSubscriptionsForAccount(user.account.id, db);
       expect(canceledSubs[0]?.status).toBe('CANCELED');
 
-      // Reactivate from CANCELED
-      const resCanceled = await reactivateSubscription({
+      // NEW-352: a CANCELED subscription whose service is gone is never "reactivated" for free; see remediation tests
+      await expect(reactivateSubscription({
         subscriptionId: subId,
         accountId: user.account.id,
         userId: user.user.id,
-      }, db);
-
-      expect(resCanceled.status).toBe('ACTIVE');
-      const resumedSubs = listSubscriptionsForAccount(user.account.id, db);
-      expect(resumedSubs[0]?.status).toBe('ACTIVE');
-      expect(resumedSubs[0]?.autoRenew).toBe(true);
+      }, db)).rejects.toThrow(/REACTIVATION_NOT_POSSIBLE/);
     });
 
     it('NOTIF-01: Notifications persist, track read status, and count unread per tenant', () => {

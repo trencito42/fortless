@@ -1866,7 +1866,9 @@ export function buildServer(): FastifyInstance {
       });
       return { success: true, ...result };
     } catch (err: unknown) {
-      return reply.status(400).send({ error: (err as Error).message });
+      const message = (err as Error).message;
+      const status = message.startsWith('REACTIVATION_NOT_POSSIBLE') ? 409 : message.startsWith('PAYMENTS_NOT_CONFIGURED') ? 503 : 400;
+      return reply.status(status).send({ error: message, code: message.split(':')[0] });
     }
   });
 

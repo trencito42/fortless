@@ -25,6 +25,7 @@ vi.mock('stripe', () => {
   class FakeStripe {
     checkout = { sessions: {
       create: record('checkout.sessions.create', (n) => ({ id: `cs_test_${n}`, url: `https://checkout.stripe.test/c/${n}` })),
+      retrieve: record('checkout.sessions.retrieve', (n) => ({ id: `cs_test_${n}`, payment_intent: 'pi_from_session', invoice: null })),
       expire: record('checkout.sessions.expire', (n) => ({ id: `cs_test_${n}`, status: 'expired' })),
     } };
     subscriptions = {

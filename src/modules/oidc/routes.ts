@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { config } from '../../config/index.js';
 import { getDatabase } from '../../database/index.js';
 import { PterodactylHttpAdapter } from '../provisioning/adapter.js';
-import { ensureAccountPanelAccess } from '../provisioning/panel-link.js';
+import { ensureAccountPanelAccess, secureLegacyPanelEmail } from '../provisioning/panel-link.js';
 import {
   OidcError, panelLoginUrl, authenticateClient, discoveryDocument, exchangeCode, issueAuthorizationCode, jwks,
   resolvePanelIdentity, userInfo, validateAuthorizeClient, validateAuthorizeRequest,
@@ -43,6 +43,7 @@ export function registerOidcRoutes(app: FastifyInstance): void {
       if (hasService && config.PROVIDER_MODE === 'pterodactyl_1') {
         const adapter = new PterodactylHttpAdapter({ panelUrl: config.PTERODACTYL_PANEL_URL, apiKey: config.PTERODACTYL_API_KEY, timeoutMs: 15000 });
         await ensureAccountPanelAccess(req.auth.account.id, adapter);
+        await secureLegacyPanelEmail(req.auth.account.id, adapter, getDatabase()).catch((err) => req.log.error({ err: (err as Error).message }, 'could not secure the legacy panel email'));
       }
       resolvePanelIdentity(req.auth.account.id, req.auth.user.id);
     } catch (err) {

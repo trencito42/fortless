@@ -430,6 +430,17 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
     }
   }
 
+  /** Replaces the email of a panel user, keeping every other attribute (the Application API needs the full set). */
+  async updatePanelUserEmail(panelUserId: number, email: string): Promise<void> {
+    const current = await this.request(`/api/application/users/${panelUserId}`);
+    const a = current?.attributes;
+    if (!a?.id) throw new ProviderError('Pterodactyl user not found', 'NOT_FOUND', 404);
+    await this.request(`/api/application/users/${panelUserId}`, {
+      method: 'PATCH',
+      body: { email, username: a.username, first_name: a.first_name, last_name: a.last_name, language: a.language ?? 'en' },
+    });
+  }
+
   /** Returns true when ownership changed, false when the server already belonged to the user. */
   async assignServerOwner(externalId: string, panelUserId: number): Promise<boolean> {
     const res = await this.request(`/api/application/servers/${externalId}`);

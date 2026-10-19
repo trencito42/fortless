@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
+import { pickNodeForService } from '../provisioning/placement.js';
 import { verifyQuote } from '../pricing/quote.js';
 import { redeemCouponAtomic, cancelCouponRedemptionAtomic } from '../catalog/catalog.js';
 import { createNotification } from '../notifications/notifications.js';
@@ -89,6 +90,17 @@ export async function processCheckout(
       // Stripe subscription that cannot be cancelled or priced per service, so they are refused instead of under-billed.
       if (quote.lines.length !== 1 || quote.lines[0]!.quantity !== 1) {
         throw new Error('UNSUPPORTED_ORDER_SHAPE: an order can contain exactly one service. Place a separate order for each service.');
+      }
+
+      // FTL-PROV-202: do not take payment for a region that has no node able to host the service.
+      {
+        const line = quote.lines[0]!;
+        const specs = trx.prepare('SELECT resource_specs FROM plan_versions WHERE id = ?').get(line.planVersionId) as { resource_specs: string } | undefined;
+        const desired = specs ? JSON.parse(specs.resource_specs) as { memoryMb: number; diskMb: number } : null;
+        const region = line.regionId || data.regionId || 'fra-1';
+        if (desired && !pickNodeForService(trx, region, desired.memoryMb, desired.diskMb)) {
+          throw new Error(`NO_NODE_AVAILABLE: no node is available in region ${region} right now.`);
+        }
       }
 
       // Verify compatible billing intervals across quote lines
@@ -428,19 +440,10 @@ async function fulfillFreeOrder(
       const desired = JSON.parse(planVersion.resource_specs) as { cpuPct: number; memoryMb: number; diskMb: number };
 
       const itemRegion = item.region_id || args.regionId;
-      const node = trx.prepare(`
-        SELECT id FROM nodes
-        WHERE region_id = ? AND maintenance_mode = 0
-          AND (allocated_memory_mb + ?) <= max_memory_mb
-          AND (allocated_disk_mb + ?) <= max_disk_mb
-        ORDER BY allocated_memory_mb ASC
-        LIMIT 1
-      `).get(itemRegion, desired.memoryMb, desired.diskMb) as { id: string } | undefined
-        || trx.prepare('SELECT id FROM nodes WHERE region_id = ? AND maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get(itemRegion) as { id: string } | undefined
-        || trx.prepare('SELECT id FROM nodes WHERE maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get() as { id: string } | undefined;
+      const node = pickNodeForService(trx, itemRegion, desired.memoryMb, desired.diskMb);
 
       if (!node) {
-        throw new Error(`No available node found with capacity in region ${itemRegion}`);
+        throw new Error(`No available node found in region ${itemRegion}`);
       }
       const assignedNodeId = node.id;
 
