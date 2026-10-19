@@ -53,7 +53,7 @@ export function listSubscriptionsForAccount(
   }));
 }
 
-export function cancelSubscription(
+export async function cancelSubscription(
   params: {
     subscriptionId: string;
     accountId: string;
@@ -62,7 +62,7 @@ export function cancelSubscription(
     reason?: string;
   },
   db: Database.Database = getDatabase()
-): { status: string } {
+): Promise<{ status: string }> {
   const sub = db.prepare(`
     SELECT * FROM subscriptions WHERE id = ? AND account_id = ?
   `).get(params.subscriptionId, params.accountId) as any;
@@ -84,15 +84,6 @@ export function cancelSubscription(
       WHERE id = ?
     `).run(targetStatus, sub.id);
 
-    if (params.immediate && sub.service_id) {
-      terminateService({
-        serviceId: sub.service_id,
-        reason: params.reason || 'Immediate subscription cancellation',
-        actorUserId: params.userId,
-        actorType: 'USER',
-      }, undefined, trx);
-    }
-
     trx.prepare(`
       INSERT INTO audit_events (
         id, account_id, actor_user_id, actor_type, action, resource_type,
@@ -106,6 +97,21 @@ export function cancelSubscription(
       `corr_${crypto.randomUUID()}`,
       JSON.stringify({ status: targetStatus, immediate: Boolean(params.immediate), reason: params.reason })
     );
+
+    if (sub.psp_subscription_id) {
+      trx.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'stripe.subscription.cancel.v1', 'subscription', ?, ?, 'PENDING')
+      `).run(
+        `obx_${crypto.randomUUID()}`,
+        sub.id,
+        JSON.stringify({
+          pspSubscriptionId: sub.psp_subscription_id,
+          immediate: Boolean(params.immediate),
+          subscriptionId: sub.id,
+        })
+      );
+    }
 
     if (!params.immediate) {
       const recipient = trx.prepare('SELECT email FROM users WHERE id = ?').get(params.userId) as { email: string } | undefined;
@@ -128,6 +134,15 @@ export function cancelSubscription(
       }
     }
   }, db);
+
+  if (params.immediate && sub.service_id) {
+    await terminateService({
+      serviceId: sub.service_id,
+      reason: params.reason || 'Immediate subscription cancellation',
+      actorUserId: params.userId,
+      actorType: 'USER',
+    }, undefined, db);
+  }
 
   return { status: targetStatus };
 }

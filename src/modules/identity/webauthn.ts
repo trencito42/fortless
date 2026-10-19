@@ -103,10 +103,11 @@ export function parseAttestationObject(attestationB64u: string): ParsedAttestati
   return { credentialId, publicKeyPem: pem, alg, rpIdHash: Buffer.from(authData.subarray(0, 32)), flags, signCount: authData.readUInt32BE(33) };
 }
 
-/** The assertion must be for this site (rpIdHash) and the user must have been present. */
-export function checkAssertionAuthData(authData: Buffer, rpId: string): void {
+/** The assertion must be for this site (rpIdHash), the user must have been present (FLAG_UP), and user verification required (FLAG_UV). */
+export function checkAssertionAuthData(authData: Buffer, rpId: string, requireUv = true): void {
   if (authData.length < 37) throw new Error('Malformed authenticator data.');
   const expected = crypto.createHash('sha256').update(rpId).digest();
   if (!crypto.timingSafeEqual(authData.subarray(0, 32), expected)) throw new Error('The passkey was not created for this site.');
   if (!(authData[32]! & FLAG_UP)) throw new Error('The passkey did not confirm the user was present.');
+  if (requireUv && !(authData[32]! & FLAG_UV)) throw new Error('The passkey did not confirm user verification.');
 }

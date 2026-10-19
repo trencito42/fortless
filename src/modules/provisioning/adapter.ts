@@ -1114,6 +1114,25 @@ export class ProxmoxHttpAdapter implements ProviderAdapter {
     }
   }
 
+  private async waitForTask(upid: string, maxWaitMs = 120000, pollIntervalMs = 1000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const taskStatus = await this.request('GET', `/nodes/${this.nodeName}/tasks/${encodeURIComponent(upid)}/status`);
+        if (taskStatus?.status === 'stopped') {
+          if (taskStatus.exitstatus && taskStatus.exitstatus !== 'OK') {
+            throw new ProviderError(`Proxmox task ${upid} failed with status: ${taskStatus.exitstatus}`, 'PROXMOX_TASK_FAILED');
+          }
+          return;
+        }
+      } catch (err: unknown) {
+        if (err instanceof ProviderError && err.code === 'PROXMOX_TASK_FAILED') throw err;
+      }
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+    throw new ProviderError(`Proxmox task ${upid} timed out waiting for completion`, 'PROXMOX_TASK_TIMEOUT');
+  }
+
   async provision(spec: ProvisioningSpec): Promise<{ externalId: string; identifier: string }> {
     const existing = await this.lookupByCorrelationTag(spec.correlationTag);
     if (existing) {
@@ -1125,7 +1144,7 @@ export class ProxmoxHttpAdapter implements ProviderAdapter {
       const newVmid = String(vmidData);
 
       // Clone from template VM with cloud-init
-      await this.request('POST', `/nodes/${this.nodeName}/qemu/${this.templateVmid}/clone`, {
+      const cloneRes = await this.request('POST', `/nodes/${this.nodeName}/qemu/${this.templateVmid}/clone`, {
         newid: parseInt(newVmid, 10),
         name: spec.name.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 32).toLowerCase() || `vps-${newVmid}`,
         description: `fortless_tag:${spec.correlationTag};service:${spec.serviceId}`,
@@ -1133,13 +1152,26 @@ export class ProxmoxHttpAdapter implements ProviderAdapter {
         storage: this.storage,
       });
 
-      // Configure vCPU, RAM, and Cloud-Init
+      const upid = typeof cloneRes === 'string' ? cloneRes : (cloneRes?.data || cloneRes?.upid);
+      if (upid && typeof upid === 'string' && upid.startsWith('UPID:')) {
+        await this.waitForTask(upid);
+      }
+
+      // Configure vCPU, RAM, and Cloud-Init (NEW-326: map OS image to cloud-init user)
+      const rawOs = String(spec.environmentVariables?.OS_IMAGE || spec.environmentVariables?.OS || '').toLowerCase();
+      let defaultUser = 'debian';
+      if (rawOs.includes('ubuntu')) defaultUser = 'ubuntu';
+      else if (rawOs.includes('alma') || rawOs.includes('rocky') || rawOs.includes('centos') || rawOs.includes('rhel')) defaultUser = 'almalinux';
+      else if (rawOs.includes('fedora')) defaultUser = 'fedora';
+      else if (rawOs.includes('arch')) defaultUser = 'arch';
+      const ciuser = spec.environmentVariables?.CLOUD_INIT_USER || defaultUser;
+
       const cores = Math.max(1, Math.round(spec.cpuPct / 100));
       await this.request('POST', `/nodes/${this.nodeName}/qemu/${newVmid}/config`, {
         cores,
         memory: spec.memoryMb,
         net0: `virtio,bridge=${this.bridge}`,
-        ciuser: 'debian',
+        ciuser,
         cipassword: spec.environmentVariables?.ROOT_PASSWORD || undefined,
         sshkeys: spec.environmentVariables?.SSH_KEY ? encodeURIComponent(spec.environmentVariables.SSH_KEY) : undefined,
       });

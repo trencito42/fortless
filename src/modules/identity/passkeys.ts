@@ -325,8 +325,8 @@ export function verifyAndAuthenticatePasskey(
     throw new Error('Passkey cryptographic signature verification failed.');
   }
 
-  // 5. Anti-replay counter check
-  const newCounter = params.clientCounter ?? (authDataBuffer.length >= 37 ? authDataBuffer.readUInt32BE(33) : 0);
+  // 5. Anti-replay counter check (strictly from signed authenticatorData)
+  const newCounter = authDataBuffer.length >= 37 ? authDataBuffer.readUInt32BE(33) : 0;
   if (newCounter > 0 && newCounter <= credential.counter) {
     throw new Error('WebAuthn anti-replay check failed: authenticator signature counter did not advance.');
   }

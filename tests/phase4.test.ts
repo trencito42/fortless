@@ -124,7 +124,9 @@ describe('Phase 4: Subscription Renewal, Dunning & System Status Management', ()
       const invoices = db.prepare('SELECT * FROM invoices WHERE account_id = ?').all(reg.account.id) as any[];
       expect(invoices.length).toBe(1);
       expect(invoices[0].status).toBe('ISSUED');
-      expect(invoices[0].total_minor_units).toBe(1500);
+      expect(invoices[0].subtotal_minor_units).toBe(1500);
+      expect(invoices[0].tax_minor_units).toBe(285);
+      expect(invoices[0].total_minor_units).toBe(1785);
 
       // Verify email was queued in email_outbox
       const emails = db.prepare('SELECT * FROM email_outbox WHERE recipient = ?').all(reg.user.email) as any[];

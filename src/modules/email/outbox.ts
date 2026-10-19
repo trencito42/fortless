@@ -169,12 +169,24 @@ export function renderEmail(
       ['Keep your recovery codes somewhere safe. Each works once.', 'Your authenticator factor and unused recovery codes were removed.'],
     );
   }
-  const html = plain.map(([from, to]) => [from, htmlEscape(to)] as [string, string]);
-  return {
-    subject: replaceEvery(canonical.subject, plain),
-    text: replaceEvery(canonical.text, plain),
-    html: normalizeEmailCtas(replaceEvery(canonical.html, html)),
-  };
+  const htmlReplacements = plain.map(([from, to]) => [from, htmlEscape(to)] as [string, string]);
+  let subject = replaceEvery(canonical.subject, plain);
+  let text = replaceEvery(canonical.text, plain);
+  let html = normalizeEmailCtas(replaceEvery(canonical.html, htmlReplacements));
+
+  // Support semantic {{key}} placeholder interpolation (MAIL-01)
+  for (const [key, val] of Object.entries(payload)) {
+    if (val !== undefined && val !== null && typeof val !== 'object') {
+      const rawStr = String(val);
+      const safeEscaped = htmlEscape(rawStr);
+      const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
+      subject = subject.replace(regex, rawStr);
+      text = text.replace(regex, rawStr);
+      html = html.replace(regex, safeEscaped);
+    }
+  }
+
+  return { subject, text, html };
 }
 
 export function queueEmail(

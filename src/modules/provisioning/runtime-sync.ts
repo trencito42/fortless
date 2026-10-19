@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { PterodactylHttpAdapter, ProviderError } from './adapter.js';
 import { withAccountClientKey } from './console.js';
-import { ensureAccountPanelAccess } from './panel-link.js';
+import { ensureAccountPanelAccess, resolvePanelUserId } from './panel-link.js';
 import { queueEmail } from '../email/outbox.js';
 
 // Wings states that map to a stable runtime state. Transitional states (starting, stopping) leave the row as is.
@@ -243,6 +243,15 @@ export async function relinkService(
   if (clash) throw new RelinkError('That panel server is already linked to another service.', 'ALREADY_LINKED', 409);
   const server = await adapter.getServerSummary(id);
   if (!server) throw new RelinkError('No such server on the panel.', 'NOT_FOUND_ON_PANEL', 404);
+
+  // Prepare and verify provider ownership before committing local DB update (NEW-322)
+  const panelUserId = await resolvePanelUserId(svc.account_id, adapter, db);
+  if (!panelUserId) {
+    throw new RelinkError('Failed to resolve panel user for service account.', 'PANEL_USER_MISSING', 502);
+  }
+  if (server.userId !== panelUserId) {
+    await adapter.assignServerOwner(String(id), panelUserId);
+  }
 
   const oldExternal = svc.external_id;
   db.prepare("UPDATE services SET external_id = ?, identifier = ?, updated_at = datetime('now', 'utc') WHERE id = ?").run(String(id), server.identifier, svc.id);

@@ -376,7 +376,7 @@ export async function unsuspendService(
 
     trx.prepare(`
       UPDATE service_observed_states
-      SET runtime_state = 'RUNNING', last_checked_at = datetime('now', 'utc')
+      SET runtime_state = 'STOPPED', last_checked_at = datetime('now', 'utc')
       WHERE service_id = ?
     `).run(service.id);
 
@@ -421,7 +421,35 @@ export async function terminateService(
     try {
       await adapter.terminate(service.external_id);
     } catch (err: unknown) {
-      // If server does not exist remotely, proceed to clean up local state
+      const msg = String((err as Error)?.message || '');
+      const statusCode = (err as { statusCode?: number })?.statusCode;
+      const isNotFound = statusCode === 404 || msg.includes('404') || msg.toLowerCase().includes('not found');
+      if (!isNotFound) {
+        // Provider call failed with a non-404 error (network timeout, 5xx, auth failure, etc.)
+        // Do NOT mark TERMINATED and do NOT release node capacity!
+        db.prepare(`
+          UPDATE service_observed_states
+          SET runtime_state = 'ERROR', last_checked_at = datetime('now', 'utc')
+          WHERE service_id = ?
+        `).run(service.id);
+
+        db.prepare(`
+          INSERT INTO audit_events (
+            id, account_id, actor_user_id, actor_type, action, resource_type,
+            resource_id, ip_address, correlation_id, metadata, created_at
+          ) VALUES (?, ?, ?, ?, 'service.terminate_failed', 'service', ?, '127.0.0.1', ?, ?, datetime('now', 'utc'))
+        `).run(
+          `aud_${crypto.randomUUID()}`,
+          service.account_id,
+          params.actorUserId || null,
+          params.actorType || 'STAFF',
+          service.id,
+          `corr_${crypto.randomUUID()}`,
+          JSON.stringify({ error: (err as Error).message, reason: params.reason, externalId: service.external_id })
+        );
+
+        throw err;
+      }
     }
   }
 

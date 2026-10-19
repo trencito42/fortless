@@ -5,6 +5,7 @@ import { getDatabase, runInTransaction } from '../../database/index.js';
 import { config } from '../../config/index.js';
 import { generateId } from '../identity/auth.js';
 import { verifyQuote } from '../pricing/quote.js';
+import { redeemCouponAtomic } from '../catalog/catalog.js';
 import { createNotification } from '../notifications/notifications.js';
 import { queueEmail } from '../email/outbox.js';
 
@@ -96,8 +97,10 @@ export async function processCheckout(
         VALUES (?, ?, ?, 'AWAITING_PAYMENT', ?, ?, ?)
       `).run(orderId, data.accountId, quote.id, quote.currency, quote.totalMinorUnits, data.idempotencyKey);
 
-      // 5. Create Order Items
+      // 5. Create Order Items (propagating line.regionId and line.interval - NEW-315)
       for (const line of quote.lines) {
+        const itemRegion = line.regionId || data.regionId || 'fra-1';
+        const itemInterval = line.interval || billingInterval;
         for (let i = 0; i < line.quantity; i++) {
           trx.prepare(`
             INSERT INTO order_items (id, order_id, plan_version_id, region_id, custom_options, fulfillment_status)
@@ -106,15 +109,26 @@ export async function processCheckout(
             generateId('ori'),
             orderId,
             line.planVersionId,
-            data.regionId,
-            JSON.stringify(data.customOptions || {})
+            itemRegion,
+            JSON.stringify({ ...(data.customOptions || {}), interval: itemInterval, regionId: itemRegion })
           );
         }
       }
 
-      // 6. Create Pro-Forma Invoice
+      // 5.5. Consume Coupon if applicable (NEW-303)
+      if (quote.couponCode) {
+        const couponRow = trx.prepare('SELECT id FROM coupon_rules WHERE code = ?').get(quote.couponCode.trim().toUpperCase()) as { id: string } | undefined;
+        if (couponRow) {
+          redeemCouponAtomic(couponRow.id, data.accountId, orderId, trx);
+        }
+      }
+
+      // 6. Create Pro-Forma Invoice (with proportional discount distribution - NEW-316)
       const invoiceId = generateId('inv');
       const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+      const discountTotal = quote.discountMinorUnits ?? 0;
+      const netSubtotal = Math.max(0, quote.subtotalMinorUnits - discountTotal);
+
       trx.prepare(`
         INSERT INTO invoices (id, account_id, order_id, status, currency, subtotal_minor_units, tax_minor_units, total_minor_units, due_date)
         VALUES (?, ?, ?, 'DRAFT', ?, ?, ?, ?, ?)
@@ -123,13 +137,28 @@ export async function processCheckout(
         data.accountId,
         orderId,
         quote.currency,
-        quote.subtotalMinorUnits,
+        netSubtotal,
         quote.taxMinorUnits,
         quote.totalMinorUnits,
         dueDate
       );
 
-      for (const line of quote.lines) {
+      // Distribute discount across invoice lines so sum(invoice_lines.total_minor_units) === netSubtotal
+      let allocatedDiscount = 0;
+      for (let idx = 0; idx < quote.lines.length; idx++) {
+        const line = quote.lines[idx]!;
+        let lineDiscount = 0;
+        if (discountTotal > 0 && quote.subtotalMinorUnits > 0) {
+          if (idx === quote.lines.length - 1) {
+            lineDiscount = discountTotal - allocatedDiscount;
+          } else {
+            lineDiscount = Math.round((line.totalMinorUnits / quote.subtotalMinorUnits) * discountTotal);
+            allocatedDiscount += lineDiscount;
+          }
+        }
+        const lineNetTotal = Math.max(0, line.totalMinorUnits - lineDiscount);
+        const unitNetPrice = line.quantity > 0 ? Math.floor(lineNetTotal / line.quantity) : lineNetTotal;
+
         trx.prepare(`
           INSERT INTO invoice_lines (id, invoice_id, description, quantity, unit_price_minor_units, tax_rate_basis_points, total_minor_units)
           VALUES (?, ?, 'Hosting Plan Entitlement', ?, ?, ?, ?)
@@ -137,9 +166,9 @@ export async function processCheckout(
           generateId('inl'),
           invoiceId,
           line.quantity,
-          line.unitPriceMinorUnits,
+          unitNetPrice,
           quote.taxEvidence.taxRateBasisPoints,
-          line.totalMinorUnits
+          lineNetTotal
         );
       }
 

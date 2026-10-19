@@ -133,9 +133,9 @@ export function ingestPSPWebhook(
 
       trx.prepare(`
         UPDATE invoices
-        SET status = ?, amount_paid_minor_units = max(0, amount_paid_minor_units - ?)
+        SET status = ?, amount_paid_minor_units = ?
         WHERE id = ?
-      `).run(isFullRefund ? 'CREDITED' : 'PAID', amountRefunded, attempt.invoice_id);
+      `).run(isFullRefund ? 'CREDITED' : 'PAID', Math.max(0, attempt.total_minor_units - amountRefunded), attempt.invoice_id);
 
       trx.prepare("UPDATE payment_attempts SET status = 'CANCELED' WHERE id = ?").run(attempt.id);
 
@@ -237,9 +237,39 @@ export function ingestPSPWebhook(
           WHERE psp_subscription_id = ?
         `).run(periodStart, periodEnd, periodEnd, subId);
 
-        const sub = trx.prepare('SELECT account_id FROM subscriptions WHERE psp_subscription_id = ?').get(subId) as { account_id: string } | undefined;
+        const sub = trx.prepare('SELECT account_id, service_id FROM subscriptions WHERE psp_subscription_id = ?').get(subId) as { account_id: string; service_id?: string } | undefined;
         if (sub) {
-          trx.prepare("UPDATE invoices SET status = 'PAID', paid_at = datetime('now', 'utc') WHERE account_id = ? AND status = 'ISSUED'").run(sub.account_id);
+          // NEW-330: Only settle exactly one matching issued invoice, never all issued invoices
+          const matchingInvoice = trx.prepare(`
+            SELECT id FROM invoices 
+            WHERE account_id = ? AND status = 'ISSUED'
+            ORDER BY created_at ASC LIMIT 1
+          `).get(sub.account_id) as { id: string } | undefined;
+
+          if (matchingInvoice) {
+            trx.prepare("UPDATE invoices SET status = 'PAID', paid_at = datetime('now', 'utc') WHERE id = ?").run(matchingInvoice.id);
+          }
+
+          // NEW-336: Unsuspend service if it was suspended due to billing dunning
+          if (sub.service_id) {
+            const svc = trx.prepare('SELECT id, contract_status FROM services WHERE id = ?').get(sub.service_id) as { id: string; contract_status: string } | undefined;
+            if (svc && svc.contract_status === 'SUSPENDED') {
+              trx.prepare("UPDATE services SET contract_status = 'ACTIVE', updated_at = datetime('now', 'utc') WHERE id = ?").run(svc.id);
+              trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(svc.id);
+              trx.prepare(`
+                INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+                VALUES (?, 'service.unsuspend.v1', 'service', ?, ?, 'PENDING')
+              `).run(
+                generateId('obx'),
+                svc.id,
+                JSON.stringify({
+                  serviceId: svc.id,
+                  reason: 'Renewal invoice settled successfully',
+                  actorType: 'SYSTEM',
+                })
+              );
+            }
+          }
         }
         trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
       }, db);
@@ -434,27 +464,38 @@ export function ingestPSPWebhook(
         VALUES (?, 'INSTALLING')
       `).run(serviceId);
 
-      // Ingest Stripe subscription if present
+      // Ingest Stripe subscription if present (NEW-338)
       if (pspSubId) {
+        let itemInterval = 'MONTHLY';
+        try {
+          const parsed = JSON.parse(item.custom_options || '{}');
+          if (parsed.interval) itemInterval = parsed.interval;
+        } catch {
+          // ignore
+        }
+        const intervalMonths = itemInterval === 'ANNUALLY' ? 12 : itemInterval === 'QUARTERLY' ? 3 : itemInterval === 'SEMI_ANNUAL' ? 6 : 1;
         const subId = generateId('sub');
         const now = new Date();
-        const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const nextPeriod = new Date(now.getTime() + intervalMonths * 30 * 24 * 60 * 60 * 1000);
+        const renewalPrice = items.length === 1 ? attemptRow.amount_minor_units : Math.round(attemptRow.amount_minor_units / items.length);
+
         trx.prepare(`
           INSERT INTO subscriptions (
             id, account_id, service_id, psp_subscription_id, status, billing_interval,
             current_period_start, current_period_end, next_renewal_date,
             renewal_price_minor_units, currency, auto_renew
-          ) VALUES (?, ?, ?, ?, 'ACTIVE', 'MONTHLY', ?, ?, ?, ?, ?, 1)
+          ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?, ?, ?, 1)
           ON CONFLICT(service_id) DO UPDATE SET psp_subscription_id = excluded.psp_subscription_id, status = 'ACTIVE'
         `).run(
           subId,
           attemptRow.account_id,
           serviceId,
           pspSubId,
+          itemInterval,
           now.toISOString(),
-          nextMonth.toISOString(),
-          nextMonth.toISOString(),
-          attemptRow.amount_minor_units,
+          nextPeriod.toISOString(),
+          nextPeriod.toISOString(),
+          renewalPrice,
           attemptRow.currency
         );
       }
@@ -557,6 +598,27 @@ export function processStaffRefund(
       trx.prepare("UPDATE orders SET status = 'CANCELED', updated_at = datetime('now', 'utc') WHERE id = ?").run(invoice.order_id);
       trx.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE account_id = ? AND order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)")
         .run(invoice.account_id, invoice.order_id);
+
+      // NEW-334: Enqueue service.terminate.v1 outbox events to decommission remote resources
+      const affectedServices = trx.prepare(`
+        SELECT id FROM services WHERE account_id = ? AND order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)
+      `).all(invoice.account_id, invoice.order_id) as { id: string }[];
+
+      for (const s of affectedServices) {
+        trx.prepare(`
+          INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+          VALUES (?, 'service.terminate.v1', 'service', ?, ?, 'PENDING')
+        `).run(
+          generateId('obx'),
+          s.id,
+          JSON.stringify({
+            serviceId: s.id,
+            reason: `Full staff refund issued for invoice ${data.invoiceId}`,
+            actorType: 'STAFF',
+            actorUserId: data.staffUserId,
+          })
+        );
+      }
     }
 
     trx.prepare(`

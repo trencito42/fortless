@@ -5,6 +5,7 @@ import { getDatabase } from '../../database/index.js';
 import { getProviderAdapter } from '../outbox/worker.js';
 import type { ProviderAdapter, PterodactylHttpAdapter } from './adapter.js';
 import { ConsoleAccessError, resolveOwnedService, withAccountClientKey } from './console.js';
+import { allows } from './service-access.js';
 
 interface Ctx { serviceId: string; accountId: string; userId: string; role?: string; ipAddress?: string }
 
@@ -156,12 +157,17 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
 
     // ----- Databases -----
     async databases(ctx: Ctx) {
-      const res = await call(ctx, 'database.read', 'GET', '/databases?include=password');
+      const { access } = resolveOwnedService(ctx, deps.adapter ?? getProviderAdapter(), db(), secret(), 'database.read');
+      const canViewPassword = allows(access, 'database.view_password');
+      const endpoint = canViewPassword ? '/databases?include=password' : '/databases';
+      const res = await call(ctx, 'database.read', 'GET', endpoint);
       return {
         databases: (res?.data ?? []).map((d: any) => ({
           id: String(d.attributes.id), name: String(d.attributes.name), username: String(d.attributes.username),
           host: `${d.attributes.host?.address ?? ''}:${d.attributes.host?.port ?? ''}`, connectionsFrom: String(d.attributes.connections_from ?? '%'),
-          password: d.attributes.relationships?.password?.attributes?.password ?? d.relationships?.password?.attributes?.password ?? null,
+          password: canViewPassword
+            ? (d.attributes.relationships?.password?.attributes?.password ?? d.relationships?.password?.attributes?.password ?? null)
+            : null,
         })),
       };
     },

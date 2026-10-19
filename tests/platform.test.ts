@@ -2068,7 +2068,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
   });
 
   describe('Category H: Subscriptions, Notifications & Customer Observability', () => {
-    it('SUB-01: Customer can list subscriptions and schedule or immediately cancel them', () => {
+    it('SUB-01: Customer can list subscriptions and schedule or immediately cancel them', async () => {
       const user = registerUser({ email: 'sub_user@example.com', password: 'P@ssword123!', name: 'Sub Owner', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
 
       // Create an active subscription
@@ -2086,7 +2086,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(subs[0]?.autoRenew).toBe(true);
 
       // Schedule cancellation
-      const sched = cancelSubscription({ subscriptionId: subId, accountId: user.account.id, userId: user.user.id, immediate: false }, db);
+      const sched = await cancelSubscription({ subscriptionId: subId, accountId: user.account.id, userId: user.user.id, immediate: false }, db);
       expect(sched.status).toBe('CANCEL_SCHEDULED');
 
       const updated = listSubscriptionsForAccount(user.account.id, db);

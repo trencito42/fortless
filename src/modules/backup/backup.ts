@@ -53,10 +53,14 @@ function deriveKey(keyInput: string): Buffer {
  * Supports optional AES-256-GCM authenticated encryption.
  */
 export async function createDatabaseBackup(options: BackupOptions = {}): Promise<BackupMetadata> {
+  if (config.NODE_ENV === 'production' && !options.encryptionKey) {
+    throw new Error('Encryption key is required for database backups in production environment.');
+  }
+
   const sourceDbPath = options.sourceDbPath || config.DATABASE_PATH || './data/fortless.db';
   const targetDir = options.targetDir || path.resolve(process.cwd(), 'data', 'backups');
   if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
+    fs.mkdirSync(targetDir, { recursive: true, mode: 0o750 });
   }
 
   const backupId = `bkp_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomBytes(4).toString('hex')}`;
@@ -105,11 +109,12 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
 
     // File structure: [12-byte IV][16-byte AuthTag][Encrypted ciphertext]
     const encryptedPayload = Buffer.concat([iv, tag, encrypted]);
-    fs.writeFileSync(finalBackupPath, encryptedPayload);
+    fs.writeFileSync(finalBackupPath, encryptedPayload, { mode: 0o600 });
     // Remove temporary raw snapshot
     fs.unlinkSync(rawSnapshotPath);
   } else {
     fs.renameSync(rawSnapshotPath, finalBackupPath);
+    fs.chmodSync(finalBackupPath, 0o600);
   }
 
   const finalStats = fs.statSync(finalBackupPath);
@@ -170,19 +175,17 @@ export async function verifyAndRestoreBackup(options: RestoreOptions): Promise<R
     throw new Error(`Checksum mismatch! Expected: ${options.expectedSha256}, Actual: ${actualSha256}`);
   }
 
-  // 3. Write target database file
+  // 3. Stage into temporary file before touching target
   const targetDir = path.dirname(options.targetDbPath);
   if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
+    fs.mkdirSync(targetDir, { recursive: true, mode: 0o750 });
   }
 
-  // Write atomically via temporary file
-  const tempTarget = `${options.targetDbPath}.tmp-${Date.now()}`;
-  fs.writeFileSync(tempTarget, rawDbBytes);
-  fs.renameSync(tempTarget, options.targetDbPath);
+  const tempTarget = `${options.targetDbPath}.tmp-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  fs.writeFileSync(tempTarget, rawDbBytes, { mode: 0o600 });
 
-  // 4. Verify integrity on restored database
-  const restoredDb = new Database(options.targetDbPath);
+  // 4. Verify integrity and foreign keys on isolated staged database BEFORE applying
+  const restoredDb = new Database(tempTarget);
   let integrityResult = 'UNKNOWN';
   let fkViolations = 0;
   const tableCounts: Record<string, number> = {};
@@ -207,8 +210,18 @@ export async function verifyAndRestoreBackup(options: RestoreOptions): Promise<R
   }
 
   if (integrityResult !== 'ok') {
+    try { fs.unlinkSync(tempTarget); } catch {}
     throw new Error(`Restored database failed integrity check: ${integrityResult}`);
   }
+
+  if (fkViolations > 0) {
+    try { fs.unlinkSync(tempTarget); } catch {}
+    throw new Error(`Restored database failed foreign key constraint check: ${fkViolations} violations detected.`);
+  }
+
+  // 5. Atomic swap into target location
+  fs.renameSync(tempTarget, options.targetDbPath);
+  fs.chmodSync(options.targetDbPath, 0o600);
 
   return {
     success: true,

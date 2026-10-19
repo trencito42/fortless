@@ -21,6 +21,11 @@ export function getAdapterForService(providerType?: string, currentAdapter: Prov
   if (currentAdapter && currentAdapter.providerType === norm) {
     return currentAdapter;
   }
+  if (process.env.NODE_ENV === 'production') {
+    if (norm === 'CPANEL' || norm === 'PROXMOX' || norm === 'VPS') {
+      throw new Error(`[Adapter] Provider adapter for '${norm}' is not configured in live production mode.`);
+    }
+  }
   switch (norm) {
     case 'CPANEL':
       return new MockCpanelAdapter();
@@ -160,17 +165,26 @@ export async function processOutboxQueue(
           WHERE id = ? AND lease_token = ?
         `).run(newRetries, errMsg, event.id, workerId);
 
-        db.prepare(`
-          UPDATE services
-          SET contract_status = 'SUSPENDED'
-          WHERE id = ?
-        `).run(event.aggregate_id);
+        if (event.event_type === 'service.terminate.v1') {
+          // Do not resurrect a terminated service as SUSPENDED (NEW-337)
+          db.prepare(`
+            INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+            SELECT ?, account_id, 'SYSTEM', 'service.terminate_failed', 'service', id, ?, ?
+            FROM services WHERE id = ?
+          `).run(`aud_${crypto.randomUUID()}`, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }), event.aggregate_id);
+        } else {
+          db.prepare(`
+            UPDATE services
+            SET contract_status = 'SUSPENDED'
+            WHERE id = ?
+          `).run(event.aggregate_id);
 
-        db.prepare(`
-          INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
-          SELECT ?, account_id, 'SYSTEM', 'service.provision_failed', 'service', id, ?, ?
-          FROM services WHERE id = ?
-        `).run(`aud_${crypto.randomUUID()}`, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }), event.aggregate_id);
+          db.prepare(`
+            INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+            SELECT ?, account_id, 'SYSTEM', 'service.provision_failed', 'service', id, ?, ?
+            FROM services WHERE id = ?
+          `).run(`aud_${crypto.randomUUID()}`, `corr_${crypto.randomUUID()}`, JSON.stringify({ reason: errMsg.slice(0, 200) }), event.aggregate_id);
+        }
 
         db.prepare(`
           UPDATE service_observed_states

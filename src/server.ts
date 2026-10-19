@@ -128,6 +128,7 @@ import {
   addTicketAttachment,
   listTicketAttachments,
   getTicketAttachment,
+  toPublicAttachment,
 } from './modules/support/tickets.js';
 import {
   getPublicSystemStatus,
@@ -459,7 +460,7 @@ export function buildServer(): FastifyInstance {
     const filePath = path.join(publicDir, 'status.html');
     if (fs.existsSync(filePath)) {
       const html = renderHtml('status.html').replace('__AUTH_STATE__', req.auth ? 'true' : 'false');
-      return reply.type('text/html').header('Cache-Control', 'public, max-age=30').send(html);
+      return reply.type('text/html').header('Cache-Control', 'private, no-cache').send(html);
     }
     return reply.status(404).send('Not Found');
   });
@@ -488,7 +489,7 @@ export function buildServer(): FastifyInstance {
       const html = renderHtml('legal.html')
         .replace('__AUTH_STATE__', req.auth ? 'true' : 'false')
         .replace(/__ACTIVE_DOC__/g, targetDoc);
-      return reply.type('text/html').header('Cache-Control', 'public, max-age=60').send(html);
+      return reply.type('text/html').header('Cache-Control', 'private, no-cache').send(html);
     }
     return reply.status(404).send('Not Found');
   });
@@ -913,7 +914,7 @@ export function buildServer(): FastifyInstance {
   });
 
   // --- WebAuthn Passkeys ---
-  app.post('/api/v1/auth/passkeys/register-options', { preHandler: [requireAuth] }, async (req) => {
+  app.post('/api/v1/auth/passkeys/register-options', { preHandler: [requireAuth, requireRecentStepUp] }, async (req) => {
     const { challenge, expiresAt } = generateWebAuthnChallenge('REGISTRATION', req.auth!.user.id, getDatabase());
     const rpId = relyingPartyId(req.hostname);
     return {
@@ -926,7 +927,7 @@ export function buildServer(): FastifyInstance {
     };
   });
 
-  app.post('/api/v1/auth/passkeys/register-verify', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/api/v1/auth/passkeys/register-verify', { preHandler: [requireAuth, requireRecentStepUp] }, async (req, reply) => {
     const parse = z.object({
       deviceLabel: z.string().min(1).max(64),
       challenge: z.string().min(16),
@@ -937,6 +938,10 @@ export function buildServer(): FastifyInstance {
       transports: z.array(z.string()).optional(),
     }).safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Invalid passkey registration parameters.' });
+
+    if (parse.data.publicKey.startsWith('-----BEGIN')) {
+      return reply.status(400).send({ error: 'Direct PEM public key registration is not allowed on public endpoint. Attestation object required.' });
+    }
 
     try {
       const passkey = verifyAndRegisterPasskey({
@@ -956,7 +961,7 @@ export function buildServer(): FastifyInstance {
       challenge,
       rpId: relyingPartyId(),
       timeout: 60000,
-      userVerification: 'preferred',
+      userVerification: 'required',
       expiresAt,
     };
   });
@@ -968,7 +973,6 @@ export function buildServer(): FastifyInstance {
       clientDataJSON: z.string(),
       authenticatorData: z.string(),
       signature: z.string(),
-      clientCounter: z.number().optional(),
     }).safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Invalid passkey authentication payload.' });
 
@@ -999,7 +1003,7 @@ export function buildServer(): FastifyInstance {
     return { passkeys: listPasskeysForUser(req.auth!.user.id, getDatabase()) };
   });
 
-  app.delete('/api/v1/auth/passkeys/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.delete('/api/v1/auth/passkeys/:id', { preHandler: [requireAuth, requireRecentStepUp] }, async (req, reply) => {
     const parsed = z.object({ id: z.string().min(1) }).safeParse(req.params);
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid passkey ID.' });
     try {
@@ -1024,6 +1028,13 @@ export function buildServer(): FastifyInstance {
       role: z.enum(['OWNER', 'BILLING_MANAGER', 'TECH_ADMIN', 'VIEWER']),
     }).safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'A valid email and role (OWNER, BILLING_MANAGER, TECH_ADMIN, VIEWER) are required.' });
+    if (parse.data.role === 'OWNER') {
+      const isSteppedUp = req.auth?.session?.stepUpVerifiedAt &&
+        (Date.now() - new Date(req.auth.session.stepUpVerifiedAt).getTime() < 15 * 60 * 1000);
+      if (!isSteppedUp) {
+        return reply.status(403).send({ error: 'Step-up authentication required to invite or grant the OWNER role.' });
+      }
+    }
     try {
       const result = inviteAccountMember({
         accountId: req.auth!.account.id,
@@ -1830,7 +1841,7 @@ export function buildServer(): FastifyInstance {
     const parse = cancelSubSchema.safeParse(req.body || {});
     if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
     try {
-      const result = cancelSubscription({
+      const result = await cancelSubscription({
         subscriptionId: id,
         accountId: req.auth!.account.id,
         userId: req.auth!.user.id,
@@ -2191,7 +2202,7 @@ export function buildServer(): FastifyInstance {
         ipAddress: req.ip,
       }, getDatabase());
 
-      return reply.status(201).send({ attachment: record });
+      return reply.status(201).send({ attachment: toPublicAttachment(record) });
     } catch (err: unknown) {
       const msg = (err as Error).message;
       if (msg === 'Ticket not found.') return reply.status(404).send({ error: msg });
@@ -2203,7 +2214,7 @@ export function buildServer(): FastifyInstance {
   app.get('/api/v1/tickets/:id/attachments', { preHandler: [requireAuth] }, async (req) => {
     const { id } = req.params as { id: string };
     const attachments = listTicketAttachments(id, req.auth!.account.id, getDatabase());
-    return { attachments };
+    return { attachments: attachments.map(toPublicAttachment) };
   });
 
   // Tickets: Download Attachment
@@ -2308,18 +2319,22 @@ export function buildServer(): FastifyInstance {
       { id: 'act-passkeys', title: 'Manage WebAuthn Passkeys', category: 'Actions', icon: 'key-01', action: 'passkeys' },
     ];
 
-    const adminPages = isStaff ? [
-      { id: 'adm-overview', title: 'Admin: Operations Overview', category: 'Admin Control Plane', icon: 'home-01', path: '/admin' },
-      { id: 'adm-accounts', title: 'Admin: Customer Accounts', category: 'Admin Control Plane', icon: 'user-group', path: '/admin/accounts' },
-      { id: 'adm-services', title: 'Admin: Service Inventory', category: 'Admin Control Plane', icon: 'server', path: '/admin/services' },
-      { id: 'adm-orders', title: 'Admin: Orders', category: 'Admin Control Plane', icon: 'package', path: '/admin/orders' },
-      { id: 'adm-billing', title: 'Admin: Billing Operations', category: 'Admin Control Plane', icon: 'credit-card', path: '/admin/billing' },
-      { id: 'adm-infrastructure', title: 'Admin: Infrastructure Capacity', category: 'Admin Control Plane', icon: 'database', path: '/admin/infrastructure' },
-      { id: 'adm-tickets', title: 'Admin: Support Queue', category: 'Admin Control Plane', icon: 'bubble-chat', path: '/admin/tickets' },
-      { id: 'adm-audit', title: 'Admin: Global Audit Trail', category: 'Admin Control Plane', icon: 'shield-01', path: '/admin/audit' },
-      { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff' },
-      { id: 'adm-status', title: 'Admin: System Status', category: 'Admin Control Plane', icon: 'activity', path: '/admin/status' },
-    ] : [];
+    const adminPagesConfig = [
+      { id: 'adm-overview', title: 'Admin: Operations Overview', category: 'Admin Control Plane', icon: 'home-01', path: '/admin', perm: null },
+      { id: 'adm-accounts', title: 'Admin: Customer Accounts', category: 'Admin Control Plane', icon: 'user-group', path: '/admin/accounts', perm: 'accounts:read' as StaffPermission },
+      { id: 'adm-services', title: 'Admin: Service Inventory', category: 'Admin Control Plane', icon: 'server', path: '/admin/services', perm: 'services:read' as StaffPermission },
+      { id: 'adm-orders', title: 'Admin: Orders', category: 'Admin Control Plane', icon: 'package', path: '/admin/orders', perm: 'billing:read' as StaffPermission },
+      { id: 'adm-billing', title: 'Admin: Billing Operations', category: 'Admin Control Plane', icon: 'credit-card', path: '/admin/billing', perm: 'billing:read' as StaffPermission },
+      { id: 'adm-infrastructure', title: 'Admin: Infrastructure Capacity', category: 'Admin Control Plane', icon: 'database', path: '/admin/infrastructure', perm: 'services:read' as StaffPermission },
+      { id: 'adm-tickets', title: 'Admin: Support Queue', category: 'Admin Control Plane', icon: 'bubble-chat', path: '/admin/tickets', perm: 'tickets:read' as StaffPermission },
+      { id: 'adm-audit', title: 'Admin: Global Audit Trail', category: 'Admin Control Plane', icon: 'shield-01', path: '/admin/audit', perm: 'audit:read' as StaffPermission },
+      { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff', perm: 'staff:manage' as StaffPermission },
+      { id: 'adm-status', title: 'Admin: System Status', category: 'Admin Control Plane', icon: 'activity', path: '/admin/status', perm: 'services:read' as StaffPermission },
+    ];
+
+    const adminPages = isStaff
+      ? adminPagesConfig.filter((p) => !p.perm || hasStaffPermission(req.auth!.user.id, p.perm, db)).map(({ perm, ...rest }) => rest)
+      : [];
 
     const like = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
 

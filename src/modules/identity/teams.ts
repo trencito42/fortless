@@ -91,6 +91,11 @@ export function inviteAccountMember(
     throw new Error('Only workspace owners and technical administrators can invite new members.');
   }
 
+  // Only OWNER can invite or grant the OWNER role (NEW-331)
+  if (data.role === 'OWNER' && inviter.role !== 'OWNER') {
+    throw new Error('Only workspace owners can invite or grant the OWNER role.');
+  }
+
   // 2. Check if already an active member of this account
   const existingMember = db.prepare(`
     SELECT m.id FROM memberships m

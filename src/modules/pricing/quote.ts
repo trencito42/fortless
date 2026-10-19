@@ -36,6 +36,7 @@ export interface QuoteSnapshot {
     interval?: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
     regionId?: string;
     unitPriceMinorUnits: number;
+    setupFeeMinorUnits?: number;
     totalMinorUnits: number;
   }[];
   validUntil: string;
@@ -57,8 +58,10 @@ const VAT_RATES: Record<string, number> = {
 export function resolveTaxRate(country: string, isB2B: boolean, taxId?: string): TaxEvidence {
   const normalizedCountry = country.toUpperCase();
 
-  // B2B Reverse-Charge (EU Member States with valid Tax ID)
-  if (isB2B && taxId && taxId.trim().length > 5 && normalizedCountry !== 'DE') {
+  // B2B Reverse-Charge (EU Member States with valid Tax ID format)
+  // Must match EU VAT format: 2-letter country prefix + 6 to 12 alphanumeric characters
+  const isValidVat = (id: string) => /^[A-Z]{2}[0-9A-Za-z+*.]{6,12}$/.test(id.trim());
+  if (isB2B && taxId && isValidVat(taxId) && normalizedCountry !== 'DE') {
     return {
       country: normalizedCountry,
       isB2B: true,
@@ -136,17 +139,23 @@ export function createQuote(
 
     const interval = item.interval ?? 'MONTHLY';
     const priceRow = db.prepare(`
-      SELECT pp.price_minor_units
+      SELECT pp.price_minor_units, coalesce(pp.setup_fee_minor_units, 0) as setup_fee_minor_units
       FROM plan_prices pp
       JOIN plan_versions pv ON pv.id = pp.plan_version_id
-      WHERE pp.plan_version_id = ? AND pp.currency = 'EUR' AND pp.interval = ? AND pv.status = 'ACTIVE'
-    `).get(item.planVersionId, interval) as { price_minor_units: number } | undefined;
+      JOIN products p ON p.id = pv.product_id
+      JOIN categories c ON c.id = p.category_id
+      WHERE pp.plan_version_id = ? AND pp.currency = 'EUR' AND pp.interval = ?
+        AND pv.status = 'ACTIVE'
+        AND p.is_published = 1
+        AND c.is_active = 1
+    `).get(item.planVersionId, interval) as { price_minor_units: number; setup_fee_minor_units: number } | undefined;
 
     if (!priceRow) {
       throw new Error(`Plan version ${item.planVersionId} is not available for purchase on interval ${interval}.`);
     }
 
-    const lineTotal = priceRow.price_minor_units * item.quantity;
+    const setupFee = (priceRow.setup_fee_minor_units || 0) * item.quantity;
+    const lineTotal = (priceRow.price_minor_units * item.quantity) + setupFee;
     subtotal += lineTotal;
 
     lines.push({
@@ -155,6 +164,7 @@ export function createQuote(
       interval,
       regionId: item.regionId,
       unitPriceMinorUnits: priceRow.price_minor_units,
+      setupFeeMinorUnits: setupFee,
       totalMinorUnits: lineTotal,
     });
   }

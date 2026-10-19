@@ -185,8 +185,20 @@ export function createGameTools(deps: GameToolsDeps = {}) {
       const allowed = (u: URL) => u.protocol === 'https:' && src.downloadHosts.includes(u.hostname.toLowerCase());
       if (!allowed(download)) throw fail('The download address is not on the allowed list.', 'DOWNLOAD_NOT_ALLOWED', 422);
 
-      const res = await doFetch()(download.toString(), { headers: { 'User-Agent': userAgent() }, redirect: 'follow', signal: AbortSignal.timeout(60000) });
-      if (!res.ok || !res.body || !allowed(new URL(res.url || download.toString()))) throw fail('The file could not be downloaded.', 'DOWNLOAD_FAILED', 502);
+      let currentUrl = download;
+      let res: Response | null = null;
+      for (let hop = 0; hop < 5; hop++) {
+        if (!allowed(currentUrl)) throw fail('The download address is not on the allowed list.', 'DOWNLOAD_NOT_ALLOWED', 422);
+        res = await doFetch()(currentUrl.toString(), { headers: { 'User-Agent': userAgent() }, redirect: 'manual', signal: AbortSignal.timeout(60000) });
+        if (res.status >= 300 && res.status < 400) {
+          const loc = res.headers.get('location');
+          if (!loc) throw fail('The download address returned a redirect without a location header.', 'DOWNLOAD_FAILED', 502);
+          currentUrl = new URL(loc, currentUrl);
+          continue;
+        }
+        break;
+      }
+      if (!res || !res.ok || !res.body) throw fail('The file could not be downloaded.', 'DOWNLOAD_FAILED', 502);
       const chunks: Buffer[] = [];
       let total = 0;
       for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {

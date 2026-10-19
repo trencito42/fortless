@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { suspendService, unsuspendService, terminateService } from '../provisioning/services.js';
 import { queueEmail } from '../email/outbox.js';
+import { resolveTaxRate, computeTaxMinorUnits } from '../pricing/quote.js';
 
 export interface RenewalResult {
   renewedCount: number;
@@ -72,14 +73,17 @@ export async function processSubscriptionRenewals(
       `).run(sub.id);
 
       if (sub.service_id) {
-        terminateService(
-          {
+        trx.prepare(`
+          INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+          VALUES (?, 'service.terminate.v1', 'service', ?, ?, 'PENDING')
+        `).run(
+          `obx_${crypto.randomUUID()}`,
+          sub.service_id,
+          JSON.stringify({
             serviceId: sub.service_id,
             reason: 'Subscription period concluded following cancellation schedule',
             actorType: 'SYSTEM',
-          },
-          undefined,
-          trx
+          })
         );
       }
 
@@ -96,6 +100,23 @@ export async function processSubscriptionRenewals(
         JSON.stringify({ subscriptionId: sub.id, serviceId: sub.service_id })
       );
     }, db);
+
+    if (sub.service_id) {
+      try {
+        await terminateService(
+          {
+            serviceId: sub.service_id,
+            reason: 'Subscription period concluded following cancellation schedule',
+            actorType: 'SYSTEM',
+          },
+          undefined,
+          db
+        );
+      } catch (err) {
+        console.error(`[Renewal] Failed to terminate service ${sub.service_id}:`, err);
+      }
+    }
+
     result.canceledCount++;
   }
 
@@ -174,30 +195,42 @@ export async function processSubscriptionRenewals(
         WHERE id = ?
       `).run(graceEnd, sub.id);
 
+      // Calculate dynamic tax for renewal invoice based on account country and tax settings (NEW-324)
+      const bp = trx.prepare('SELECT country, tax_id, company_name FROM billing_profiles WHERE account_id = ?').get(sub.account_id) as
+        | { country?: string; tax_id?: string; company_name?: string }
+        | undefined;
+      const country = bp?.country || 'DE';
+      const isB2B = Boolean(bp?.company_name || bp?.tax_id);
+      const taxEvidence = resolveTaxRate(country, isB2B, bp?.tax_id || undefined);
+      const taxAmount = computeTaxMinorUnits(sub.renewal_price_minor_units, taxEvidence.taxRateBasisPoints);
+      const totalAmount = sub.renewal_price_minor_units + taxAmount;
+
       // Create draft/open renewal invoice
       trx.prepare(`
         INSERT INTO invoices (
           id, account_id, status, currency, subtotal_minor_units, tax_minor_units,
           total_minor_units, due_date, created_at
-        ) VALUES (?, ?, 'ISSUED', ?, ?, 0, ?, ?, datetime('now', 'utc'))
+        ) VALUES (?, ?, 'ISSUED', ?, ?, ?, ?, ?, datetime('now', 'utc'))
       `).run(
         invoiceId,
         sub.account_id,
         sub.currency,
         sub.renewal_price_minor_units,
-        sub.renewal_price_minor_units,
+        taxAmount,
+        totalAmount,
         graceEnd
       );
 
       trx.prepare(`
         INSERT INTO invoice_lines (
           id, invoice_id, description, quantity, unit_price_minor_units, tax_rate_basis_points, total_minor_units
-        ) VALUES (?, ?, ?, 1, ?, 0, ?)
+        ) VALUES (?, ?, ?, 1, ?, ?, ?)
       `).run(
         `inl_${crypto.randomUUID()}`,
         invoiceId,
         `Subscription Renewal (${sub.billing_interval})`,
         sub.renewal_price_minor_units,
+        taxEvidence.taxRateBasisPoints,
         sub.renewal_price_minor_units
       );
 
