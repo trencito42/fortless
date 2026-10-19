@@ -8,53 +8,46 @@ import { esc } from '../../../core/utils/dom.js';
 import { hero } from '../../../petal/index.js';
 
 interface SettingsData {
-  environment: { nodeEnv: string; providerMode: string; maintenanceMode: boolean };
-  provider: { configured: boolean; type: string; panelUrl: string | null };
-  payments: { mode: string; stripeConfigured: boolean; webhookSecretConfigured: boolean };
-  email: { transport: string; configured: boolean; fromAddress: string | null };
-  security: { stepUpRequired: boolean; antiFraudEnabled: boolean; sessionTtlSeconds: number };
-  resources: { accounts: number; services: number; products: number; nodes: number };
+  general: { platformName: string; appOrigin: string; nodeEnv: string; currency: string; currencyMinorUnits: string };
+  provider: { configured: boolean; type: string; mode: string; panelUrl: string | null; verificationTier: string };
+  payments: { mode: string; configured: boolean; webhookSecretConfigured: boolean; currency: string };
+  email: { mode: string; configured: boolean; host: string | null; port: number | null; user: string | null; from: string | null };
+  security: { staffMfaMandatory: boolean; sessionTtlHours: number; stepUpTtlMinutes: number; antiSsrBlacklistActive: boolean };
+  counts: { accounts: number; services: number; staff: number; products: number };
 }
 
 export async function renderSettings(): Promise<void> {
-  const panelStatus = document.getElementById('settingsPanelStatus');
-  const panelUrl = document.getElementById('settingsPanelUrl');
-  const stripeStatus = document.getElementById('settingsStripeStatus');
-  const stripeMode = document.getElementById('settingsStripeMode');
-  const mailStatus = document.getElementById('settingsMailStatus');
-  const mailSender = document.getElementById('settingsMailSender');
-  const mfaPolicy = document.getElementById('settingsMfaPolicy');
-  const sessionTtl = document.getElementById('settingsSessionTtl');
-
   try {
     const data = await api<SettingsData>('/api/v1/admin/settings');
+    const setText = (id: string, value: string) => { const element = document.getElementById(id); if (element) element.textContent = value; };
+    const setPill = (id: string, active: boolean, yes: string, no: string) => {
+      const element = document.getElementById(id);
+      if (!element) return;
+      element.className = `pill ${active ? 'good d' : 'warn d'}`;
+      element.textContent = active ? yes : no;
+    };
 
-    if (panelStatus) {
-      panelStatus.className = `pill ${data.provider.configured ? 'good d' : 'bad d'}`;
-      panelStatus.textContent = data.provider.configured ? 'Configured & Active' : 'Not Configured';
-    }
-    if (panelUrl) panelUrl.textContent = data.provider.panelUrl || 'No panel URL configured';
+    setPill('settingsProviderPill', data.provider.configured, 'Configured', 'Not configured');
+    setText('settingsProviderMode', data.provider.mode.toUpperCase());
+    setText('settingsProviderUrl', data.provider.panelUrl || 'Not configured');
+    setText('settingsProviderTier', data.provider.verificationTier || 'Not configured');
+    setText('settingsProviderCreds', data.provider.configured ? 'Present (masked)' : 'Missing');
 
-    if (stripeStatus) {
-      stripeStatus.className = `pill ${data.payments.stripeConfigured ? 'good d' : 'warn d'}`;
-      stripeStatus.textContent = data.payments.stripeConfigured ? 'Connected (Live)' : 'Mock / Inactive';
-    }
-    if (stripeMode) stripeMode.textContent = data.payments.mode.toUpperCase();
+    setPill('settingsPaymentsPill', data.payments.configured, 'Configured', 'Not configured');
+    setText('settingsPaymentsMode', data.payments.mode.toUpperCase());
+    setText('settingsPaymentsCurrency', `${data.payments.currency} (minor units: cents)`);
+    setText('settingsWebhookStatus', data.payments.webhookSecretConfigured ? 'Configured (masked)' : 'Missing');
 
-    if (mailStatus) {
-      mailStatus.className = `pill ${data.email.configured ? 'good d' : 'neu d'}`;
-      mailStatus.textContent = data.email.configured ? `${data.email.transport.toUpperCase()} Active` : 'Disabled';
-    }
-    if (mailSender) mailSender.textContent = data.email.fromAddress || 'system-mailer@fortless.net';
+    setPill('settingsEmailPill', data.email.configured, 'Configured', 'Not configured');
+    setText('settingsEmailMode', data.email.mode.toUpperCase());
+    setText('settingsEmailHost', data.email.host ? `${data.email.host}${data.email.port ? `:${data.email.port}` : ''}` : 'Not configured');
+    setText('settingsEmailFrom', data.email.from || 'Not configured');
 
-    if (mfaPolicy) {
-      mfaPolicy.className = `pill ${data.security.stepUpRequired ? 'good d' : 'warn d'}`;
-      mfaPolicy.textContent = data.security.stepUpRequired ? 'Enforced (Fresh MFA)' : 'Standard';
-    }
-    if (sessionTtl) {
-      const hours = Math.round(data.security.sessionTtlSeconds / 3600);
-      sessionTtl.textContent = `${hours} hours`;
-    }
+    setPill('settingsSecurityPill', data.security.staffMfaMandatory, 'Enforced', 'Not enforced');
+    setText('settingsStaffMfa', data.security.staffMfaMandatory ? 'Required for staff operations' : 'Not required');
+    setText('settingsSessionTtl', `${data.security.sessionTtlHours} hours`);
+    setText('settingsStepUpTtl', `${data.security.stepUpTtlMinutes} minutes`);
+    setText('settingsSsrf', data.security.antiSsrBlacklistActive ? 'Private and metadata networks blocked' : 'Not active');
   } catch (err: any) {
     const testResult = document.getElementById('providerTestResult');
     if (testResult) {
@@ -109,6 +102,6 @@ export async function testProviderConnection(): Promise<void> {
     `;
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `${hero('activity', 'xs')} Test Live Connection`;
+    btn.innerHTML = `${hero('activity', 'xs')} Test API connection`;
   }
 }

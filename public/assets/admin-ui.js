@@ -2686,39 +2686,36 @@
 
   // src/frontend/admin/pages/settings/index.ts
   async function renderSettings() {
-    const panelStatus = document.getElementById("settingsPanelStatus");
-    const panelUrl = document.getElementById("settingsPanelUrl");
-    const stripeStatus = document.getElementById("settingsStripeStatus");
-    const stripeMode = document.getElementById("settingsStripeMode");
-    const mailStatus = document.getElementById("settingsMailStatus");
-    const mailSender = document.getElementById("settingsMailSender");
-    const mfaPolicy = document.getElementById("settingsMfaPolicy");
-    const sessionTtl = document.getElementById("settingsSessionTtl");
     try {
       const data = await api("/api/v1/admin/settings");
-      if (panelStatus) {
-        panelStatus.className = `pill ${data.provider.configured ? "good d" : "bad d"}`;
-        panelStatus.textContent = data.provider.configured ? "Configured & Active" : "Not Configured";
-      }
-      if (panelUrl) panelUrl.textContent = data.provider.panelUrl || "No panel URL configured";
-      if (stripeStatus) {
-        stripeStatus.className = `pill ${data.payments.stripeConfigured ? "good d" : "warn d"}`;
-        stripeStatus.textContent = data.payments.stripeConfigured ? "Connected (Live)" : "Mock / Inactive";
-      }
-      if (stripeMode) stripeMode.textContent = data.payments.mode.toUpperCase();
-      if (mailStatus) {
-        mailStatus.className = `pill ${data.email.configured ? "good d" : "neu d"}`;
-        mailStatus.textContent = data.email.configured ? `${data.email.transport.toUpperCase()} Active` : "Disabled";
-      }
-      if (mailSender) mailSender.textContent = data.email.fromAddress || "system-mailer@fortless.net";
-      if (mfaPolicy) {
-        mfaPolicy.className = `pill ${data.security.stepUpRequired ? "good d" : "warn d"}`;
-        mfaPolicy.textContent = data.security.stepUpRequired ? "Enforced (Fresh MFA)" : "Standard";
-      }
-      if (sessionTtl) {
-        const hours = Math.round(data.security.sessionTtlSeconds / 3600);
-        sessionTtl.textContent = `${hours} hours`;
-      }
+      const setText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) element.textContent = value;
+      };
+      const setPill = (id, active, yes, no) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        element.className = `pill ${active ? "good d" : "warn d"}`;
+        element.textContent = active ? yes : no;
+      };
+      setPill("settingsProviderPill", data.provider.configured, "Configured", "Not configured");
+      setText("settingsProviderMode", data.provider.mode.toUpperCase());
+      setText("settingsProviderUrl", data.provider.panelUrl || "Not configured");
+      setText("settingsProviderTier", data.provider.verificationTier || "Not configured");
+      setText("settingsProviderCreds", data.provider.configured ? "Present (masked)" : "Missing");
+      setPill("settingsPaymentsPill", data.payments.configured, "Configured", "Not configured");
+      setText("settingsPaymentsMode", data.payments.mode.toUpperCase());
+      setText("settingsPaymentsCurrency", `${data.payments.currency} (minor units: cents)`);
+      setText("settingsWebhookStatus", data.payments.webhookSecretConfigured ? "Configured (masked)" : "Missing");
+      setPill("settingsEmailPill", data.email.configured, "Configured", "Not configured");
+      setText("settingsEmailMode", data.email.mode.toUpperCase());
+      setText("settingsEmailHost", data.email.host ? `${data.email.host}${data.email.port ? `:${data.email.port}` : ""}` : "Not configured");
+      setText("settingsEmailFrom", data.email.from || "Not configured");
+      setPill("settingsSecurityPill", data.security.staffMfaMandatory, "Enforced", "Not enforced");
+      setText("settingsStaffMfa", data.security.staffMfaMandatory ? "Required for staff operations" : "Not required");
+      setText("settingsSessionTtl", `${data.security.sessionTtlHours} hours`);
+      setText("settingsStepUpTtl", `${data.security.stepUpTtlMinutes} minutes`);
+      setText("settingsSsrf", data.security.antiSsrBlacklistActive ? "Private and metadata networks blocked" : "Not active");
     } catch (err) {
       const testResult = document.getElementById("providerTestResult");
       if (testResult) {
@@ -2761,7 +2758,7 @@
     `;
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `${hero("activity", "xs")} Test Live Connection`;
+      btn.innerHTML = `${hero("activity", "xs")} Test API connection`;
     }
   }
 

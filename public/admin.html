@@ -266,7 +266,7 @@
               </div>
               <div id="providerTestResult"></div>
               <div class="row" style="margin-top:6px">
-                <button class="btn s pri" type="button" id="testProviderBtn">Test API connection</button>
+                <button class="btn s pri" type="button" id="testProviderBtn" data-permission="services:manage">Test API connection</button>
                 <a class="btn s" href="/admin/catalog">View egg mappings</a>
               </div>
             </div>
@@ -284,7 +284,7 @@
             <div class="col" style="gap:12px">
               <div class="kv">
                 <dt>Stripe Gateway mode</dt><dd class="mono" id="settingsPaymentsMode">—</dd>
-                <dt>Currency</dt><dd class="mono">EUR (Euro minor units / cents)</dd>
+                <dt>Currency</dt><dd class="mono" id="settingsPaymentsCurrency">—</dd>
                 <dt>Webhook signature</dt><dd id="settingsWebhookStatus">—</dd>
                 <dt>Client authority</dt><dd><span class="pill good d">Zero (cryptographic webhooks only)</span></dd>
               </div>
@@ -312,7 +312,7 @@
                 <dt>Worker isolation</dt><dd><span class="pill good d">Transactional outbox ledger</span></dd>
               </div>
               <div class="row" style="margin-top:6px">
-                <a class="btn s" href="/admin/overview">Check outbox queue</a>
+                <a class="btn s" href="/admin/jobs">Check delivery jobs</a>
               </div>
             </div>
           </article>
@@ -324,14 +324,14 @@
                 <h2>Access policy & security</h2>
                 <p>Phishing-resistant MFA and least-privilege boundary.</p>
               </div>
-              <span class="pill good d">Enforced</span>
+              <span class="pill" id="settingsSecurityPill">Loading</span>
             </div>
             <div class="col" style="gap:12px">
               <div class="kv">
-                <dt>Staff MFA requirement</dt><dd><span class="pill good d">Strict TOTP / WebAuthn</span></dd>
-                <dt>Session TTL</dt><dd class="mono">72 hours</dd>
-                <dt>Privileged Step-Up TTL</dt><dd class="mono">15 minutes</dd>
-                <dt>Anti-SSRF protection</dt><dd><span class="pill good d">RFC1918 & metadata blocked</span></dd>
+                <dt>Staff MFA requirement</dt><dd id="settingsStaffMfa">—</dd>
+                <dt>Session TTL</dt><dd class="mono" id="settingsSessionTtl">—</dd>
+                <dt>Privileged Step-Up TTL</dt><dd class="mono" id="settingsStepUpTtl">—</dd>
+                <dt>Anti-SSRF protection</dt><dd id="settingsSsrf">—</dd>
               </div>
               <div class="row" style="margin-top:6px">
                 <a class="btn s" href="/admin/staff">Manage staff access</a>
