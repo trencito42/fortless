@@ -1487,6 +1487,15 @@ ${selectedOr("code")}
   function niceName(s) {
     return s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
   }
+  function dashboardGreeting(name, now = /* @__PURE__ */ new Date()) {
+    const firstName = name?.trim().split(/\s+/)[0] || "";
+    const addressed = firstName ? `, ${firstName}` : "";
+    const hour = now.getHours();
+    if (hour >= 6 && hour < 12) return `Good morning${addressed} \u2600\uFE0F`;
+    if (hour >= 12 && hour < 18) return `Hello${addressed} \u{1F4AA}`;
+    if (hour >= 18 && hour < 23) return `Good evening${addressed} \u{1F319}`;
+    return firstName ? `Still up, ${firstName}? \u{1F971}\u{1F4A4}` : "Still up? \u{1F971}\u{1F4A4}";
+  }
   async function renderHome() {
     const host = document.getElementById("dashboardOverview");
     if (!host) return;
@@ -1507,6 +1516,7 @@ ${selectedOr("code")}
     const outstandingTotal = outstanding.reduce((sum, i) => sum + Number(i.total_minor_units || 0), 0);
     const caps = capabilitiesStore.get();
     const providerOk = Boolean(caps?.provisioning.enabled && caps?.payments.enabled);
+    const greeting = dashboardGreeting(sessionStore.getState().user?.name);
     const failCount = [serviceResult, ticketResult, invoiceResult, auditResult].filter(
       (r) => r.status === "rejected"
     ).length;
@@ -1554,8 +1564,7 @@ ${selectedOr("code")}
 
     <div class="hd">
       <div class="tx">
-        ${pill("Workspace overview", "acc")}
-        <h2>Your workspace, at a glance.</h2>
+        <h2>${esc(greeting)}</h2>
         <p>Services, billing, support and security activity from your account.</p>
       </div>
       <div class="row act" style="gap:8px">

@@ -171,55 +171,6 @@
         setTimeout(() => moveInd(nl.querySelector('a.on')), 30);
       }
 
-      // Seamless View Transition navigation
-      document.addEventListener('click', (e) => {
-        const a = e.target.closest('a[href]');
-        if (!a || a.target || a.hasAttribute('download') || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-        const href = a.getAttribute('href');
-        if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
-        const targetUrl = new URL(a.href, location.origin);
-        if (targetUrl.origin !== location.origin) return;
-        if (targetUrl.pathname.startsWith('/app') || targetUrl.pathname.startsWith('/api') || targetUrl.pathname.startsWith('/login') || targetUrl.pathname.startsWith('/register')) return;
-        if (targetUrl.href === location.href) return;
-
-        e.preventDefault();
-        const navigate = async () => {
-          try {
-            const resp = await fetch(targetUrl.href);
-            if (!resp.ok) { location.href = targetUrl.href; return; }
-            const html = await resp.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-
-            const applyPage = () => {
-              document.title = doc.title;
-              history.pushState({}, '', targetUrl.href);
-              document.body.innerHTML = doc.body.innerHTML;
-              window.scrollTo({ top: 0, behavior: 'instant' });
-              doc.querySelectorAll('script').forEach((s) => {
-                if (s.src) {
-                  const sc = document.createElement('script');
-                  sc.src = s.src;
-                  document.body.appendChild(sc);
-                } else {
-                  const sc = document.createElement('script');
-                  sc.textContent = s.textContent;
-                  document.body.appendChild(sc);
-                }
-              });
-            };
-
-            if (document.startViewTransition) {
-              document.startViewTransition(applyPage);
-            } else {
-              applyPage();
-            }
-          } catch (_) {
-            location.href = targetUrl.href;
-          }
-        };
-        navigate();
-      });
     })();
   </script>
 </body>

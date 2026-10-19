@@ -10,6 +10,39 @@ import { spark, smooth } from '../src/frontend/petal/components/sparklines.js';
 import { renderSkeleton } from '../src/frontend/petal/components/skeleton.js';
 import { paginateItems, renderPager, renderPaginationFooter } from '../src/frontend/petal/components/pagination.js';
 import { ApiError, SessionExpiredError, StepUpRequiredError } from '../src/frontend/core/api/errors.js';
+import { dashboardGreeting } from '../src/frontend/client/pages/home/index.js';
+
+describe('Phase 1 customer navigation and dashboard regressions', () => {
+  it('uses native cross-document navigation without body replacement', () => {
+    for (const path of ['../public/index.html', '../public/status.html', '../public/legal.html']) {
+      const html = readFileSync(new URL(path, import.meta.url), 'utf8');
+      expect(html).not.toContain('document.body.innerHTML = doc.body.innerHTML');
+      expect(html).not.toContain('new DOMParser()');
+    }
+    const petalCss = readFileSync(new URL('../public/assets/petal-app.css', import.meta.url), 'utf8');
+    expect(petalCss).toContain('@view-transition{navigation:auto}');
+    expect(petalCss).toContain('view-transition-name:public-nav-bar');
+  });
+
+  it('keeps local admin search separate from the global command palette', () => {
+    const admin = readFileSync(new URL('../src/frontend/admin/index.ts', import.meta.url), 'utf8');
+    const command = readFileSync(new URL('../src/frontend/petal/components/cmd.ts', import.meta.url), 'utf8');
+    expect(admin).toContain("target.closest('[data-cmd]')");
+    expect(admin).toContain("querySelectorAll<HTMLInputElement>('[data-search]')");
+    expect(command).toContain('(e.metaKey || e.ctrlKey)');
+    expect(command).toContain("e.key.toLowerCase() === 'k'");
+  });
+
+  it('renders the four local-time greeting dayparts and handles missing names', () => {
+    const at = (hour: number) => new Date(2026, 9, 19, hour, 0, 0);
+    expect(dashboardGreeting('Stefan Popescu', at(8))).toBe('Good morning, Stefan ☀️');
+    expect(dashboardGreeting('Stefan Popescu', at(14))).toBe('Hello, Stefan 💪');
+    expect(dashboardGreeting('Stefan Popescu', at(20))).toBe('Good evening, Stefan 🌙');
+    expect(dashboardGreeting('Stefan Popescu', at(2))).toBe('Still up, Stefan? 🥱💤');
+    expect(dashboardGreeting(undefined, at(8))).toBe('Good morning ☀️');
+    expect(dashboardGreeting('  ', at(2))).toBe('Still up? 🥱💤');
+  });
+});
 
 describe('Category N: Modular Frontend Architecture & Petal Integration', () => {
   describe('Router & Route Definitions', () => {

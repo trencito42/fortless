@@ -8,3 +8,5 @@ scratch/
 *.log
 *.sqlite
 *.zip
+test-results/
+playwright-report/

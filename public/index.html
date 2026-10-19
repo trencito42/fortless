@@ -1041,43 +1041,6 @@ $('#more').addEventListener('click',function(){
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(function(){tabsInit();curS=null;onScroll()});
 tabsInit();
 
-// Seamless View Transition navigation
-document.addEventListener('click', function(e) {
-  var a = e.target.closest('a[href]');
-  if (!a || a.target || a.hasAttribute('download') || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-  var href = a.getAttribute('href');
-  if (!href || href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return;
-  var targetUrl = new URL(a.href, location.origin);
-  if (targetUrl.origin !== location.origin) return;
-  if (targetUrl.pathname.startsWith('/app') || targetUrl.pathname.startsWith('/api') || targetUrl.pathname.startsWith('/login') || targetUrl.pathname.startsWith('/register')) return;
-  if (targetUrl.href === location.href) return;
-
-  e.preventDefault();
-  fetch(targetUrl.href).then(function(resp) {
-    if (!resp.ok) { location.href = targetUrl.href; return; }
-    return resp.text().then(function(html) {
-      var doc = new DOMParser().parseFromString(html, 'text/html');
-      var applyPage = function() {
-        document.title = doc.title;
-        history.pushState({}, '', targetUrl.href);
-        document.body.innerHTML = doc.body.innerHTML;
-        window.scrollTo({ top: 0, behavior: 'instant' });
-        doc.querySelectorAll('script').forEach(function(s) {
-          var sc = document.createElement('script');
-          if (s.src) sc.src = s.src; else sc.textContent = s.textContent;
-          document.body.appendChild(sc);
-        });
-      };
-      if (document.startViewTransition) {
-        document.startViewTransition(applyPage);
-      } else {
-        applyPage();
-      }
-    });
-  }).catch(function() {
-    location.href = targetUrl.href;
-  });
-});
 })();
 </script>
 

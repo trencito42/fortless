@@ -7,6 +7,7 @@ import { formatDate } from '../../../core/utils/dates.js';
 import { money } from '../../../core/utils/formatting.js';
 import { hero } from '../../../petal/index.js';
 import { capabilitiesStore } from '../../../core/state/capabilities.js';
+import { sessionStore } from '../../../core/state/session.js';
 
 // ── Petal primitives ──────────────────────────────────────────────────────────
 
@@ -46,6 +47,18 @@ function niceName(s: string): string {
   return s.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** A local-time greeting kept pure so copy and future locale variants are easy to test. */
+export function dashboardGreeting(name: string | null | undefined, now = new Date()): string {
+  const firstName = name?.trim().split(/\s+/)[0] || '';
+  const addressed = firstName ? `, ${firstName}` : '';
+  const hour = now.getHours();
+
+  if (hour >= 6 && hour < 12) return `Good morning${addressed} ☀️`;
+  if (hour >= 12 && hour < 18) return `Hello${addressed} 💪`;
+  if (hour >= 18 && hour < 23) return `Good evening${addressed} 🌙`;
+  return firstName ? `Still up, ${firstName}? 🥱💤` : 'Still up? 🥱💤';
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 
 export async function renderHome(): Promise<void> {
@@ -73,6 +86,7 @@ export async function renderHome(): Promise<void> {
 
   const caps = capabilitiesStore.get();
   const providerOk = Boolean(caps?.provisioning.enabled && caps?.payments.enabled);
+  const greeting = dashboardGreeting(sessionStore.getState().user?.name);
 
   const failCount = [serviceResult, ticketResult, invoiceResult, auditResult].filter(
     (r) => r.status === 'rejected',
@@ -128,8 +142,7 @@ export async function renderHome(): Promise<void> {
 
     <div class="hd">
       <div class="tx">
-        ${pill('Workspace overview', 'acc')}
-        <h2>Your workspace, at a glance.</h2>
+        <h2>${esc(greeting)}</h2>
         <p>Services, billing, support and security activity from your account.</p>
       </div>
       <div class="row act" style="gap:8px">
