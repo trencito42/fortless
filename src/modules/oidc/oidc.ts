@@ -143,7 +143,7 @@ export interface PanelIdentity {
  */
 export function resolvePanelIdentity(accountId: string, userId: string, db: Database.Database = getDatabase()): PanelIdentity {
   const row = db.prepare(`
-    SELECT m.role, u.name, u.email_verified_at, u.status AS user_status, a.status AS account_status,
+    SELECT m.role, u.name, u.email_verified_at, u.status AS user_status, a.status AS account_status, a.owner_user_id,
            pu.panel_email, pu.panel_username
     FROM memberships m
     JOIN users u ON u.id = m.user_id
@@ -152,7 +152,7 @@ export function resolvePanelIdentity(accountId: string, userId: string, db: Data
     WHERE m.account_id = ? AND m.user_id = ?
   `).get(accountId, userId) as {
     role: string; name: string; email_verified_at: string | null; user_status: string; account_status: string;
-    panel_email: string | null; panel_username: string | null;
+    panel_email: string | null; panel_username: string | null; owner_user_id: string;
   } | undefined;
 
   if (!row || row.user_status !== 'ACTIVE' || row.account_status !== 'ACTIVE') {
@@ -160,6 +160,15 @@ export function resolvePanelIdentity(accountId: string, userId: string, db: Data
   }
   if (!['OWNER', 'TECH_ADMIN'].includes(row.role)) {
     throw new OidcError('access_denied', 'Your role does not allow hosting panel access.', 403);
+  }
+  // NEW-387: the panel holds ONE user per workspace and a shared server is attached to that user. While servers are shared
+  // with this workspace, only its owner may sign in to the panel, so another administrator of the workspace cannot reach a
+  // server that was shared with a specific person.
+  const receivesShares = db.prepare(`
+    SELECT 1 FROM service_members sm JOIN memberships mm ON mm.user_id = sm.user_id WHERE mm.account_id = ? LIMIT 1
+  `).get(accountId);
+  if (receivesShares && row.owner_user_id !== userId) {
+    throw new OidcError('access_denied', 'Only the workspace owner can open the hosting panel while servers are shared with this workspace.', 403);
   }
   if (!row.email_verified_at) {
     throw new OidcError('access_denied', 'Verify your email address before opening the hosting panel.', 403);

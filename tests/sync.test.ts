@@ -188,3 +188,24 @@ describe('Relink safety (NEW-388) and reconcile safety (NEW-389)', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM service_members').get()).toEqual({ c: 1 });
   });
 });
+
+describe('NEW-392: reinstall completion waits for the panel install flag', () => {
+  it('keeps INSTALLING while the panel says the script runs, completes when it has finished and flags a failed install', async () => {
+    seed(1);
+    db.prepare("UPDATE service_observed_states SET runtime_state = 'INSTALLING', last_checked_at = datetime('now', '-1 hour') WHERE service_id = 'svc_1'").run();
+    const ad = new FakeAdapter();
+    ad.panel = [{ ...srv(1), installing: true } as PanelServerSummary];
+    await syncRuntimeStates(ad, db, SECRET);
+    expect((db.prepare("SELECT runtime_state s FROM service_observed_states WHERE service_id = 'svc_1'").get() as any).s).toBe('INSTALLING');
+
+    db.prepare("UPDATE service_observed_states SET last_checked_at = datetime('now', '-1 hour') WHERE service_id = 'svc_1'").run();
+    ad.panel = [{ ...srv(1), installing: false } as PanelServerSummary];
+    await syncRuntimeStates(ad, db, SECRET);
+    expect((db.prepare("SELECT runtime_state s FROM service_observed_states WHERE service_id = 'svc_1'").get() as any).s).toBe('STOPPED');
+
+    db.prepare("UPDATE service_observed_states SET runtime_state = 'INSTALLING', last_checked_at = datetime('now', '-1 hour') WHERE service_id = 'svc_1'").run();
+    ad.panel = [{ ...srv(1), installFailed: true } as PanelServerSummary];
+    await syncRuntimeStates(ad, db, SECRET);
+    expect((db.prepare("SELECT runtime_state s FROM service_observed_states WHERE service_id = 'svc_1'").get() as any).s).toBe('ERROR');
+  });
+});

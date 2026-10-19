@@ -194,3 +194,13 @@ describe('Key mint request to the panel', () => {
     await expect(ad.getWebsocketCredentials('abcd1234', 'ptlc_k')).rejects.toMatchObject({ code: 'MALFORMED_RESPONSE' });
   });
 });
+
+describe('NEW-397: simultaneous callers share one key mint', () => {
+  it('mints once for two concurrent requests of the same account', async () => {
+    seed('acc_1', 'svc_1');
+    const ad = new FakeAdapter();
+    const p = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1', role: 'OWNER' };
+    await Promise.all([getServiceConsoleCredentials(p, ad, db, SECRET), getServiceConsoleCredentials(p, ad, db, SECRET)]);
+    expect(ad.mints).toEqual(['fortless_acc_acc_1']);
+  });
+});

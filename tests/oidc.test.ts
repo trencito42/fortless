@@ -149,3 +149,16 @@ describe('OIDC provider for the hosting panel', () => {
     expect(panelLoginUrl()).toBe('https://panel.example.test/auth/login/oidc');
   });
 });
+
+describe('NEW-387: shared servers are attached to the workspace\'s single panel user', () => {
+  it('lets only the workspace owner open the panel while servers are shared with that workspace', () => {
+    seed('OWNER');
+    db.prepare("INSERT INTO users (id, email, password_hash, name, status, email_verified_at) VALUES ('usr_2', 'tech@example.test', 'x', 'Tech', 'ACTIVE', '2026-01-01 00:00:00')").run();
+    db.prepare("INSERT INTO memberships (id, account_id, user_id, role) VALUES ('mem_2', 'acc_1', 'usr_2', 'TECH_ADMIN')").run();
+    expect(resolvePanelIdentity('acc_1', 'usr_2', db).panelUsername).toBeTruthy(); // nothing is shared yet: a technical admin may open the panel
+    db.pragma('foreign_keys = OFF');
+    db.prepare("INSERT INTO service_members (id, service_id, user_id, preset, panel_subuser_uuid) VALUES ('sm1', 'svc_other', 'usr_1', 'viewer', 'uuid-1')").run();
+    expect(() => resolvePanelIdentity('acc_1', 'usr_2', db)).toThrow(/Only the workspace owner/);
+    expect(resolvePanelIdentity('acc_1', 'usr_1', db).panelUsername).toBeTruthy();
+  });
+});

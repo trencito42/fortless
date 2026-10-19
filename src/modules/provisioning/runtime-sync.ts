@@ -53,6 +53,14 @@ export async function syncRuntimeStates(adapter: PterodactylHttpAdapter, db: Dat
       db.prepare("UPDATE service_observed_states SET last_checked_at = datetime('now', 'utc') WHERE service_id = ?").run(svc.id);
       if (!next) return;
       if (svc.runtime_state === 'INSTALLING') {
+        // NEW-392: Wings can report offline before the install script has started or while it runs. The install flag of
+        // the panel decides when the installation is really over.
+        const summary = await adapter.getServerSummary(Number(svc.external_id)).catch(() => null);
+        if (summary?.installing) return;
+        if (summary?.installFailed) {
+          updated += db.prepare("UPDATE service_observed_states SET runtime_state = 'ERROR' WHERE service_id = ? AND runtime_state = 'INSTALLING'").run(svc.id).changes;
+          return;
+        }
         updated += completeReinstall(db, svc, next, usage);
         return;
       }

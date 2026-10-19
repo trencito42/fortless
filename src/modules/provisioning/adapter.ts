@@ -62,6 +62,9 @@ export interface PanelServerSummary {
   name: string;
   userId: number;
   suspended: boolean;
+  /** True while the panel's install script runs (Application API status 'installing' or container.installed = 0). */
+  installing?: boolean;
+  installFailed?: boolean;
   limits: { memoryMb: number; cpuPct: number; diskMb: number };
 }
 
@@ -515,6 +518,8 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
   private static summarize(a: any): PanelServerSummary {
     return {
       id: Number(a.id), identifier: String(a.identifier), name: String(a.name), userId: Number(a.user), suspended: Boolean(a.suspended),
+      installing: a.status === 'installing' || (a.container?.installed === 0 && a.status !== 'install_failed'),
+      installFailed: a.status === 'install_failed',
       limits: { memoryMb: Number(a.limits?.memory ?? 0), cpuPct: Number(a.limits?.cpu ?? 0), diskMb: Number(a.limits?.disk ?? 0) },
     };
   }

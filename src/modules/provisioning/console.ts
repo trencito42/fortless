@@ -39,7 +39,18 @@ export function decryptClientKey(value: string): string {
   return Buffer.concat([decipher.update(Buffer.from(ct, 'base64url')), decipher.final()]).toString('utf8');
 }
 
-async function mintAndStore(accountId: string, adapter: PterodactylHttpAdapter, db: Database.Database, secret: string): Promise<string> {
+// NEW-397: minting revokes the account's previous key, so two simultaneous mints would invalidate each other. One mint
+// per account runs at a time and concurrent callers share its result.
+const minting = new Map<string, Promise<string>>();
+function mintAndStore(accountId: string, adapter: PterodactylHttpAdapter, db: Database.Database, secret: string): Promise<string> {
+  const running = minting.get(accountId);
+  if (running) return running;
+  const started = mintAndStoreOnce(accountId, adapter, db, secret).finally(() => minting.delete(accountId));
+  minting.set(accountId, started);
+  return started;
+}
+
+async function mintAndStoreOnce(accountId: string, adapter: PterodactylHttpAdapter, db: Database.Database, secret: string): Promise<string> {
   await ensureAccountPanelAccess(accountId, adapter, db);
   const link = db.prepare("SELECT correlation_tag FROM panel_users WHERE account_id = ? AND provider_type = 'PTERODACTYL'")
     .get(accountId) as { correlation_tag: string } | undefined;

@@ -64,10 +64,15 @@ class FortlessKeyMintController extends Controller
         }
 
         $ips = array_values(array_filter(array_map('trim', explode(',', (string) config('fortless_sso.keymint_allowed_ips')))));
+        // NEW-397: a key that works from any address is not issued. Set FORTLESS_KEYMINT_ALLOWED_IPS to the Fortless server.
+        if (count($ips) === 0) {
+            Log::error('Fortless key mint refused: FORTLESS_KEYMINT_ALLOWED_IPS is empty');
+            return new JsonResponse(['error' => 'disabled'], 503);
+        }
 
         // Revoke the previous key so each account only ever has one live Fortless key.
         $user->tokens()->where('memo', self::MEMO)->delete();
-        $token = $user->createToken(self::MEMO, $ips ?: null);
+        $token = $user->createToken(self::MEMO, $ips);
 
         // plainTextToken is only the 32 character secret; the usable bearer key is identifier + secret.
         return new JsonResponse(['token' => $token->accessToken->identifier . $token->plainTextToken]);
