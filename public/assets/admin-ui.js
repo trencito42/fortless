@@ -808,22 +808,6 @@
   };
 
   // src/frontend/petal/components/pagination.ts
-  function paginateItems(items, page, pageSize2) {
-    const total2 = items.length;
-    const pages = Math.max(1, Math.ceil(total2 / pageSize2));
-    const currentPage2 = Math.max(1, Math.min(page, pages));
-    const start = (currentPage2 - 1) * pageSize2;
-    const sliced = items.slice(start, start + pageSize2);
-    const info = total2 === 0 ? "0 items" : `Showing ${start + 1}\u2013${start + sliced.length} of ${total2}`;
-    return {
-      items: sliced,
-      total: total2,
-      page: currentPage2,
-      pages,
-      pageSize: pageSize2,
-      info
-    };
-  }
   function renderPager(page, pages) {
     if (pages <= 1) return "";
     const nums = /* @__PURE__ */ new Set([1, pages, page - 1, page, page + 1]);
@@ -2227,8 +2211,18 @@
   // src/frontend/admin/pages/audit/index.ts
   var cachedLogs = [];
   var adminAuditPage = 1;
-  var adminAuditPageSize = 10;
+  var adminAuditQuery = "";
+  var adminAuditTotal = 0;
+  var adminAuditPageSize = 20;
   var adminAuditListenersBound = false;
+  function metadata(value) {
+    if (!value) return "\u2014";
+    try {
+      return JSON.stringify(typeof value === "string" ? JSON.parse(value) : value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
   function paintAuditList() {
     const host = document.querySelector("#auditList");
     const paginationRow = document.getElementById("adminAuditPaginationRow");
@@ -2237,15 +2231,15 @@
     if (!host) return;
     if (!cachedLogs.length) {
       if (paginationRow) paginationRow.style.display = "none";
-      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching audit events.</b></div></td></tr>`;
+      host.innerHTML = `<tr><td colspan="7"><div class="empty"><b>No matching audit events.</b></div></td></tr>`;
       return;
     }
-    const pagination = paginateItems(cachedLogs, adminAuditPage, adminAuditPageSize);
-    adminAuditPage = pagination.page;
-    if (paginationRow) paginationRow.style.display = cachedLogs.length > adminAuditPageSize ? "flex" : "none";
-    if (infoEl) infoEl.textContent = pagination.info;
-    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-    host.innerHTML = pagination.items.map((x) => `<tr class="h"><td data-l="Time" class="muted mono">${formatDate(x.created_at)}</td><td data-l="Actor"><b>${esc(x.actor_name || x.actor_type)}</b><small>${esc(x.actor_email || x.account_name || "Platform")}</small></td><td data-l="Action">${badge(x.action)}</td><td data-l="Target" class="mono">${esc(x.resource_type)} ${esc(x.resource_id)}</td><td data-l="IP" class="mono muted">${esc(x.ip_address || "\u2014")}</td></tr>`).join("");
+    const pages = Math.max(1, Math.ceil(adminAuditTotal / adminAuditPageSize));
+    const start = (adminAuditPage - 1) * adminAuditPageSize;
+    if (paginationRow) paginationRow.style.display = adminAuditTotal > adminAuditPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = `Showing ${start + 1}\u2013${start + cachedLogs.length} of ${adminAuditTotal}`;
+    if (pagerEl) pagerEl.innerHTML = renderPager(adminAuditPage, pages);
+    host.innerHTML = cachedLogs.map((x) => `<tr class="h"><td data-l="Time" class="muted mono">${formatDate(x.created_at)}</td><td data-l="Actor"><b>${esc(x.actor_name || x.actor_type)}</b><small>${esc(x.actor_email || x.account_name || "Platform")}</small></td><td data-l="Action">${badge(x.action)}</td><td data-l="Target" class="mono">${esc(x.resource_type)} ${esc(x.resource_id)}</td><td data-l="IP" class="mono muted">${esc(x.ip_address || "\u2014")}</td><td data-l="Correlation" class="mono muted">${esc(x.correlation_id || "\u2014")}</td><td data-l="Context"><details><summary class="btn xs">View</summary><pre class="mono" style="white-space:pre-wrap;max-width:420px;margin-top:8px">${esc(metadata(x.metadata))}</pre></details></td></tr>`).join("");
   }
   function bindAdminAuditListeners() {
     if (adminAuditListenersBound) return;
@@ -2256,23 +2250,25 @@
       if (btn && !btn.disabled) {
         const p = Number(btn.dataset.pg);
         if (p && p !== adminAuditPage) {
-          adminAuditPage = p;
-          paintAuditList();
+          void renderAudit(adminAuditQuery, p);
         }
       }
     });
   }
-  async function renderAudit(q = "") {
+  async function renderAudit(q = "", page = 1) {
     const host = document.querySelector("#auditList");
     if (!host) return;
     try {
-      const d = await api(`/api/v1/admin/audit?q=${encodeURIComponent(q)}`);
+      adminAuditQuery = q;
+      adminAuditPage = Math.max(1, page);
+      const params = new URLSearchParams({ q, limit: String(adminAuditPageSize), offset: String((adminAuditPage - 1) * adminAuditPageSize) });
+      const d = await api(`/api/v1/admin/audit?${params}`);
       cachedLogs = d.logs || [];
-      adminAuditPage = 1;
+      adminAuditTotal = Number(d.total || 0);
       paintAuditList();
       bindAdminAuditListeners();
     } catch (e) {
-      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
+      host.innerHTML = `<tr><td colspan="7"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
   }
 
@@ -2336,16 +2332,44 @@
   }
 
   // src/frontend/admin/pages/staff/index.ts
-  async function renderStaff(q = "") {
+  var currentQuery2 = "";
+  var currentPage2 = 1;
+  var total2 = 0;
+  var pageSize2 = 20;
+  var listenersBound2 = false;
+  function bindListeners2() {
+    if (listenersBound2) return;
+    listenersBound2 = true;
+    document.getElementById("adminStaffPager")?.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-pg]");
+      if (button && !button.disabled) void renderStaff(currentQuery2, Number(button.dataset.pg) || 1);
+    });
+  }
+  async function renderStaff(q = "", page = 1) {
     const host = document.querySelector("#staffList");
     if (!host) return;
     try {
-      const d = await api(`/api/v1/admin/staff?q=${encodeURIComponent(q)}`);
+      currentQuery2 = q;
+      currentPage2 = Math.max(1, page);
+      const params = new URLSearchParams({ q, limit: String(pageSize2), offset: String((currentPage2 - 1) * pageSize2) });
+      const d = await api(`/api/v1/admin/staff?${params}`);
+      total2 = Number(d.total || 0);
       if (!d.staff.length) {
         host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching staff identities.</b></div></td></tr>`;
+        const row3 = document.getElementById("adminStaffPaginationRow");
+        if (row3) row3.style.display = "none";
         return;
       }
       host.innerHTML = d.staff.map((x) => `<tr class="h"><td data-l="Member"><div class="row nw"><span class="av v">${esc(x.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase())}</span><div><b>${esc(x.name)}</b><small>${esc(x.email)}</small></div></div></td><td data-l="Role">${badge(x.role)}</td><td data-l="MFA">${badge(x.mfa_enabled ? "READY" : "NOT SET UP")}</td><td data-l="Access">${badge(x.status)}</td><td data-l="Action"><button class="btn xs" data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(x.role)}" data-staff-status="${esc(x.status)}" data-permission="staff:manage">Edit</button></td></tr>`).join("");
+      const pages = Math.max(1, Math.ceil(total2 / pageSize2));
+      const start = (currentPage2 - 1) * pageSize2;
+      const info = document.getElementById("adminStaffPageInfo");
+      const pager = document.getElementById("adminStaffPager");
+      const row2 = document.getElementById("adminStaffPaginationRow");
+      if (info) info.textContent = `Showing ${start + 1}\u2013${start + d.staff.length} of ${total2}`;
+      if (pager) pager.innerHTML = renderPager(currentPage2, pages);
+      if (row2) row2.style.display = total2 > pageSize2 ? "flex" : "none";
+      bindListeners2();
     } catch (e) {
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
