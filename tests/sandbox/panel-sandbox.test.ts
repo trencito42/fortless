@@ -2,7 +2,7 @@
  * [SANDBOX_VERIFIED] checks against a TEST Pterodactyl panel (NEW-392, NEW-397, NEW-409 provider half, console/file path).
  * Run with: npm run test:sandbox:panel   (reads PTERODACTYL_* from FORTLESS_ENV_FILE, default ./.env, inside the process)
  * Refuses to run unless FORTLESS_PANEL_IS_TEST=yes, because it creates and deletes a user and a server on that panel.
- * Everything it creates is prefixed fortless_sbx_ and removed at the end, even when an assertion fails.
+ * Everything it creates carries the marker sbx and removed at the end, even when an assertion fails.
  */
 import fs from 'node:fs';
 import { describe, it, expect, afterAll } from 'vitest';
@@ -25,7 +25,8 @@ describe.skipIf(!enabled)('Pterodactyl TEST panel verification', () => {
   const panelUrl = get('PTERODACTYL_PANEL_URL').replace(/\/$/, '');
   const adapter = enabled ? new PterodactylHttpAdapter({ panelUrl, apiKey: get('PTERODACTYL_API_KEY'), timeoutMs: 30_000 }) : (undefined as unknown as PterodactylHttpAdapter);
   const stamp = Date.now().toString(36);
-  const tag = `fortless_sbx_${stamp}`;
+  // The key-mint endpoint only accepts fortless_acc_ tags; the sbx marker keeps these objects recognisable.
+  const tag = `fortless_acc_sbx_${stamp}`;
   let panelUserId = 0;
   let externalId = '';
   let clientKey = '';
