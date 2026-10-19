@@ -69,7 +69,6 @@ interface ManifestItem {
 }
 
 export function initFastDl(serviceId: string) {
-  const host = document.getElementById('dtlFastdlBody');
   const base = `/api/v1/services/${encodeURIComponent(serviceId)}/fastdl`;
   let status: FastDlStatus | null = null;
   let manifestPage = 1;
@@ -180,6 +179,8 @@ export function initFastDl(serviceId: string) {
   }
 
   async function open(): Promise<void> {
+    // The controller is created before the service page is drawn, so the pane is looked up when it is opened.
+    const host = document.getElementById('dtlFastdlBody');
     if (!host) return;
     stopPolling();
 

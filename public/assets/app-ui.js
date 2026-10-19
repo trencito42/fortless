@@ -3237,7 +3237,6 @@ ${selectedOr("code")}
 
   // src/frontend/client/pages/services/fastdl.ts
   function initFastDl(serviceId) {
-    const host = document.getElementById("dtlFastdlBody");
     const base = `/api/v1/services/${encodeURIComponent(serviceId)}/fastdl`;
     let status = null;
     let manifestPage = 1;
@@ -3329,6 +3328,7 @@ ${selectedOr("code")}
       }
     }
     async function open2() {
+      const host = document.getElementById("dtlFastdlBody");
       if (!host) return;
       stopPolling();
       host.innerHTML = `<div class="sk" role="status" aria-label="Loading FastDL"><i></i><i></i><i></i></div>`;
