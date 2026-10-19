@@ -70,7 +70,7 @@ describe('Path validation', () => {
 });
 
 describe('File manager service layer', () => {
-  const ctx = (accountId: string, serviceId: string) => ({ serviceId, accountId, userId: `usr_${accountId}` });
+  const ctx = (accountId: string, serviceId: string) => ({ serviceId, accountId, userId: `usr_${accountId}`, role: 'OWNER' });
 
   it('FIL-02: lists folders first, uses the account key, scopes to the service owner', async () => {
     seed('acc_1', 'svc_1');
@@ -106,7 +106,7 @@ describe('File manager service layer', () => {
 });
 
 describe('Archive and copy', () => {
-  const ctx = (accountId: string, serviceId: string) => ({ serviceId, accountId, userId: `usr_${accountId}` });
+  const ctx = (accountId: string, serviceId: string) => ({ serviceId, accountId, userId: `usr_${accountId}`, role: 'OWNER' });
 
   it('FIL-06b: archive, unarchive and copy validate input, use the account key and are audited', async () => {
     seed('acc_1', 'svc_1');
@@ -127,7 +127,7 @@ describe('Archive and copy', () => {
 });
 
 describe('Move, permissions and remote download', () => {
-  const ctx = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1' };
+  const ctx = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1', role: 'OWNER' };
 
   it('FIL-08: move sends a relative target, refuses no-op and self-nesting; chmod validates the mode', async () => {
     seed('acc_1', 'svc_1');
@@ -168,7 +168,7 @@ describe('Archive timeouts', () => {
     ad.compressFiles = async () => { throw new ProviderNetworkError('timed out'); };
     ad.decompressFile = async () => { throw new ProviderNetworkError('timed out'); };
     const api = createFilesApi({ adapter: ad, db, secret: SECRET });
-    const c = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1' };
+    const c = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1', role: 'OWNER' };
     expect(await api.archive(c, '/world', ['region'])).toEqual({ archive: null, pending: true });
     expect(await api.unarchive(c, '/', 'big.zip')).toEqual({ pending: true });
     const rows = db.prepare("SELECT metadata FROM audit_events WHERE action IN ('service.file.archive','service.file.unarchive')").all() as { metadata: string }[];

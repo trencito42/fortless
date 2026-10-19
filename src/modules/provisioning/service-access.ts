@@ -50,7 +50,8 @@ export function getServiceAccess(
   if (!owner || owner.status !== 'ACTIVE') return undefined;
 
   if (service.account_id === params.accountId) {
-    const full = params.role === undefined || params.role === 'OWNER' || params.role === 'TECH_ADMIN';
+    // NEW-359: an omitted role is the least privileged case, never full access.
+    const full = params.role === 'OWNER' || params.role === 'TECH_ADMIN';
     return { service, kind: 'ACCOUNT', permissions: full ? 'ALL' : new Set(READ_ONLY_ROLE_PERMISSIONS), preset: null };
   }
   const member = db.prepare('SELECT preset FROM service_members WHERE service_id = ? AND user_id = ?')

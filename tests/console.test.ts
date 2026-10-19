@@ -58,7 +58,7 @@ describe('Console credentials (per-account panel keys)', () => {
   it('CON-01: mints one key per account, stores it encrypted, reuses it', async () => {
     seed('acc_1', 'svc_1');
     const ad = new FakeAdapter();
-    const p = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1' };
+    const p = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1', role: 'OWNER' };
     const a = await getServiceConsoleCredentials(p, ad, db, SECRET);
     await getServiceConsoleCredentials(p, ad, db, SECRET);
     expect(a).toEqual({ token: 'wings-jwt', socket: 'wss://node.example.test:8080/api/servers/abc/ws' });
@@ -73,7 +73,7 @@ describe('Console credentials (per-account panel keys)', () => {
     seed('acc_1', 'svc_1');
     seed('acc_2', 'svc_2');
     const ad = new FakeAdapter();
-    await expect(getServiceConsoleCredentials({ serviceId: 'svc_1', accountId: 'acc_2', userId: 'u' }, ad, db, SECRET))
+    await expect(getServiceConsoleCredentials({ serviceId: 'svc_1', accountId: 'acc_2', userId: 'u', role: 'OWNER' }, ad, db, SECRET))
       .rejects.toMatchObject({ code: 'NOT_FOUND', statusCode: 404 });
     expect(ad.mints).toHaveLength(0);
   });
@@ -83,16 +83,16 @@ describe('Console credentials (per-account panel keys)', () => {
     seed('acc_2', 'svc_p', 'ACTIVE', null);
     seed('acc_3', 'svc_ok');
     const ad = new FakeAdapter();
-    await expect(getServiceConsoleCredentials({ serviceId: 'svc_s', accountId: 'acc_1', userId: 'u' }, ad, db, SECRET)).rejects.toMatchObject({ code: 'SERVICE_NOT_ACTIVE' });
-    await expect(getServiceConsoleCredentials({ serviceId: 'svc_p', accountId: 'acc_2', userId: 'u' }, ad, db, SECRET)).rejects.toMatchObject({ code: 'SERVICE_PROVISIONING' });
-    await expect(getServiceConsoleCredentials({ serviceId: 'svc_ok', accountId: 'acc_3', userId: 'u' }, ad, db, '')).rejects.toMatchObject({ code: 'KEYMINT_NOT_CONFIGURED' });
-    await expect(getServiceConsoleCredentials({ serviceId: 'svc_ok', accountId: 'acc_3', userId: 'u' }, { providerType: 'VPS' } as never, db, SECRET)).rejects.toBeInstanceOf(ConsoleAccessError);
+    await expect(getServiceConsoleCredentials({ serviceId: 'svc_s', accountId: 'acc_1', userId: 'u', role: 'OWNER' }, ad, db, SECRET)).rejects.toMatchObject({ code: 'SERVICE_NOT_ACTIVE' });
+    await expect(getServiceConsoleCredentials({ serviceId: 'svc_p', accountId: 'acc_2', userId: 'u', role: 'OWNER' }, ad, db, SECRET)).rejects.toMatchObject({ code: 'SERVICE_PROVISIONING' });
+    await expect(getServiceConsoleCredentials({ serviceId: 'svc_ok', accountId: 'acc_3', userId: 'u', role: 'OWNER' }, ad, db, '')).rejects.toMatchObject({ code: 'KEYMINT_NOT_CONFIGURED' });
+    await expect(getServiceConsoleCredentials({ serviceId: 'svc_ok', accountId: 'acc_3', userId: 'u', role: 'OWNER' }, { providerType: 'VPS' } as never, db, SECRET)).rejects.toBeInstanceOf(ConsoleAccessError);
   });
 
   it('CON-04: a revoked key triggers exactly one re-mint, a second rejection surfaces', async () => {
     seed('acc_1', 'svc_1');
     const ad = new FakeAdapter();
-    const p = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'u' };
+    const p = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'u', role: 'OWNER' };
     await getServiceConsoleCredentials(p, ad, db, SECRET);
     ad.rejectKey = ad.wsKeys[0]!;
     await getServiceConsoleCredentials(p, ad, db, SECRET);
@@ -116,10 +116,10 @@ describe('Power actions use the account key', () => {
   it('CON-08b: START is sent with the account key, never the shared client key', async () => {
     seed('acc_1', 'svc_1');
     const ad = new FakeAdapter();
-    await executeServicePowerAction({ serviceId: 'svc_1', accountId: 'acc_1', userId: 'u', action: 'START' }, ad, db);
+    await executeServicePowerAction({ serviceId: 'svc_1', accountId: 'acc_1', userId: 'u', role: 'OWNER', action: 'START' }, ad, db);
     expect(ad.powered).toHaveLength(1);
     expect(ad.powered[0]!.key).toMatch(/^ptlc_1_/);
-    await expect(executeServicePowerAction({ serviceId: 'svc_1', accountId: 'acc_other', userId: 'u', action: 'STOP' }, ad, db)).rejects.toThrow('Service not found');
+    await expect(executeServicePowerAction({ serviceId: 'svc_1', accountId: 'acc_other', userId: 'u', role: 'OWNER', action: 'STOP' }, ad, db)).rejects.toThrow('Service not found');
     expect(ad.powered).toHaveLength(1);
   });
 });

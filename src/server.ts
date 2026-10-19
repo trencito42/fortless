@@ -91,7 +91,7 @@ import {
 import { PterodactylHttpAdapter, ProviderError } from './modules/provisioning/adapter.js';
 import { createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
-import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund } from './modules/payments/webhooks.js';
+import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund, retryPspInboxEvent } from './modules/payments/webhooks.js';
 import {
   getServiceDetail,
   executeServicePowerAction,
@@ -2814,6 +2814,16 @@ export function buildServer(): FastifyInstance {
 
   app.get('/api/v1/admin/capacity', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async () => {
     return getAdminCapacityPools(getDatabase());
+  });
+
+  app.post('/api/v1/admin/payments/inbox/:id/retry', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    try {
+      return { success: true, result: retryPspInboxEvent(getDatabase(), id, { userId: req.auth!.user.id, ipAddress: req.ip }) };
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      return reply.status(msg.startsWith('NOT_FOUND') ? 404 : msg.startsWith('NOT_RETRYABLE') ? 409 : 422).send({ error: msg, code: msg.split(':')[0] });
+    }
   });
 
   app.get('/api/v1/admin/jobs', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (req, reply) => {

@@ -57,6 +57,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
 );
 
+CREATE TABLE IF NOT EXISTS sensitive_action_attempts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  attempted_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+);
+CREATE INDEX IF NOT EXISTS idx_sensitive_attempts_user ON sensitive_action_attempts(user_id, attempted_at);
+
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   id TEXT PRIMARY KEY, -- SHA-256 digest; raw token is never persisted
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -90,6 +98,7 @@ CREATE TABLE IF NOT EXISTS mfa_factors (
   name TEXT NOT NULL DEFAULT 'Authenticator app',
   is_confirmed INTEGER NOT NULL DEFAULT 0,
   last_used_at TEXT,
+  last_used_counter INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
   UNIQUE(user_id, type)
 );

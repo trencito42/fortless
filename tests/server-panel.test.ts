@@ -37,7 +37,7 @@ function seed(accountId: string, serviceId: string) {
     VALUES (?, ?, ?, 'PTERODACTYL', 'p', 'ACTIVE', '12', 'n', datetime('now'), datetime('now'))`).run(serviceId, accountId, `oi_${serviceId}`);
 }
 
-const ctx = (a: string, s: string) => ({ serviceId: s, accountId: a, userId: `usr_${a}` });
+const ctx = (a: string, s: string) => ({ serviceId: s, accountId: a, userId: `usr_${a}`, role: 'OWNER' });
 const UUID = '0b0c1f1e-1111-4222-8333-444455556666';
 
 beforeEach(() => {

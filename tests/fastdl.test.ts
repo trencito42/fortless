@@ -326,6 +326,7 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
       jobId: job.id,
       accountId,
       userId: 'usr_1',
+      role: 'OWNER',
       deps: {
         db,
         adapter,
@@ -362,6 +363,7 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
       jobId: job2.id,
       accountId,
       userId: 'usr_1',
+      role: 'OWNER',
       deps: { db, adapter, storage, secret: SECRET },
     });
 
@@ -380,6 +382,7 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
       jobId: job3.id,
       accountId,
       userId: 'usr_1',
+      role: 'OWNER',
       deps: { db, adapter, storage, secret: SECRET },
     });
 
@@ -412,6 +415,7 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
       jobId: job.id,
       accountId,
       userId: 'usr_1',
+      role: 'OWNER',
       deps: { db, adapter, storage, secret: SECRET },
     });
 
@@ -439,6 +443,7 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
       jobId: job.id,
       accountId,
       userId: 'usr_1',
+      role: 'OWNER',
       deps: { db, adapter, storage: new LocalFastDlStorage(TEST_STORAGE_DIR), secret: SECRET },
     });
 

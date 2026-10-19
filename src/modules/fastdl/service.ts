@@ -173,6 +173,7 @@ export function createFastDlService(deps: FastDlDeps = {}) {
         jobId: job.id,
         accountId: ctx.accountId,
         userId: ctx.userId,
+        role: ctx.role,
         ipAddress: ctx.ipAddress,
         deps: {
           db: db(),

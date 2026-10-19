@@ -1199,6 +1199,26 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       if (!hasColumn(db, 'sessions', 'account_id')) db.exec('ALTER TABLE sessions ADD COLUMN account_id TEXT');
     },
   },
+  {
+    version: 47,
+    name: 'TOTP replay protection and WebAuthn challenge index',
+    up(db) {
+      if (!hasColumn(db, 'mfa_factors', 'last_used_counter')) db.exec('ALTER TABLE mfa_factors ADD COLUMN last_used_counter INTEGER');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sensitive_action_attempts (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          attempted_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sensitive_attempts_user ON sensitive_action_attempts(user_id, attempted_at);
+      `);
+      // NEW-398: one-time links already stored in delivered or dead-lettered emails are removed.
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'email_outbox'").get()) {
+        db.exec("UPDATE email_outbox SET payload_json = json_remove(payload_json, '$.verifyUrl', '$.resetUrl', '$.inviteUrl') WHERE status IN ('SENT', 'DEAD_LETTER')");
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { syncRuntimeStates, reconcileWithPanel } from './modules/provisioning/runtime-sync.js';
 import { config } from './config/index.js';
 import { getDatabase } from './database/index.js';
@@ -8,6 +9,8 @@ import { processEmailOutbox } from './modules/email/outbox.js';
 import { processOutboxQueue, setProviderAdapter } from './modules/outbox/worker.js';
 import { PterodactylHttpAdapter } from './modules/provisioning/adapter.js';
 import { buildServer } from './server.js';
+import { runScheduledBackup, cleanStrayBackupFiles } from './modules/backup/scheduler.js';
+import { runMaintenance } from './modules/maintenance/maintenance.js';
 
 async function bootstrap() {
   console.log('⚡ Initializing FORTLESS Platform Core...');
@@ -35,6 +38,28 @@ async function bootstrap() {
   } catch (err) {
     console.error('Failed to bind server:', err);
     process.exit(1);
+  }
+
+  // 4a. Routine clean-up of expired sessions, WebAuthn challenges and delivered one-time links (NEW-377, NEW-360, NEW-398)
+  const maintain = () => { try { runMaintenance(db); } catch (err) { console.error('[Maintenance] failed:', (err as Error).message); } };
+  setInterval(maintain, 3_600_000);
+  maintain();
+
+  // 4b. Scheduled encrypted backups (NEW-374). Without a key nothing is written, and that is recorded as loudly as a failure.
+  if (config.BACKUP_INTERVAL_HOURS > 0) {
+    cleanStrayBackupFiles(path.resolve(process.cwd(), 'data', 'backups'));
+    if (config.FORTLESS_BACKUP_KEY.length >= 32) {
+      const runBackup = () => runScheduledBackup({ db, encryptionKey: config.FORTLESS_BACKUP_KEY, retentionCount: config.BACKUP_RETENTION_COUNT, copyDir: config.BACKUP_COPY_DIR })
+        .then((r) => console.log(`💾 Backup ${r.backupId} created${r.copied ? ' and copied' : ''}, ${r.pruned} old file set(s) pruned`))
+        .catch((err) => console.error('[Backup] scheduled backup failed:', (err as Error).message));
+      setInterval(runBackup, config.BACKUP_INTERVAL_HOURS * 3_600_000);
+      setTimeout(runBackup, 60_000);
+      console.log(`💾 Scheduled backups every ${config.BACKUP_INTERVAL_HOURS} h, keeping ${config.BACKUP_RETENTION_COUNT}${config.BACKUP_COPY_DIR ? ', with a second copy' : ' (no second copy configured)'}`);
+    } else {
+      console.error('⚠️  Scheduled backups are DISABLED: set FORTLESS_BACKUP_KEY (32+ characters). No backups are being made.');
+      db.prepare(`INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
+        VALUES (?, NULL, 'SYSTEM', 'backup.skipped_no_key', 'backup', 'scheduled', ?, '{}')`).run(`aud_${Date.now()}`, `corr_${Date.now()}`);
+    }
   }
 
   // 5. Start Background Email Outbox Worker Loop

@@ -16,6 +16,8 @@ export interface SyncOptions {
   jobId: string;
   accountId: string;
   userId: string;
+  /** The caller's workspace role; an omitted role means least privilege (NEW-359). */
+  role?: string;
   ipAddress?: string;
   deps?: {
     db?: Database.Database;
@@ -149,7 +151,7 @@ export async function executeFastDlSync(options: SyncOptions): Promise<{
   const adapterIn = options.deps?.adapter ?? getProviderAdapter();
   const doFetch = options.deps?.fetchFn ?? fetch;
 
-  const ctx = { serviceId, accountId, userId, ipAddress: options.ipAddress };
+  const ctx = { serviceId, accountId, userId, role: options.role, ipAddress: options.ipAddress };
   let { service, adapter } = resolveOwnedService(ctx, adapterIn, db, secret, 'file.read');
 
   // Check game profile

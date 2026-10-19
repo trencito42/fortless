@@ -520,7 +520,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(authenticateSession(sessionA1.token, db)).not.toBeNull();
 
       // Complete MFA on A2
-      completeMfaChallenge(loginA2.token, generateTotpCode(enrollment.secret), '198.51.100.32', db);
+      completeMfaChallenge(loginA2.token, generateTotpCode(enrollment.secret, Date.now() + 30_000), '198.51.100.32', db);
 
       // Now A1 is superseded, A2 is active
       expect(authenticateSession(sessionA1.token, db)).toBeNull();
@@ -1507,6 +1507,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         serviceId: service.id,
         accountId: user.account.id,
         userId: user.user.id,
+        role: 'OWNER',
         action: 'STOP',
       }, adapter, db);
       expect(stopResult.runtimeState).toBe('STOPPED');
@@ -1519,6 +1520,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         serviceId: service.id,
         accountId: user.account.id,
         userId: user.user.id,
+        role: 'OWNER',
         action: 'START',
       }, adapter, db);
       expect(startResult.runtimeState).toBe('RUNNING');
@@ -1554,6 +1556,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         serviceId: service.id,
         accountId: user.account.id,
         userId: user.user.id,
+        role: 'OWNER',
         action: 'START',
       }, adapter, db)).rejects.toThrow('Service cannot receive power commands in SUSPENDED status');
     });

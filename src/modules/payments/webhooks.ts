@@ -120,6 +120,33 @@ export function ingestPSPWebhook(
   }
 }
 
+/**
+ * NEW-350: a held (ANOMALY) or failed payment event is visible in the admin jobs workspace; staff can run it again
+ * from the stored body once the cause is fixed. The retry goes through the same dispatcher, so every guard still applies.
+ */
+export function retryPspInboxEvent(
+  db: Database.Database,
+  inboxId: string,
+  actor: { userId: string; ipAddress: string }
+): IngestResult {
+  const row = db.prepare('SELECT id, event_id, event_type, status, payload FROM psp_inbox_events WHERE id = ?').get(inboxId) as
+    { id: string; event_id: string; event_type: string; status: string; payload: string } | undefined;
+  if (!row) throw new Error('NOT_FOUND: webhook event not found.');
+  if (row.status !== 'ANOMALY' && row.status !== 'FAILED') throw new Error(`NOT_RETRYABLE: the event is ${row.status}.`);
+  const payload = JSON.parse(row.payload) as StripeWebhookPayload;
+  db.prepare("UPDATE psp_inbox_events SET status = 'RECEIVED', processed_at = NULL WHERE id = ?").run(row.id);
+  db.prepare(`
+    INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+    VALUES (?, NULL, ?, 'STAFF', 'payment.inbox_retried', 'psp_inbox_event', ?, ?, ?, ?)
+  `).run(generateId('aud'), actor.userId, row.id, actor.ipAddress, generateId('cor'), JSON.stringify({ eventId: row.event_id, eventType: row.event_type, previousStatus: row.status }));
+  try {
+    return dispatchInboundEvent(row.event_id, row.event_type, payload, db);
+  } catch (err) {
+    db.prepare("UPDATE psp_inbox_events SET status = 'FAILED', processed_at = datetime('now', 'utc') WHERE id = ?").run(row.id);
+    throw err;
+  }
+}
+
 function dispatchInboundEvent(
   eventId: string,
   eventType: string,

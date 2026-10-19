@@ -37,6 +37,10 @@ const configSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   APP_ORIGIN: z.string().url().default('https://fortless.net'),
   ALLOWED_ORIGINS: z.string().default('https://fortless.net,http://localhost:3021'),
+  BACKUP_INTERVAL_HOURS: z.coerce.number().min(0).default(24),
+  BACKUP_RETENTION_COUNT: z.coerce.number().int().min(1).default(14),
+  BACKUP_COPY_DIR: z.string().default(''),
+  FORTLESS_BACKUP_KEY: z.string().default(''),
   DATABASE_PATH: z.string().default('./data/fortless.db'),
   REDIS_URL: z.string().default('redis://127.0.0.1:6379'),
   SESSION_SECRET: z.string().min(32),
@@ -71,7 +75,12 @@ export const config: Config = configSchema.parse({
   PORT: process.env['PORT'] ? Number(process.env['PORT']) : 3021,
   HOST: process.env['HOST'] || '127.0.0.1',
   APP_ORIGIN: process.env['APP_ORIGIN'] || 'https://fortless.net',
-  ALLOWED_ORIGINS: process.env['ALLOWED_ORIGINS'] || 'https://fortless.net,http://localhost:3021',
+  // NEW-394: loopback origins are a development convenience only; production defaults to the public origin.
+  ALLOWED_ORIGINS: process.env['ALLOWED_ORIGINS'] || (nodeEnvironment === 'production' ? 'https://fortless.net' : 'https://fortless.net,http://localhost:3021'),
+  BACKUP_INTERVAL_HOURS: process.env['BACKUP_INTERVAL_HOURS'] || '24',
+  BACKUP_RETENTION_COUNT: process.env['BACKUP_RETENTION_COUNT'] || '14',
+  BACKUP_COPY_DIR: process.env['BACKUP_COPY_DIR'] || '',
+  FORTLESS_BACKUP_KEY: process.env['FORTLESS_BACKUP_KEY'] || '',
   DATABASE_PATH: process.env['DATABASE_PATH'] || './data/fortless.db',
   REDIS_URL: process.env['REDIS_URL'] || 'redis://127.0.0.1:6379',
   SESSION_SECRET: process.env['SESSION_SECRET'] || (nodeEnvironment === 'production' ? '' : persistentDevelopmentSecret()),
@@ -98,3 +107,8 @@ export const config: Config = configSchema.parse({
   OIDC_PANEL_CLIENT_SECRET: process.env['OIDC_PANEL_CLIENT_SECRET'] || '',
   OIDC_PANEL_REDIRECT_URIS: process.env['OIDC_PANEL_REDIRECT_URIS'] || '',
 });
+
+// NEW-394: a production process must not trust loopback origins with credentials.
+if (config.NODE_ENV === 'production' && /(^|,)\s*https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/i.test(config.ALLOWED_ORIGINS)) {
+  throw new Error('ALLOWED_ORIGINS contains a loopback origin, which is not allowed in production.');
+}

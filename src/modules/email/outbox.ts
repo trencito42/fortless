@@ -435,6 +435,7 @@ export async function processEmailOutbox(
       db.prepare(`
         UPDATE email_outbox
         SET status = 'SENT',
+            payload_json = json_remove(payload_json, '$.verifyUrl', '$.resetUrl', '$.inviteUrl'),
             sent_at = datetime('now', 'utc'),
             last_error = NULL,
             lease_token = NULL,
@@ -451,6 +452,7 @@ export async function processEmailOutbox(
         db.prepare(`
           UPDATE email_outbox
           SET status = 'DEAD_LETTER',
+              payload_json = json_remove(payload_json, '$.verifyUrl', '$.resetUrl', '$.inviteUrl'),
               attempts = ?,
               last_error = ?,
               dead_lettered_at = datetime('now', 'utc'),

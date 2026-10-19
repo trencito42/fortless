@@ -355,4 +355,20 @@ describe('P0 billing remediation', () => {
     expect((db.prepare('SELECT region_id r FROM nodes WHERE id = ?').get(full!.id) as any).r).toBe('reg_fra_1');
     expect(pickNodeForService(db, 'reg_empty', 1, 1)).toBeNull();
   });
+
+  it('NEW-350: a held payment event can be retried by staff once its cause is fixed, and only held or failed events can', async () => {
+    const { retryPspInboxEvent } = await import('../src/modules/payments/webhooks.js');
+    const { checkout } = await paidService();
+    const staffId = user().user.id;
+        const payload: StripeWebhookPayload = { id: 'evt_held', type: 'payment_intent.succeeded', created: Math.floor(Date.now() / 1000), data: { object: { id: 'pi_arrives_late', amount: 1428, currency: 'eur', status: 'succeeded', metadata: {} } } };
+    expect(ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(payload), payload, db).status).toBe('ANOMALY_HELD');
+    const row = db.prepare("SELECT id, status FROM psp_inbox_events WHERE event_id = 'evt_held'").get() as { id: string; status: string };
+    expect(row.status).toBe('ANOMALY');
+    db.prepare('UPDATE payment_attempts SET psp_payment_intent_id = ? WHERE id = ?').run('pi_arrives_late', checkout.paymentAttemptId);
+    const result = retryPspInboxEvent(db, row.id, { userId: staffId, ipAddress: '127.0.0.1' });
+    expect(result.status).toBe('PROCESSED');
+    expect((db.prepare('SELECT status FROM psp_inbox_events WHERE id = ?').get(row.id) as any).status).toBe('PROCESSED');
+    expect(() => retryPspInboxEvent(db, row.id, { userId: staffId, ipAddress: '127.0.0.1' })).toThrow(/NOT_RETRYABLE/);
+    expect((db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'payment.inbox_retried'").get() as any).c).toBe(1);
+  });
 });

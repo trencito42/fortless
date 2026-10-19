@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { createDatabaseBackup, verifyAndRestoreBackup } from '../modules/backup/backup.js';
+import { createDatabaseBackup, verifyAndRestoreBackup, requireBackupKey } from '../modules/backup/backup.js';
 
 async function main() {
   const args = process.argv.slice(2);
@@ -8,10 +8,10 @@ async function main() {
 
   switch (command) {
     case 'backup': {
-      const encrypt = args.includes('--encrypt');
-      const encryptionKey = encrypt
-        ? process.env.FORTLESS_BACKUP_KEY || 'default-fortless-backup-secret-key-32b'
-        : undefined;
+      // NEW-373: backups are encrypted by default and the key has no built-in fallback.
+      const allowPlain = args.includes('--allow-unencrypted');
+      const encrypt = !allowPlain;
+      const encryptionKey = encrypt ? requireBackupKey(process.env.FORTLESS_BACKUP_KEY) : undefined;
 
       console.log(`Starting database backup (Encryption: ${encrypt ? 'AES-256-GCM' : 'Disabled'})...`);
       const meta = await createDatabaseBackup({
@@ -36,9 +36,7 @@ async function main() {
       }
 
       const isEncrypted = backupPath.endsWith('.enc.db');
-      const encryptionKey = isEncrypted
-        ? process.env.FORTLESS_BACKUP_KEY || 'default-fortless-backup-secret-key-32b'
-        : undefined;
+      const encryptionKey = isEncrypted ? requireBackupKey(process.env.FORTLESS_BACKUP_KEY) : undefined;
 
       // Restore to a temporary isolated path to verify integrity
       const tempRestorePath = path.join(process.cwd(), 'data', 'temp_verify.db');
@@ -49,6 +47,7 @@ async function main() {
           backupFilePath: backupPath,
           targetDbPath: tempRestorePath,
           encryptionKey,
+          allowSecretMismatch: true, // verification never touches the live database
         });
 
         console.log('✅ Backup verification succeeded:');
@@ -73,15 +72,14 @@ async function main() {
       }
 
       const isEncrypted = backupPath.endsWith('.enc.db');
-      const encryptionKey = isEncrypted
-        ? process.env.FORTLESS_BACKUP_KEY || 'default-fortless-backup-secret-key-32b'
-        : undefined;
+      const encryptionKey = isEncrypted ? requireBackupKey(process.env.FORTLESS_BACKUP_KEY) : undefined;
 
       console.log(`Restoring backup: ${backupPath} -> ${targetPath}...`);
       const report = await verifyAndRestoreBackup({
         backupFilePath: backupPath,
         targetDbPath: targetPath,
         encryptionKey,
+        allowSecretMismatch: args.includes('--allow-secret-mismatch'),
       });
 
       console.log('✅ Database restored successfully:');
@@ -94,9 +92,9 @@ async function main() {
     default: {
       console.log('FORTLESS Database Backup & Disaster Recovery Utility');
       console.log('Commands:');
-      console.log('  backup [--encrypt]                  Create a new database snapshot');
+      console.log('  backup [--allow-unencrypted]        Create an encrypted snapshot (key: FORTLESS_BACKUP_KEY, min 32 chars)');
       console.log('  verify <path-to-backup.db>          Test backup integrity without altering production DB');
-      console.log('  restore <path-to-backup.db> [target] Restore a backup to a specified target file');
+      console.log('  restore <path-to-backup.db> [target] [--allow-secret-mismatch]  Restore a backup to a specified target file');
       break;
     }
   }

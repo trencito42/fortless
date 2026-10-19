@@ -135,6 +135,26 @@ function validTotp(secret: string, code: string, now = Date.now()): boolean {
   const counter = Math.floor(now / 30_000);
   return [-1, 0, 1].some((window) => crypto.timingSafeEqual(Buffer.from(totpAt(secret, counter + window)), Buffer.from(code)));
 }
+/** The time step a code belongs to (current step and one either side), or null when it matches none. */
+function matchTotpCounter(secret: string, code: string, now = Date.now()): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
+  const counter = Math.floor(now / 30_000);
+  for (const window of [-1, 0, 1]) {
+    if (crypto.timingSafeEqual(Buffer.from(totpAt(secret, counter + window)), Buffer.from(code))) return counter + window;
+  }
+  return null;
+}
+/**
+ * NEW-366: a code is accepted once. The factor remembers the highest time step it has accepted, and a code from that
+ * step or an earlier one is refused, so a seen or shoulder-surfed code cannot be replayed inside its window.
+ */
+function consumeTotp(trx: Database.Database, factorId: string, secret: string, code: string): boolean {
+  const counter = matchTotpCounter(secret, code);
+  if (counter === null) return false;
+  const res = trx.prepare("UPDATE mfa_factors SET last_used_counter = ?, last_used_at = datetime('now', 'utc') WHERE id = ? AND (last_used_counter IS NULL OR last_used_counter < ?)")
+    .run(counter, factorId, counter);
+  return res.changes === 1;
+}
 export function generateTotpCode(secret: string, now = Date.now()): string {
   return totpAt(secret, Math.floor(now / 30_000));
 }
@@ -396,7 +416,27 @@ export function resetPassword(token: string, password: string, db: Database.Data
   }, db);
 }
 
-export function changePassword(
+
+/**
+ * NEW-367: step-up, password change, MFA enrolment, replacement confirmation and MFA removal all verify a secret the
+ * caller supplies. Failures are counted per user (outside the operation's own transaction, so a thrown error cannot roll
+ * the count back) and, like the sign-in challenge, five failures lock these actions for fifteen minutes.
+ */
+const SENSITIVE_FAILURE_PATTERN = /incorrect|invalid/i;
+function limitedSensitive<T>(db: Database.Database, userId: string, kind: string, run: () => T): T {
+  const failures = (db.prepare("SELECT count(*) AS total FROM sensitive_action_attempts WHERE user_id = ? AND attempted_at >= datetime('now', '-15 minutes')").get(userId) as { total: number }).total;
+  if (failures >= MAX_MFA_ATTEMPTS) throw new Error('Too many failed attempts. Try again after 15 minutes.');
+  try {
+    return run();
+  } catch (err) {
+    if (SENSITIVE_FAILURE_PATTERN.test((err as Error).message)) {
+      db.prepare('INSERT INTO sensitive_action_attempts (id, user_id, kind) VALUES (?, ?, ?)').run(generateId('saa'), userId, kind);
+    }
+    throw err;
+  }
+}
+
+function changePasswordInner(
   data: {
     userId: string;
     accountId: string;
@@ -511,7 +551,7 @@ export function switchWorkspace(
   }, db);
 }
 
-export function completeStepUp(
+function completeStepUpInner(
   data: { userId: string; accountId: string; sessionId: string; password: string; code: string; ipAddress: string },
   db: Database.Database = getDatabase()
 ): { verifiedAt: string; validForSeconds: number } {
@@ -521,7 +561,7 @@ export function completeStepUp(
     if (!user || !verifyPassword(user.password_hash, data.password)) throw new Error('The current password is incorrect.');
     if (!factor) throw new Error('An authenticator must be enabled before completing step-up verification.');
     let valid = false;
-    try { valid = validTotp(decryptSecret(factor.secret_encrypted), data.code.trim()); }
+    try { valid = consumeTotp(trx, factor.id, decryptSecret(factor.secret_encrypted), data.code.trim()); }
     catch { throw new MfaConfigurationUnavailableError(); }
     if (!valid) throw new Error('The authenticator code is invalid.');
     const session = trx.prepare('SELECT id FROM sessions WHERE id = ? AND user_id = ? AND expires_at > datetime(\'now\', \'utc\')')
@@ -571,7 +611,7 @@ export function completeMfaChallenge(token: string, code: string, ipAddress: str
     }
     let valid = Boolean(recovery);
     if (!valid) {
-      try { valid = validTotp(decryptSecret(factor.secret_encrypted), normalizedCode); }
+      try { valid = consumeTotp(trx, factor.id, decryptSecret(factor.secret_encrypted), normalizedCode); }
       catch { throw new MfaConfigurationUnavailableError(); }
     }
     trx.prepare('INSERT INTO mfa_attempts (id, user_id, session_id, succeeded) VALUES (?, ?, ?, ?)')
@@ -612,7 +652,7 @@ export function getMfaStatus(userId: string, db: Database.Database = getDatabase
   return { enabled, recoveryCodesRemaining: row.total };
 }
 
-export function beginTotpEnrollment(userId: string, password: string, email: string, db: Database.Database = getDatabase()): { secret: string; uri: string } {
+function beginTotpEnrollmentInner(userId: string, password: string, email: string, db: Database.Database = getDatabase()): { secret: string; uri: string } {
   const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
   if (!user || !verifyPassword(user.password_hash, password)) throw new Error('The current password is incorrect.');
   if (confirmedMfa(userId, db)) {
@@ -640,7 +680,7 @@ export function beginTotpReplacement(userId: string, email: string, db: Database
   return { secret, uri: `otpauth://totp/${label}?secret=${secret}&issuer=Fortless&algorithm=SHA1&digits=6&period=30` };
 }
 
-export function regenerateRecoveryCodes(
+function regenerateRecoveryCodesInner(
   data: { userId: string; accountId: string; ipAddress: string },
   db: Database.Database = getDatabase()
 ): string[] {
@@ -665,7 +705,7 @@ export function regenerateRecoveryCodes(
   }, db);
 }
 
-export function confirmTotpEnrollment(data: { userId: string; accountId: string; sessionId: string; code: string; ipAddress: string }, db: Database.Database = getDatabase()): string[] {
+function confirmTotpEnrollmentInner(data: { userId: string; accountId: string; sessionId: string; code: string; ipAddress: string }, db: Database.Database = getDatabase()): string[] {
   return runInTransaction((trx) => {
     // Check if confirming a replacement factor
     const confirmedFactor = trx.prepare("SELECT id, secret_encrypted, pending_secret_encrypted FROM mfa_factors WHERE user_id = ? AND type = 'TOTP' AND is_confirmed = 1")
@@ -675,7 +715,7 @@ export function confirmTotpEnrollment(data: { userId: string; accountId: string;
       if (!validTotp(decryptSecret(confirmedFactor.pending_secret_encrypted), data.code.trim())) {
         throw new Error('The verification code is invalid.');
       }
-      trx.prepare("UPDATE mfa_factors SET secret_encrypted = pending_secret_encrypted, pending_secret_encrypted = NULL, last_used_at = datetime('now', 'utc') WHERE id = ?")
+      trx.prepare("UPDATE mfa_factors SET secret_encrypted = pending_secret_encrypted, pending_secret_encrypted = NULL, last_used_counter = NULL, last_used_at = datetime('now', 'utc') WHERE id = ?")
         .run(confirmedFactor.id);
       const codes = Array.from({ length: 10 }, () => (crypto.randomBytes(16).toString('hex').toUpperCase().match(/.{4}/g) || []).join('-'));
       trx.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(data.userId);
@@ -710,12 +750,12 @@ export function confirmTotpEnrollment(data: { userId: string; accountId: string;
   }, db);
 }
 
-export function disableTotp(data: { userId: string; accountId: string; password: string; code: string; ipAddress: string }, db: Database.Database = getDatabase()): void {
+function disableTotpInner(data: { userId: string; accountId: string; password: string; code: string; ipAddress: string }, db: Database.Database = getDatabase()): void {
   runInTransaction((trx) => {
     const user = trx.prepare('SELECT password_hash FROM users WHERE id = ?').get(data.userId) as { password_hash: string } | undefined;
     const factor = confirmedMfa(data.userId, trx);
     if (!user || !verifyPassword(user.password_hash, data.password)) throw new Error('The current password is incorrect.');
-    if (!factor || !validTotp(decryptSecret(factor.secret_encrypted), data.code.trim())) throw new Error('The authenticator code is invalid.');
+    if (!factor || !consumeTotp(trx, factor.id, decryptSecret(factor.secret_encrypted), data.code.trim())) throw new Error('The authenticator code is invalid.');
     trx.prepare('DELETE FROM mfa_factors WHERE user_id = ?').run(data.userId);
     trx.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(data.userId);
     trx.prepare('UPDATE sessions SET mfa_verified_at = NULL WHERE user_id = ?').run(data.userId);
@@ -788,3 +828,16 @@ export function revokeOtherUserSessions(
     return result.changes;
   }, db);
 }
+
+export const changePassword = (data: Parameters<typeof changePasswordInner>[0], db: Database.Database = getDatabase()) =>
+  limitedSensitive(db, data.userId, 'PASSWORD_CHANGE', () => changePasswordInner(data, db));
+export const completeStepUp = (data: Parameters<typeof completeStepUpInner>[0], db: Database.Database = getDatabase()) =>
+  limitedSensitive(db, data.userId, 'STEP_UP', () => completeStepUpInner(data, db));
+export const beginTotpEnrollment = (userId: string, password: string, email: string, db: Database.Database = getDatabase()) =>
+  limitedSensitive(db, userId, 'MFA_ENROLL', () => beginTotpEnrollmentInner(userId, password, email, db));
+export const confirmTotpEnrollment = (data: Parameters<typeof confirmTotpEnrollmentInner>[0], db: Database.Database = getDatabase()) =>
+  limitedSensitive(db, data.userId, 'MFA_CONFIRM', () => confirmTotpEnrollmentInner(data, db));
+export const disableTotp = (data: Parameters<typeof disableTotpInner>[0], db: Database.Database = getDatabase()) =>
+  limitedSensitive(db, data.userId, 'MFA_DISABLE', () => disableTotpInner(data, db));
+export const regenerateRecoveryCodes = (data: Parameters<typeof regenerateRecoveryCodesInner>[0], db: Database.Database = getDatabase()) =>
+  limitedSensitive(db, data.userId, 'RECOVERY_CODES', () => regenerateRecoveryCodesInner(data, db));

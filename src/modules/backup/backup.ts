@@ -16,6 +16,8 @@ export interface BackupMetadata {
   algorithm?: string;
   tableCounts: Record<string, number>;
   sqliteVersion: string;
+  /** NEW-375: identifies the SESSION_SECRET that protects MFA secrets and recovery codes inside this backup. */
+  secretFingerprint?: string;
 }
 
 export interface RestoreReport {
@@ -39,6 +41,21 @@ export interface RestoreOptions {
   targetDbPath: string;
   encryptionKey?: string;
   expectedSha256?: string;
+  /** NEW-375: restoring without the SESSION_SECRET the backup was made under breaks every MFA factor; opt in explicitly. */
+  allowSecretMismatch?: boolean;
+}
+
+/** Fingerprint of the session secret (never the secret itself) that must be present again to use MFA after a restore. */
+export function sessionSecretFingerprint(secret: string = config.SESSION_SECRET): string {
+  return crypto.createHmac('sha256', secret).update('fortless-backup-secret-fingerprint-v1').digest('hex').slice(0, 16);
+}
+
+/** NEW-373: backup keys must be real secrets; there is no built-in default. */
+export function requireBackupKey(key: string | undefined): string {
+  if (!key || key.length < 32) {
+    throw new Error('FORTLESS_BACKUP_KEY is missing or shorter than 32 characters. Set a strong key; there is no default.');
+  }
+  return key;
 }
 
 /**
@@ -64,7 +81,10 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
   }
 
   const backupId = `bkp_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomBytes(4).toString('hex')}`;
-  const rawSnapshotPath = path.join(targetDir, `${backupId}.raw.db`);
+  // The unencrypted snapshot only ever exists inside a private (0700) directory and is removed afterwards.
+  const workDir = fs.mkdtempSync(path.join(targetDir, '.work-'));
+  fs.chmodSync(workDir, 0o700);
+  const rawSnapshotPath = path.join(workDir, `${backupId}.raw.db`);
   const finalBackupPath = options.encryptionKey
     ? path.join(targetDir, `${backupId}.enc.db`)
     : path.join(targetDir, `${backupId}.db`);
@@ -110,12 +130,11 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
     // File structure: [12-byte IV][16-byte AuthTag][Encrypted ciphertext]
     const encryptedPayload = Buffer.concat([iv, tag, encrypted]);
     fs.writeFileSync(finalBackupPath, encryptedPayload, { mode: 0o600 });
-    // Remove temporary raw snapshot
-    fs.unlinkSync(rawSnapshotPath);
   } else {
-    fs.renameSync(rawSnapshotPath, finalBackupPath);
+    fs.copyFileSync(rawSnapshotPath, finalBackupPath);
     fs.chmodSync(finalBackupPath, 0o600);
   }
+  fs.rmSync(workDir, { recursive: true, force: true });
 
   const finalStats = fs.statSync(finalBackupPath);
   const metadata: BackupMetadata = {
@@ -129,10 +148,11 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
     algorithm,
     tableCounts,
     sqliteVersion,
+    secretFingerprint: sessionSecretFingerprint(),
   };
 
   const metadataPath = path.join(targetDir, `${backupId}.meta.json`);
-  fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+  fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), { encoding: 'utf8', mode: 0o600 });
 
   return metadata;
 }
@@ -143,6 +163,18 @@ export async function createDatabaseBackup(options: BackupOptions = {}): Promise
 export async function verifyAndRestoreBackup(options: RestoreOptions): Promise<RestoreReport> {
   if (!fs.existsSync(options.backupFilePath)) {
     throw new Error(`Backup file not found at: ${options.backupFilePath}`);
+  }
+
+  const metaPath = options.backupFilePath.replace(/\.enc\.db$|\.db$/, '') + '.meta.json';
+  if (fs.existsSync(metaPath) && !options.allowSecretMismatch) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as BackupMetadata;
+      if (meta.secretFingerprint && meta.secretFingerprint !== sessionSecretFingerprint()) {
+        throw new Error('SECRET_MISMATCH: this backup was made under a different SESSION_SECRET. Restoring it would make every MFA factor and recovery code unusable. Restore the original SESSION_SECRET first, or pass --allow-secret-mismatch to proceed knowingly.');
+      }
+    } catch (err) {
+      if ((err as Error).message.startsWith('SECRET_MISMATCH')) throw err;
+    }
   }
 
   const fileBytes = fs.readFileSync(options.backupFilePath);
