@@ -109,10 +109,23 @@ Reviewed at `645bf61`; all are source traces (no runtime reproduction).
 
 Checked and not filed: session list/revoke paths are scoped to the user and audited; password reset and change revoke other sessions; `/oidc/authorize` enforces the OWNER/TECH_ADMIN role inside `resolvePanelIdentity`; file path normalisation rejects `..`, NUL and backslashes; team invite/removal role checks are present; the Wings token is never returned with the account key.
 
+## New findings, batch 5 (6) — panel operations, reconcile, relink, sharing
+
+Reviewed at `2fc2350`; source traces only. NEW-381 also received an evidence note (same pattern in `server-panel.ts`).
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-388 | P2 | Staff relink hands any unlinked panel server to the customer; DB update, panel access and audit are not atomic |
+| NEW-389 | P2 | Reconcile deletes every shared member when the subuser listing is empty or malformed |
+| NEW-390 | P2 | Reinstall, restore, backup/database delete need no step-up or server-side confirmation (POLICY_DECISION) |
+| NEW-391 | P2 | Database passwords are returned without an audit event |
+| NEW-392 | P2 | Reinstall completion inferred from the first running/offline reading (NEEDS_VERIFICATION) |
+| NEW-393 | P2 | Service invitation accept is not retry-safe; orphan panel subuser possible |
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
 
 ## Not covered yet (scope checked, not "safe")
 
-Runtime timing behaviour, frontend permission and provider-outage states (UI hides tabs by permission; per-button gating not audited), Wings websocket behaviour in a browser, Pterodactyl SSO panel-side configuration, backups/schedules/databases/startup endpoints of the server panel, game-tools installers beyond the earlier read, notification and email-template paths, and the cPanel and Proxmox adapters (cPanel not implemented yet).
+Runtime timing behaviour, frontend permission and provider-outage states (UI hides tabs by permission; per-button gating not audited), Wings websocket behaviour in a browser, Pterodactyl SSO panel-side configuration, backups/schedules/databases/startup endpoints of the game-tools installers beyond the earlier read, notification and email-template paths, and the cPanel and Proxmox adapters (cPanel not implemented yet).
