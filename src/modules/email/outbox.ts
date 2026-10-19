@@ -92,10 +92,6 @@ function htmlEscape(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char);
 }
 
-function replaceEvery(value: string, replacements: Array<[string, string]>): string {
-  return replacements.reduce((result, [sample, actual]) => result.split(sample).join(actual), value);
-}
-
 /**
  * The canonical previews use an Outlook VML branch plus an `if !mso` branch.
  * SOGo's sanitizer can retain the conditional comment while dropping its CTA,
@@ -169,22 +165,30 @@ export function renderEmail(
       ['Keep your recovery codes somewhere safe. Each works once.', 'Your authenticator factor and unused recovery codes were removed.'],
     );
   }
-  const htmlReplacements = plain.map(([from, to]) => [from, htmlEscape(to)] as [string, string]);
-  let subject = replaceEvery(canonical.subject, plain);
-  let text = replaceEvery(canonical.text, plain);
-  let html = normalizeEmailCtas(replaceEvery(canonical.html, htmlReplacements));
-
-  // Support semantic {{key}} placeholder interpolation (MAIL-01)
+  // NEW-401: every replacement happens in ONE pass over the template. A value inserted for one field is never scanned
+  // again, so customer-controlled text (a server or workspace name) cannot be rewritten by a later sample string or
+  // expanded as a {{placeholder}}.
+  const semantic = new Map<string, string>();
   for (const [key, val] of Object.entries(payload)) {
-    if (val !== undefined && val !== null && typeof val !== 'object') {
-      const rawStr = String(val);
-      const safeEscaped = htmlEscape(rawStr);
-      const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
-      subject = subject.replace(regex, rawStr);
-      text = text.replace(regex, rawStr);
-      html = html.replace(regex, safeEscaped);
-    }
+    if (val !== undefined && val !== null && typeof val !== 'object') semantic.set(key, String(val));
   }
+  const render = (source: string, escape: (v: string) => string): string => {
+    const direct = new Map<string, string>();
+    for (const [sample, actual] of plain) if (!direct.has(sample)) direct.set(sample, escape(actual));
+    const parts = [...direct.keys()].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    parts.push('\\{\\{\\s*[A-Za-z0-9_]+\\s*\\}\\}');
+    const pattern = new RegExp(parts.join('|'), 'g');
+    return source.replace(pattern, (match) => {
+      if (match.startsWith('{{')) {
+        const key = match.slice(2, -2).trim();
+        return semantic.has(key) ? escape(semantic.get(key)!) : match;
+      }
+      return direct.get(match) ?? match;
+    });
+  };
+  const subject = render(canonical.subject, (v) => v);
+  const text = render(canonical.text, (v) => v);
+  const html = normalizeEmailCtas(render(canonical.html, htmlEscape));
 
   return { subject, text, html };
 }
@@ -276,6 +280,9 @@ export class SmtpEmailTransportAdapter implements EmailTransportAdapter {
         host: this.host,
         port: this.port,
         secure: this.secure,
+        connectionTimeout: 15_000,
+        greetingTimeout: 15_000,
+        socketTimeout: 45_000,
         auth: {
           user: this.user,
           pass: this.pass,
@@ -354,7 +361,8 @@ export async function processEmailOutbox(
   }
 
   const workerId = options.workerId || `eml_wkr_${crypto.randomBytes(8).toString('hex')}`;
-  const leaseDurationMs = options.leaseDurationMs || 60_000;
+  // NEW-402: the lease outlasts the SMTP timeouts below, so a slow server cannot cause a second worker to resend.
+  const leaseDurationMs = options.leaseDurationMs || 300_000;
   const batchSize = options.batchSize || 25;
   const maxAttempts = options.maxAttempts || 5;
 

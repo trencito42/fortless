@@ -32,3 +32,21 @@ describe('NEW-376: staff membership changes share one set of guards', () => {
     expect(h.db.prepare('SELECT role, status FROM staff_memberships WHERE user_id = ?').get(a.id)).toEqual({ role: 'OWNER', status: 'ACTIVE' });
   });
 });
+
+describe('NEW-395: CSRF tokens are bound to the session', () => {
+  it('rejects a token issued to another session or to nobody, and accepts the one issued for this session', async () => {
+    const a = h.user('u_csrf_a', { accountId: 'acc_csrf_a' });
+    const b = h.user('u_csrf_b', { accountId: 'acc_csrf_b' });
+    const tokenFor = async (session: string | null) => (await h.app.inject({ method: 'GET', url: '/api/v1/auth/csrf', headers: session ? { cookie: `fortless_session=${session}` } : {} })).json().csrfToken as string;
+    const post = (session: string, csrf: string) => h.app.inject({
+      method: 'POST', url: '/api/v1/auth/sessions/revoke-others', payload: {},
+      headers: { cookie: `fortless_session=${session}; fortless_csrf=${csrf}`, 'x-csrf-token': csrf, 'content-type': 'application/json' },
+    });
+    const anonymous = await tokenFor(null);
+    const forB = await tokenFor(b.token);
+    const forA = await tokenFor(a.token);
+    expect((await post(a.token, anonymous)).statusCode).toBe(403);
+    expect((await post(a.token, forB)).statusCode).toBe(403);
+    expect((await post(a.token, forA)).statusCode).toBe(200);
+  });
+});

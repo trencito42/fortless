@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
-import { PterodactylHttpAdapter, type ProviderAdapter } from './adapter.js';
+import { PterodactylHttpAdapter, ProviderNetworkError, type ProviderAdapter } from './adapter.js';
 import { allows, getServiceAccess, permissionList } from './service-access.js';
 import { config } from '../../config/index.js';
 import { withAccountClientKey } from './console.js';
@@ -301,10 +301,11 @@ export async function suspendService(
     actorType?: 'STAFF' | 'SYSTEM';
     /** Why the service is suspended; a successful payment lifts only BILLING suspensions (NEW-355). */
     category?: 'BILLING' | 'STAFF' | 'DISPUTE';
+    ipAddress?: string;
   },
   adapter: ProviderAdapter = getProviderAdapter(),
   db: Database.Database = getDatabase()
-): Promise<void> {
+): Promise<{ pending: boolean }> {
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(params.serviceId) as any;
   if (!service) throw new Error('Service not found');
 
@@ -312,8 +313,21 @@ export async function suspendService(
     throw new Error('Cannot suspend a terminated service');
   }
 
+  // NEW-412: a provider that does not answer in time is an unknown outcome. The suspension is recorded and the provider
+  // call is retried through the outbox (suspending twice is harmless), instead of failing the request and inviting a
+  // blind retry that leaves Fortless and the panel disagreeing.
+  let pending = false;
   if (service.external_id) {
-    await adapter.suspend(service.external_id);
+    try {
+      await adapter.suspend(service.external_id);
+    } catch (err) {
+      if (!(err instanceof ProviderNetworkError)) throw err;
+      pending = true;
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'service.suspend.v1', 'service', ?, ?, 'PENDING')
+      `).run(`obx_${crypto.randomUUID()}`, service.id, JSON.stringify({ serviceId: service.id, externalId: service.external_id, providerType: service.provider_type, reason: params.reason }));
+    }
   }
 
   runInTransaction((trx) => {
@@ -333,17 +347,19 @@ export async function suspendService(
       INSERT INTO audit_events (
         id, account_id, actor_user_id, actor_type, action, resource_type,
         resource_id, ip_address, correlation_id, metadata, created_at
-      ) VALUES (?, ?, ?, ?, 'service.suspend', 'service', ?, '127.0.0.1', ?, ?, datetime('now', 'utc'))
+      ) VALUES (?, ?, ?, ?, 'service.suspend', 'service', ?, ?, ?, ?, datetime('now', 'utc'))
     `).run(
       `aud_${crypto.randomUUID()}`,
       service.account_id,
       params.actorUserId || null,
       params.actorType || 'STAFF',
       service.id,
+      params.ipAddress || '127.0.0.1',
       `corr_${crypto.randomUUID()}`,
-      JSON.stringify({ reason: params.reason })
+      JSON.stringify({ reason: params.reason, providerPending: pending })
     );
   }, db);
+  return { pending };
 }
 
 /**
@@ -354,10 +370,11 @@ export async function unsuspendService(
     serviceId: string;
     actorUserId?: string;
     actorType?: 'STAFF' | 'SYSTEM';
+    ipAddress?: string;
   },
   adapter: ProviderAdapter = getProviderAdapter(),
   db: Database.Database = getDatabase()
-): Promise<void> {
+): Promise<{ pending: boolean }> {
   const service = db.prepare('SELECT * FROM services WHERE id = ?').get(params.serviceId) as any;
   if (!service) throw new Error('Service not found');
 
@@ -366,7 +383,21 @@ export async function unsuspendService(
   }
 
   if (service.external_id) {
-    await adapter.unsuspend(service.external_id);
+    try {
+      await adapter.unsuspend(service.external_id);
+    } catch (err) {
+      if (!(err instanceof ProviderNetworkError)) throw err;
+      // The service stays SUSPENDED until the provider confirms; the outbox repeats the call.
+      db.prepare(`
+        INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+        VALUES (?, 'service.unsuspend.v1', 'service', ?, ?, 'PENDING')
+      `).run(`obx_${crypto.randomUUID()}`, service.id, JSON.stringify({ serviceId: service.id, externalId: service.external_id, providerType: service.provider_type, reason: 'retry after timeout', actorType: params.actorType || 'STAFF' }));
+      db.prepare(`
+        INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+        VALUES (?, ?, ?, ?, 'service.unsuspend_pending', 'service', ?, ?, ?, '{}')
+      `).run(`aud_${crypto.randomUUID()}`, service.account_id, params.actorUserId || null, params.actorType || 'STAFF', service.id, params.ipAddress || '127.0.0.1', `corr_${crypto.randomUUID()}`);
+      return { pending: true };
+    }
   }
 
   runInTransaction((trx) => {
@@ -386,16 +417,18 @@ export async function unsuspendService(
       INSERT INTO audit_events (
         id, account_id, actor_user_id, actor_type, action, resource_type,
         resource_id, ip_address, correlation_id, metadata, created_at
-      ) VALUES (?, ?, ?, ?, 'service.unsuspend', 'service', ?, '127.0.0.1', ?, '{}', datetime('now', 'utc'))
+      ) VALUES (?, ?, ?, ?, 'service.unsuspend', 'service', ?, ?, ?, '{}', datetime('now', 'utc'))
     `).run(
       `aud_${crypto.randomUUID()}`,
       service.account_id,
       params.actorUserId || null,
       params.actorType || 'STAFF',
       service.id,
+      params.ipAddress || '127.0.0.1',
       `corr_${crypto.randomUUID()}`
     );
   }, db);
+  return { pending: false };
 }
 
 /**
@@ -416,6 +449,7 @@ export async function terminateService(
     reason: string;
     actorUserId?: string;
     actorType?: 'STAFF' | 'SYSTEM' | 'USER';
+    ipAddress?: string;
   },
   adapter: ProviderAdapter = getProviderAdapter(),
   db: Database.Database = getDatabase()
@@ -451,13 +485,14 @@ export async function terminateService(
           INSERT INTO audit_events (
             id, account_id, actor_user_id, actor_type, action, resource_type,
             resource_id, ip_address, correlation_id, metadata, created_at
-          ) VALUES (?, ?, ?, ?, 'service.terminate_failed', 'service', ?, '127.0.0.1', ?, ?, datetime('now', 'utc'))
+          ) VALUES (?, ?, ?, ?, 'service.terminate_failed', 'service', ?, ?, ?, ?, datetime('now', 'utc'))
         `).run(
           `aud_${crypto.randomUUID()}`,
           service.account_id,
           params.actorUserId || null,
           params.actorType || 'STAFF',
           service.id,
+          params.ipAddress || '127.0.0.1',
           `corr_${crypto.randomUUID()}`,
           JSON.stringify({ error: (err as Error).message, reason: params.reason, externalId: service.external_id })
         );
@@ -519,13 +554,14 @@ export async function terminateService(
       INSERT INTO audit_events (
         id, account_id, actor_user_id, actor_type, action, resource_type,
         resource_id, ip_address, correlation_id, metadata, created_at
-      ) VALUES (?, ?, ?, ?, 'service.terminate', 'service', ?, '127.0.0.1', ?, ?, datetime('now', 'utc'))
+      ) VALUES (?, ?, ?, ?, 'service.terminate', 'service', ?, ?, ?, ?, datetime('now', 'utc'))
     `).run(
       `aud_${crypto.randomUUID()}`,
       service.account_id,
       params.actorUserId || null,
       params.actorType || 'STAFF',
       service.id,
+      params.ipAddress || '127.0.0.1',
       `corr_${crypto.randomUUID()}`,
       JSON.stringify({ reason: params.reason })
     );

@@ -199,3 +199,48 @@ describe('Adapter file requests', () => {
     await expect(ad.signedFileUrl('abcd1234', 'upload', '/', 'ptlc_acct')).rejects.toMatchObject({ code: 'MALFORMED_RESPONSE' });
   });
 });
+
+describe('NEW-381/NEW-382: unknown outcomes and oversize reads', () => {
+  const c = { serviceId: 'svc_1', accountId: 'acc_1', userId: 'usr_acc_1', role: 'OWNER' };
+
+  it('every mutation reports a timeout as pending with an audit row, and still audits success when it works', async () => {
+    seed('acc_1', 'svc_1');
+    const ad = new FakeAdapter();
+    const timeout = async () => { throw new ProviderNetworkError('timed out'); };
+    ad.writeFile = timeout; ad.deleteFiles = timeout; ad.renameFile = timeout; ad.chmodFiles = timeout; ad.copyFile = timeout; ad.createFolder = timeout;
+    const api = createFilesApi({ adapter: ad, db, secret: SECRET });
+    expect(await api.write(c, '/a.txt', 'x')).toEqual({ pending: true });
+    expect(await api.remove(c, '/', ['a.txt'])).toEqual({ pending: true });
+    expect(await api.rename(c, '/', 'a.txt', 'b.txt')).toEqual({ pending: true });
+    expect(await api.chmod(c, '/', ['a.txt'], '644')).toEqual({ pending: true });
+    expect(await api.copy(c, '/a.txt')).toEqual({ pending: true });
+    expect(await api.createFolder(c, '/', 'new')).toEqual({ pending: true });
+    expect(await api.move(c, '/', 'a.txt', '/sub')).toEqual({ pending: true });
+    const rows = db.prepare("SELECT metadata FROM audit_events WHERE action LIKE 'service.file.%'").all() as { metadata: string }[];
+    expect(rows).toHaveLength(7);
+    expect(rows.every((r) => JSON.parse(r.metadata).pending === true)).toBe(true);
+
+    const healthy = createFilesApi({ adapter: new FakeAdapter(), db, secret: SECRET });
+    expect(await healthy.write(c, '/ok.txt', 'x')).toEqual({ pending: false });
+    ad.writeFile = async () => { throw new Error('quota exceeded'); };
+    await expect(api.write(c, '/a.txt', 'x')).rejects.toThrow('quota exceeded'); // a definite refusal is still an error
+  });
+
+  it('an audit failure after a successful change does not turn it into an error', async () => {
+    seed('acc_1', 'svc_1');
+    const api = createFilesApi({ adapter: new FakeAdapter(), db, secret: SECRET });
+    db.exec("CREATE TRIGGER no_audit BEFORE INSERT ON audit_events WHEN NEW.action LIKE 'service.file.%' BEGIN SELECT RAISE(ABORT, 'audit down'); END");
+    expect(await api.write(c, '/ok.txt', 'x')).toEqual({ pending: false });
+  });
+
+  it('refuses a listed file above the edit limit before downloading any of it', async () => {
+    seed('acc_1', 'svc_1');
+    const ad = new FakeAdapter();
+    ad.listFiles = async () => [{ name: 'huge.log', isFile: true, isSymlink: false, size: 900 * 1024 * 1024, mime: 'text/plain', modifiedAt: '' }];
+    let downloaded = false;
+    ad.readFile = async () => { downloaded = true; return ''; };
+    const api = createFilesApi({ adapter: ad, db, secret: SECRET });
+    await expect(api.read(c, '/logs/huge.log')).rejects.toMatchObject({ code: 'FILE_TOO_LARGE', statusCode: 413 });
+    expect(downloaded).toBe(false);
+  });
+});

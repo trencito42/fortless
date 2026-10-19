@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/database/schema.js';
@@ -96,5 +98,24 @@ describe('NEW-377/NEW-360/NEW-398: maintenance and one-time links', () => {
     expect((db.prepare('SELECT payload_json p FROM email_outbox WHERE id = ?').get(id) as any).p).not.toContain('LEGACYSECRET');
     expect((db.prepare('SELECT COUNT(*) c FROM webauthn_challenges').get() as any).c).toBe(1);
     expect((db.prepare("SELECT COUNT(*) c FROM sessions WHERE id = 'old'").get() as any).c).toBe(0);
+  });
+});
+
+describe('NEW-401/NEW-402: email rendering and delivery lease', () => {
+  it('fills the template in one pass: values are not rewritten by later samples or expanded as placeholders', async () => {
+    const { renderEmail } = await import('../src/modules/email/outbox.js');
+    const rendered = renderEmail('service_ready', { serviceName: 'Frankfurt €27.90 {{name}}', address: 'host:25565', region: 'Elsewhere', name: 'Alex Morgan' });
+    expect(rendered.text).toContain('Frankfurt €27.90 {{name}}');
+    expect(rendered.html).toContain('Frankfurt €27.90 {{name}}');
+    expect(rendered.text).not.toContain('Frankfurt €27.90 Alex Morgan');
+    expect(rendered.html).not.toMatch(/<script/i);
+    const escaped = renderEmail('service_ready', { serviceName: '<b>x</b>', address: 'a', region: 'b' });
+    expect(escaped.html).toContain('&lt;b&gt;x&lt;/b&gt;');
+  });
+
+  it('keeps a message leased longer than the slowest SMTP timeout', () => {
+    const source = fs.readFileSync(path.resolve('src/modules/email/outbox.ts'), 'utf8');
+    expect(source).toContain('leaseDurationMs || 300_000');
+    expect(source).toContain('socketTimeout: 45_000');
   });
 });

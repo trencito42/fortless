@@ -331,7 +331,7 @@
     invalidateCsrfToken() {
       this.csrfToken = null;
     }
-    async request(url, options = {}) {
+    async request(url, options = {}, csrfRetried = false) {
       const method = (options.method || "GET").toUpperCase();
       const headers = { ...options.headers || {} };
       if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
@@ -360,6 +360,12 @@
           window.location.href = `/login?next=${next}`;
         }
         throw new SessionExpiredError(data.message || data.error);
+      }
+      if (res.status === 403 && data.code === "CSRF_INVALID" && !csrfRetried && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+        this.invalidateCsrfToken();
+        const retryHeaders = { ...options.headers || {} };
+        delete retryHeaders["X-CSRF-Token"];
+        return this.request(url, { ...options, headers: retryHeaders }, true);
       }
       if (res.status === 403 && (data.error === "STEP_UP_REQUIRED" || data.code === "STEP_UP_REQUIRED")) {
         if (this.stepUpInterceptor) {

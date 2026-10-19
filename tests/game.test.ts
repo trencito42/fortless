@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 
 vi.hoisted(() => {
   process.env['SESSION_SECRET'] = 'test-session-secret-0123456789abcdef0123456789';
@@ -12,7 +13,7 @@ import { SCHEMA_SQL } from '../src/database/schema.js';
 import { runMigrations } from '../src/database/migrations.js';
 import { PterodactylHttpAdapter } from '../src/modules/provisioning/adapter.js';
 import {
-  applyProperties, parseProperties, recommendedImage, saveProfile, validateConfigValues, validateProfile, ProfileError,
+  applyProperties, parseProperties, recommendedImage, saveProfile, validateConfigValues, validateProfile, ProfileError, listProfiles, describeProfileChange,
 } from '../src/modules/provisioning/game-profiles.js';
 import { createGameTools, clearEggCache } from '../src/modules/provisioning/game-tools.js';
 
@@ -183,6 +184,40 @@ describe('Installer and icon', () => {
     }) as unknown as typeof fetch;
     return { fn, calls };
   };
+
+  it('NEW-411: installs run one at a time per server, stream to disk and leave no temporary files behind', async () => {
+    seed(1);
+    const ad = new FakeAdapter();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const s = stub();
+    const slow = (async (url: string, init?: RequestInit) => {
+      if (String(url).includes('node.example.test')) await gate; // hold the first install open at the upload step
+      return s.fn(url, init);
+    }) as unknown as typeof fetch;
+    const tools = createGameTools({ adapter: ad, db, secret: SECRET, fetchFn: slow });
+    const tmpBefore = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('fortless-mod-')).length;
+    const first = tools.installMod(ctx(1), { source: 0, projectId: 'hXiIvTyT' });
+    await new Promise((r) => setTimeout(r, 50));
+    await expect(tools.installMod(ctx(1), { source: 0, projectId: 'hXiIvTyT' })).rejects.toMatchObject({ code: 'INSTALL_IN_PROGRESS', statusCode: 429 });
+    release();
+    await expect(first).resolves.toMatchObject({ file: 'EssentialsX-2.22.0.jar' });
+    expect(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('fortless-mod-')).length).toBe(tmpBefore);
+    await expect(tools.installMod(ctx(1), { source: 0, projectId: 'hXiIvTyT' })).resolves.toBeDefined(); // the slot was released
+  });
+
+  it('NEW-410: download hosts must be public DNS names, and a profile change is recorded with before and after', () => {
+    const base = JSON.parse(JSON.stringify(listProfiles(db)[0] ?? {}));
+    const withHost = (host: string) => ({ ...base, installSources: [{ ...base.installSources[0], downloadHosts: [host] }] });
+    for (const bad of ['127.0.0.1', 'localhost', 'metadata.internal', 'intranet', '10.0.0.5', 'a..b.com']) {
+      expect(() => validateProfile(withHost(bad))).toThrow(/download host|download hosts/);
+    }
+    expect(() => validateProfile(withHost('cdn.modrinth.com'))).not.toThrow();
+    const changed = saveProfile(db, withHost('mirror.example.org'), base.id);
+    const diff = describeProfileChange(listProfiles(db).find((p) => p.id === base.id) ? { ...changed, installSources: base.installSources } as never : null, changed) as any;
+    expect(diff.changed).toContain('installSources');
+    expect(diff.installSources.after[0].downloadHosts).toEqual(['mirror.example.org']);
+  });
 
   it('GAM-07: search uses the profile facets and the server version; install verifies the checksum and uploads', async () => {
     seed(1);

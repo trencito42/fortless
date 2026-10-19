@@ -371,4 +371,27 @@ describe('P0 billing remediation', () => {
     expect(() => retryPspInboxEvent(db, row.id, { userId: staffId, ipAddress: '127.0.0.1' })).toThrow(/NOT_RETRYABLE/);
     expect((db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'payment.inbox_retried'").get() as any).c).toBe(1);
   });
+
+  it('NEW-412: a provider timeout during suspend or unsuspend becomes a retried, audited pending state and the real IP is recorded', async () => {
+    const { suspendService, unsuspendService } = await import('../src/modules/provisioning/services.js');
+    const { ProviderNetworkError } = await import('../src/modules/provisioning/adapter.js');
+    db.pragma('foreign_keys = OFF');
+    const u = user();
+    db.prepare("INSERT INTO nodes (id, region_id, provider_instance_id, name, fqdn, max_memory_mb, max_disk_mb) VALUES ('n12', 'reg_fra_1', 'i', 'n', 'n.test', 1000, 1000)").run();
+    db.prepare("INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id, external_id) VALUES ('svc_12', ?, 'oi_12', 'PTERODACTYL', 'p', 'ACTIVE', 'n12', '120')").run(u.account.id);
+    const flaky = new MockPterodactylAdapter();
+    (flaky as any).suspend = async () => { throw new ProviderNetworkError('timeout'); };
+    (flaky as any).unsuspend = async () => { throw new ProviderNetworkError('timeout'); };
+
+    const suspended = await suspendService({ serviceId: 'svc_12', reason: 'abuse report', actorType: 'STAFF', actorUserId: u.user.id, category: 'STAFF', ipAddress: '203.0.113.50' }, flaky, db);
+    expect(suspended.pending).toBe(true);
+    expect((db.prepare("SELECT contract_status s FROM services WHERE id = 'svc_12'").get() as any).s).toBe('SUSPENDED');
+    expect((db.prepare("SELECT COUNT(*) c FROM outbox_events WHERE event_type = 'service.suspend.v1' AND aggregate_id = 'svc_12' AND status = 'PENDING'").get() as any).c).toBe(1);
+    expect((db.prepare("SELECT ip_address i FROM audit_events WHERE action = 'service.suspend'").get() as any).i).toBe('203.0.113.50');
+
+    const lifted = await unsuspendService({ serviceId: 'svc_12', actorType: 'STAFF', actorUserId: u.user.id, ipAddress: '203.0.113.51' }, flaky, db);
+    expect(lifted.pending).toBe(true);
+    expect((db.prepare("SELECT contract_status s FROM services WHERE id = 'svc_12'").get() as any).s).toBe('SUSPENDED'); // not ACTIVE until the provider confirms
+    expect((db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'service.unsuspend_pending'").get() as any).c).toBe(1);
+  });
 });

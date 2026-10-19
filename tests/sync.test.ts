@@ -127,7 +127,7 @@ describe('Reconcile with the panel', () => {
 });
 
 describe('Staff relink', () => {
-  const run = (ad: FakeAdapter, id: unknown) => relinkService({ serviceId: 'svc_1', panelServerId: id, actorUserId: 'usr_staff' }, ad, db);
+  const run = (ad: FakeAdapter, id: unknown, confirmTakeover = true) => relinkService({ serviceId: 'svc_1', panelServerId: id, actorUserId: 'usr_staff', confirmTakeover }, ad, db);
 
   it('SYN-05: relink points the service at an existing panel server, audits it and resets the state', async () => {
     seed(1);
@@ -149,5 +149,42 @@ describe('Staff relink', () => {
     db.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE id = 'svc_1'").run();
     await expect(run(ad, 55)).rejects.toBeInstanceOf(RelinkError);
     expect(db.prepare("SELECT external_id e FROM services WHERE id = 'svc_1'").get()).toEqual({ e: '1' });
+  });
+});
+
+describe('Relink safety (NEW-388) and reconcile safety (NEW-389)', () => {
+  const run = (ad: FakeAdapter, id: unknown, confirmTakeover = true) => relinkService({ serviceId: 'svc_1', panelServerId: id, actorUserId: 'usr_staff', confirmTakeover }, ad, db);
+  it('refuses a server owned by another customer, and needs confirmation to take over an unlinked one', async () => {
+    seed(1); seed(2);
+    db.prepare("UPDATE panel_users SET panel_user_id = 8 WHERE account_id = 'acc_2'").run();
+    const ad = new FakeAdapter();
+    ad.panel = [{ ...srv(55), userId: 8 } as PanelServerSummary, { ...srv(56), userId: 999 } as PanelServerSummary];
+    await expect(run(ad, 55)).rejects.toMatchObject({ code: 'OWNED_BY_OTHER_ACCOUNT' });
+    await expect(run(ad, 56, false)).rejects.toMatchObject({ code: 'TAKEOVER_CONFIRMATION_REQUIRED' });
+    expect(db.prepare("SELECT external_id e FROM services WHERE id = 'svc_1'").get()).toEqual({ e: '1' });
+    expect(await run(ad, 56, true)).toMatchObject({ externalId: '56' });
+    const actions = (db.prepare("SELECT action FROM audit_events WHERE resource_id = 'svc_1' ORDER BY rowid").all() as { action: string }[]).map((a) => a.action);
+    expect(actions).toEqual(['service.relink_requested', 'service.relinked']);
+  });
+
+  it('keeps the old link and still records the intent when the panel step fails half way', async () => {
+    seed(1);
+    const ad = new FakeAdapter();
+    ad.panel = [{ ...srv(57), userId: 999 } as PanelServerSummary];
+    ad.assignServerOwner = async () => { throw new Error('panel down'); };
+    await expect(run(ad, 57, true)).rejects.toThrow('panel down');
+    expect(db.prepare("SELECT external_id e FROM services WHERE id = 'svc_1'").get()).toEqual({ e: '1' });
+    expect((db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'service.relink_requested'").get() as any).c).toBe(1);
+    expect((db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'service.relinked'").get() as any).c).toBe(0);
+  });
+
+  it('does not revoke any shared member when the panel answers without a user list', async () => {
+    seed(1);
+    db.prepare("INSERT INTO service_members (id, service_id, user_id, preset, panel_subuser_uuid) VALUES ('m9', 'svc_1', 'usr_g', 'viewer', 'uuid-9')").run();
+    const ad = new FakeAdapter();
+    ad.panel = [srv(1)];
+    ad.clientServerCall = (async () => ({})) as unknown as typeof ad.clientServerCall;
+    expect((await reconcileWithPanel(ad, db, SECRET)).membersRevoked).toBe(0);
+    expect(db.prepare('SELECT COUNT(*) c FROM service_members').get()).toEqual({ c: 1 });
   });
 });

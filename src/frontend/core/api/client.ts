@@ -31,7 +31,7 @@ class ApiClient {
     this.csrfToken = null;
   }
 
-  public async request<T = unknown>(url: string, options: RequestOptions = {}): Promise<T> {
+  public async request<T = unknown>(url: string, options: RequestOptions = {}, csrfRetried = false): Promise<T> {
     const method = (options.method || 'GET').toUpperCase();
     const headers: Record<string, string> = { ...(options.headers || {}) };
 
@@ -64,6 +64,14 @@ class ApiClient {
         window.location.href = `/login?next=${next}`;
       }
       throw new SessionExpiredError(data.message || data.error);
+    }
+
+    // NEW-405: the CSRF cookie expires after an hour and the token is tied to the session; fetch a fresh one once and retry.
+    if (res.status === 403 && data.code === 'CSRF_INVALID' && !csrfRetried && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      this.invalidateCsrfToken();
+      const retryHeaders = { ...(options.headers || {}) };
+      delete retryHeaders['X-CSRF-Token'];
+      return this.request<T>(url, { ...options, headers: retryHeaders }, true);
     }
 
     if (res.status === 403 && (data.error === 'STEP_UP_REQUIRED' || data.code === 'STEP_UP_REQUIRED')) {

@@ -62,6 +62,10 @@ export function isValidDeviceId(id: unknown): id is string {
 }
 
 const SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+export const SESSION_TTL_HOURS = SESSION_TTL_MS / 3_600_000;
+/** How long a completed step-up stays valid (src/server.ts requireRecentStepUp uses the same figure). */
+export const STEP_UP_TTL_MS = 10 * 60 * 1000;
+export const STEP_UP_TTL_MINUTES = STEP_UP_TTL_MS / 60_000;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 15 * 60 * 1000;
 const MAX_FAILED_LOGINS = 5;
@@ -230,6 +234,11 @@ function createPurposeToken(
   return rawToken;
 }
 
+/** Raised for an email that already has an account. The route answers exactly as it does for a new registration (NEW-362). */
+export class EmailAlreadyRegisteredError extends Error {
+  constructor() { super('An account with this email address already exists.'); this.name = 'EmailAlreadyRegisteredError'; }
+}
+
 export function registerUser(
   data: { email: string; password: string; name: string; ipAddress: string; userAgent: string },
   db: Database.Database = getDatabase()
@@ -237,7 +246,11 @@ export function registerUser(
   const normalizedEmail = data.email.trim().toLowerCase();
   const passwordError = validatePassword(data.password);
   if (passwordError) throw new Error(passwordError);
-  if (db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail)) throw new Error('An account with this email address already exists.');
+  if (db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail)) {
+    // NEW-362: spend the same hashing time as a real registration so the duplicate cannot be told apart by timing.
+    hashPassword(data.password);
+    throw new EmailAlreadyRegisteredError();
+  }
   const userId = generateId('usr');
   const accountId = generateId('acc');
   return runInTransaction((trx) => {
@@ -307,6 +320,7 @@ export function resendVerification(email: string, db: Database.Database = getDat
     const user = trx.prepare("SELECT id, name FROM users WHERE email = ? AND status = 'PENDING_VERIFICATION'")
       .get(normalizedEmail) as { id: string; name: string } | undefined;
     if (!user) return null;
+    if (emailCooldownActive(trx, normalizedEmail, 'email_verification')) return null;
     const token = createPurposeToken('email_verification_tokens', user.id, VERIFY_TTL_MS, trx);
     queueEmail(trx, {
       recipient: normalizedEmail,
@@ -332,13 +346,22 @@ function isLoginThrottled(email: string, ipAddress: string, db: Database.Databas
     AND succeeded = 0 AND attempted_at >= datetime('now', '-15 minutes')`).get(identifierDigest(email)) as { failures: number };
   return globalRow.failures >= 10;
 }
+let equaliserHash: string | null = null;
+function timingEqualiserHash(): string {
+  if (!equaliserHash) equaliserHash = hashPassword(crypto.randomBytes(24).toString('base64url'));
+  return equaliserHash;
+}
+
 export function loginUser(
   data: { email: string; password: string; ipAddress: string; userAgent: string; deviceId?: string }, db: Database.Database = getDatabase()
 ): SessionResult {
   const normalizedEmail = data.email.trim().toLowerCase();
   if (isLoginThrottled(normalizedEmail, data.ipAddress, db)) throw new Error('Too many sign-in attempts. Try again after 15 minutes.');
   const userRow = db.prepare('SELECT * FROM users WHERE email = ?').get(normalizedEmail) as (User & { password_hash: string }) | undefined;
-  if (!userRow || userRow.status !== 'ACTIVE' || !verifyPassword(userRow.password_hash, data.password)) {
+  // NEW-362: an unknown or inactive account costs the same password-hash work as a real one.
+  const hashToCheck = userRow?.status === 'ACTIVE' ? userRow.password_hash : timingEqualiserHash();
+  const passwordOk = verifyPassword(hashToCheck, data.password);
+  if (!userRow || userRow.status !== 'ACTIVE' || !passwordOk) {
     recordLoginAttempt(normalizedEmail, data.ipAddress, false, db);
     throw new Error('Invalid email or password.');
   }
@@ -367,12 +390,24 @@ export function loginUser(
   return { user: safeUser(userRow), account, token: sessionToken, requiresMfa };
 }
 
+/**
+ * NEW-365: at most one security email of a kind per minute and five per hour to one address, however many times the
+ * public form is submitted. The caller answers as if the email was sent, so the limit leaks nothing.
+ */
+function emailCooldownActive(trx: Database.Database, recipient: string, template: string): boolean {
+  const last = trx.prepare("SELECT 1 FROM email_outbox WHERE recipient = ? AND template = ? AND created_at >= datetime('now', '-60 seconds')").get(recipient, template);
+  if (last) return true;
+  const hour = trx.prepare("SELECT count(*) AS c FROM email_outbox WHERE recipient = ? AND template = ? AND created_at >= datetime('now', '-1 hour')").get(recipient, template) as { c: number };
+  return hour.c >= 5;
+}
+
 export function requestPasswordReset(email: string, db: Database.Database = getDatabase()): string | null {
   const normalizedEmail = email.trim().toLowerCase();
   return runInTransaction((trx) => {
     const user = trx.prepare("SELECT id, name FROM users WHERE email = ? AND status != 'SUSPENDED'")
       .get(normalizedEmail) as { id: string; name: string } | undefined;
     if (!user) return null;
+    if (emailCooldownActive(trx, normalizedEmail, 'password_reset')) return null;
     const token = createPurposeToken('password_reset_tokens', user.id, RESET_TTL_MS, trx);
     queueEmail(trx, {
       recipient: normalizedEmail,

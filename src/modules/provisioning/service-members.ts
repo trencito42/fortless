@@ -149,8 +149,18 @@ export function createServiceSharing(deps: SharingDeps = {}) {
       const externalId = service.external_id;
       let uuid: string | null = null;
       try {
-        const res = await asOwner(service.account_id, (ad, key) => ad.clientServerCall(externalId, key, 'POST', '/users', { email: panel.panel_email, permissions }));
-        uuid = res?.attributes?.uuid ? String(res.attributes.uuid) : null;
+        // NEW-393: an earlier attempt may have created the sub-user before the local row was written (timeout, crash).
+        //          Adopt it instead of creating it again, and bring its permissions in line with the invitation.
+        const existing = await asOwner(service.account_id, (ad, key) => ad.clientServerCall(externalId, key, 'GET', '/users'));
+        const found = ((existing?.data ?? []) as any[]).find((u) => String(u?.attributes?.email ?? '').toLowerCase() === panel.panel_email.toLowerCase());
+        if (found?.attributes?.uuid) {
+          uuid = String(found.attributes.uuid);
+          const subuser = uuid;
+          await asOwner(service.account_id, (ad, key) => ad.clientServerCall(externalId, key, 'POST', `/users/${subuser}`, { permissions }));
+        } else {
+          const res = await asOwner(service.account_id, (ad, key) => ad.clientServerCall(externalId, key, 'POST', '/users', { email: panel.panel_email, permissions }));
+          uuid = res?.attributes?.uuid ? String(res.attributes.uuid) : null;
+        }
       } catch (err) {
         if (!(err instanceof ProviderError) || err.detail === undefined) throw err;
         throw new SharingError(err.detail, 'PANEL_REFUSED', 409);

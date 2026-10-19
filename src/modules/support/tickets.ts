@@ -18,6 +18,11 @@ export const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
 ]);
 
 export const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+/** NEW-372: per-ticket and per-workspace limits on top of the per-file cap. */
+export const MAX_ATTACHMENTS_PER_TICKET = 10;
+export const MAX_ATTACHMENT_BYTES_PER_ACCOUNT = 200 * 1024 * 1024; // 200 MB
+/** NEW-371: base64 inflates a file by 4/3, so the route body limit must cover the largest allowed file plus the envelope. */
+export const ATTACHMENT_BODY_LIMIT_BYTES = Math.ceil(MAX_ATTACHMENT_SIZE_BYTES * 4 / 3) + 64 * 1024;
 
 export function sanitizeFilename(filename: string): string {
   const normalized = filename.replace(/\\/g, '/').replace(/[\0\r\n\t]/g, '').trim();
@@ -182,6 +187,16 @@ export function addTicketAttachment(
   if (!ticket) throw new Error('Ticket not found.');
   if (input.accountId && ticket.account_id !== input.accountId) {
     throw new Error('Ticket not found.');
+  }
+  if (input.accountId) {
+    const perTicket = (db.prepare('SELECT COUNT(*) AS c FROM ticket_attachments WHERE ticket_id = ?').get(ticket.id) as { c: number }).c;
+    if (perTicket >= MAX_ATTACHMENTS_PER_TICKET) {
+      throw new Error(`QUOTA_EXCEEDED: a ticket can hold at most ${MAX_ATTACHMENTS_PER_TICKET} attachments.`);
+    }
+    const used = (db.prepare('SELECT COALESCE(SUM(a.byte_size), 0) AS total FROM ticket_attachments a JOIN tickets t ON t.id = a.ticket_id WHERE t.account_id = ?').get(ticket.account_id) as { total: number }).total;
+    if (used + input.buffer.length > MAX_ATTACHMENT_BYTES_PER_ACCOUNT) {
+      throw new Error('QUOTA_EXCEEDED: this workspace has used its attachment storage.');
+    }
   }
 
   if (input.messageId) {

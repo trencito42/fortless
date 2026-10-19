@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeHarness, type Harness } from './helpers/harness.js';
-import { registerUser, verifyEmail, authenticateSession, createSessionForUser, switchWorkspace, listUserWorkspaces } from '../src/modules/identity/auth.js';
+import { requestPasswordReset, loginUser, registerUser, verifyEmail, authenticateSession, createSessionForUser, switchWorkspace, listUserWorkspaces } from '../src/modules/identity/auth.js';
 import { getServiceAccess, PERMISSION_PRESETS } from '../src/modules/provisioning/service-access.js';
 import { updateAccountStatus } from '../src/modules/admin/read-model.js';
 
@@ -99,5 +99,73 @@ describe('NEW-403: tax country is server-side', () => {
     h.db.prepare("INSERT INTO billing_profiles (id, account_id, address_line1, city, postal_code, country) VALUES ('bp_tax', 'acc_tax', 'Street 1', 'Paris', '75001', 'FR')").run();
     const withProfile = await ask({ billingCountry: 'DE' });
     expect(withProfile.taxEvidence.taxRateBasisPoints).toBe(2000);
+  });
+});
+
+describe('NEW-362: no account enumeration through registration or sign-in', () => {
+  it('answers a registration for an existing address exactly like a new one', async () => {
+    const fresh = await h.call('POST', '/api/v1/auth/register', null, { name: 'Fresh', email: 'enum-fresh@example.com', password: 'Password12345!' });
+    const again = await h.call('POST', '/api/v1/auth/register', null, { name: 'Fresh', email: 'enum-fresh@example.com', password: 'Password12345!' });
+    expect(again.statusCode).toBe(fresh.statusCode);
+    expect(Object.keys(again.json()).sort()).toEqual(Object.keys(fresh.json()).sort());
+    expect(JSON.stringify(again.json())).not.toMatch(/already|exists/i);
+  });
+
+  it('gives the same message for unknown accounts and wrong passwords and does the same hashing work', () => {
+    const real = registerUser({ email: 'enum-real@example.com', password: 'Password12345!', name: 'Real', ipAddress: '127.0.0.1', userAgent: 't' }, h.db);
+    h.db.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc') WHERE id = ?").run(real.user.id);
+    const time = (email: string) => { const t = process.hrtime.bigint(); try { loginUser({ email, password: 'WrongPassword12345!', ipAddress: `198.51.100.${Math.floor(Math.random() * 200)}`, userAgent: 't' }, h.db); } catch (e) { expect((e as Error).message).toBe('Invalid email or password.'); } return Number(process.hrtime.bigint() - t) / 1e6; };
+    time('enum-real@example.com'); time('enum-nobody@example.com'); // warm-up
+    const median = (xs: number[]) => xs.sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+    const known = median([time('enum-real@example.com'), time('enum-real@example.com'), time('enum-real@example.com')]);
+    const unknown = median([time('enum-nobody@example.com'), time('enum-nobody@example.com'), time('enum-nobody@example.com')]);
+    expect(unknown).toBeGreaterThan(known * 0.4);
+  });
+});
+
+describe('NEW-365: per-recipient cooldown on security emails', () => {
+  it('sends one reset and one verification email per minute and five per hour to an address', () => {
+    const u = registerUser({ email: 'cooldown@example.com', password: 'Password12345!', name: 'Cool', ipAddress: '127.0.0.1', userAgent: 't' }, h.db);
+    h.db.prepare("UPDATE email_outbox SET created_at = datetime('now', '-2 hours')").run();
+    h.db.prepare("UPDATE users SET status = 'ACTIVE', email_verified_at = datetime('now', 'utc') WHERE id = ?").run(u.user.id);
+    expect(requestPasswordReset('cooldown@example.com', h.db)).not.toBeNull();
+    expect(requestPasswordReset('cooldown@example.com', h.db)).toBeNull();
+    for (let i = 0; i < 4; i++) {
+      h.db.prepare("UPDATE email_outbox SET created_at = datetime('now', '-30 minutes') WHERE template = 'password_reset' AND recipient = 'cooldown@example.com'").run();
+      expect(requestPasswordReset('cooldown@example.com', h.db)).not.toBeNull();
+    }
+    h.db.prepare("UPDATE email_outbox SET created_at = datetime('now', '-30 minutes') WHERE template = 'password_reset'").run();
+    expect(requestPasswordReset('cooldown@example.com', h.db)).toBeNull(); // five in the last hour
+  });
+});
+
+describe('NEW-371/NEW-372: support attachments', () => {
+  it('accepts a file of 4.5 MB over HTTP, refuses the 11th attachment on a ticket and enforces the workspace quota', async () => {
+    const owner = h.user('u_att', { accountId: 'acc_att' });
+    const created = await h.call('POST', '/api/v1/tickets', owner.token, { subject: 'Attachment check', priority: 'NORMAL', message: 'Testing attachment limits.' });
+    expect(created.statusCode).toBe(201);
+    const ticketId = created.json().ticketId as string;
+    const upload = (bytes: number, name = 'file.txt') => h.call('POST', `/api/v1/tickets/${ticketId}/attachments`, owner.token, { filename: name, contentType: 'text/plain', dataBase64: Buffer.alloc(bytes, 97).toString('base64') });
+    const big = await upload(4.5 * 1024 * 1024, 'big.txt');
+    expect(big.statusCode).toBe(201); // base64 of 4.5 MB is 6 MB, above Fastify's default 1 MiB limit
+    for (let i = 0; i < 9; i++) expect((await upload(10, `s${i}.txt`)).statusCode).toBe(201);
+    const eleventh = await upload(10, 'eleventh.txt');
+    expect(eleventh.statusCode).toBe(429);
+    expect(eleventh.json().code).toBe('QUOTA_EXCEEDED');
+    const second = (await h.call('POST', '/api/v1/tickets', owner.token, { subject: 'Second ticket', priority: 'NORMAL', message: 'Quota test.' })).json().ticketId as string;
+    h.db.prepare("UPDATE ticket_attachments SET byte_size = ? WHERE ticket_id = ? AND rowid = (SELECT MIN(rowid) FROM ticket_attachments WHERE ticket_id = ?)").run(199 * 1024 * 1024, ticketId, ticketId);
+    const over = await h.call('POST', `/api/v1/tickets/${second}/attachments`, owner.token, { filename: 'late.txt', contentType: 'text/plain', dataBase64: Buffer.alloc(2 * 1024 * 1024, 98).toString('base64') });
+    expect(over.statusCode).toBe(429);
+  });
+});
+
+describe('NEW-386: AI endpoints are off until a provider is configured', () => {
+  it('answers 503 AI_NOT_CONFIGURED instead of mock output', async () => {
+    const u = h.user('u_ai', { accountId: 'acc_ai' });
+    const res = await h.call('POST', '/api/v1/services/svc_any/diagnostics', u.token, { recentLogs: 'EADDRINUSE' });
+    expect(res.statusCode).toBe(503);
+    expect(res.json().code).toBe('AI_NOT_CONFIGURED');
+    const triage = await h.call('POST', '/api/v1/tickets/tkt_any/ai-assist', u.token, {});
+    expect(triage.statusCode).toBe(503);
   });
 });

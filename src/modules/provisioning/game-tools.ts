@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { config } from '../../config/index.js';
@@ -17,6 +19,15 @@ interface Ctx { serviceId: string; accountId: string; userId: string; role?: str
 export interface GameToolsDeps { adapter?: ProviderAdapter; db?: Database.Database; secret?: string; fetchFn?: typeof fetch }
 
 const MAX_MOD_BYTES = 100 * 1024 * 1024;
+const MAX_PARALLEL_INSTALLS = 3;
+const installsInFlight = new Set<string>();
+/** One install per service at a time and a small global ceiling; excess requests get a typed 429 instead of queueing memory. */
+function acquireInstallSlot(serviceId: string): () => void {
+  if (installsInFlight.has(serviceId)) throw new ConsoleAccessError('An install for this server is already running.', 'INSTALL_IN_PROGRESS', 429);
+  if (installsInFlight.size >= MAX_PARALLEL_INSTALLS) throw new ConsoleAccessError('Too many installs are running right now. Try again in a minute.', 'INSTALL_BUSY', 429);
+  installsInFlight.add(serviceId);
+  return () => { installsInFlight.delete(serviceId); };
+}
 const MAX_ICON_BYTES = 100 * 1024;
 const PROJECT_ID = /^[A-Za-z0-9]{8}$/;
 const VERSION_ID = /^[A-Za-z0-9]{8}$/;
@@ -199,21 +210,36 @@ export function createGameTools(deps: GameToolsDeps = {}) {
         break;
       }
       if (!res || !res.ok || !res.body) throw fail('The file could not be downloaded.', 'DOWNLOAD_FAILED', 502);
-      const chunks: Buffer[] = [];
-      let total = 0;
-      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-        total += chunk.byteLength;
-        if (total > MAX_MOD_BYTES) throw fail('This file is too large to install.', 'FILE_TOO_LARGE', 413);
-        chunks.push(Buffer.from(chunk));
-      }
-      const buffer = Buffer.concat(chunks);
-      if (crypto.createHash('sha512').update(buffer).digest('hex') !== sha512) throw fail('The downloaded file did not match its published checksum, so it was not installed.', 'HASH_MISMATCH', 422);
+      // NEW-411: the jar is streamed to a private temporary file while its SHA-512 is computed, then uploaded from that
+      // file. Nothing proportional to the file size is held in memory, and installs are limited per service and overall.
+      const release = acquireInstallSlot(ctx.serviceId);
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fortless-mod-'));
+      const tmpFile = path.join(tmpDir, 'download.jar');
+      try {
+        const hash = crypto.createHash('sha512');
+        let total = 0;
+        const out = fs.createWriteStream(tmpFile, { mode: 0o600 });
+        try {
+          for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+            total += chunk.byteLength;
+            if (total > MAX_MOD_BYTES) throw fail('This file is too large to install.', 'FILE_TOO_LARGE', 413);
+            hash.update(chunk);
+            if (!out.write(chunk)) await new Promise<void>((resolve) => out.once('drain', () => resolve()));
+          }
+        } finally {
+          await new Promise<void>((resolve) => out.end(() => resolve()));
+        }
+        if (hash.digest('hex') !== sha512) throw fail('The downloaded file did not match its published checksum, so it was not installed.', 'HASH_MISMATCH', 422);
 
-      const url = await files.signedUrl(ctx, 'upload', src.dir);
-      const form = new FormData();
-      form.append('files', new Blob([buffer]), filename);
-      const up = await doFetch()(`${url}&directory=${encodeURIComponent(src.dir)}`, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) });
-      if (!up.ok) throw fail('The server did not accept the file.', 'UPLOAD_FAILED', 502);
+        const url = await files.signedUrl(ctx, 'upload', src.dir);
+        const form = new FormData();
+        form.append('files', await fs.openAsBlob(tmpFile), filename);
+        const up = await doFetch()(`${url}&directory=${encodeURIComponent(src.dir)}`, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) });
+        if (!up.ok) throw fail('The server did not accept the file.', 'UPLOAD_FAILED', 502);
+      } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+        release();
+      }
       db().prepare(`
         INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
         VALUES (?, (SELECT account_id FROM services WHERE id = ?), ?, 'USER', 'service.mod.install', 'service', ?, ?, ?, ?)

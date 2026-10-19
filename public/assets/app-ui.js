@@ -289,7 +289,7 @@
     invalidateCsrfToken() {
       this.csrfToken = null;
     }
-    async request(url, options = {}) {
+    async request(url, options = {}, csrfRetried = false) {
       const method = (options.method || "GET").toUpperCase();
       const headers = { ...options.headers || {} };
       if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
@@ -318,6 +318,12 @@
           window.location.href = `/login?next=${next}`;
         }
         throw new SessionExpiredError(data.message || data.error);
+      }
+      if (res.status === 403 && data.code === "CSRF_INVALID" && !csrfRetried && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+        this.invalidateCsrfToken();
+        const retryHeaders = { ...options.headers || {} };
+        delete retryHeaders["X-CSRF-Token"];
+        return this.request(url, { ...options, headers: retryHeaders }, true);
       }
       if (res.status === 403 && (data.error === "STEP_UP_REQUIRED" || data.code === "STEP_UP_REQUIRED")) {
         if (this.stepUpInterceptor) {
@@ -2099,6 +2105,10 @@ ${selectedOr("code")}
     } };
     const base = `/api/v1/services/${encodeURIComponent(serviceId)}/files`;
     const fail3 = (e) => toast(e?.message || "Request failed", "bad");
+    const pendingNote = (r) => {
+      if (r?.pending) toast("The server is still working on this. Do not repeat the action; the folder refreshes shortly.", "info");
+      return r;
+    };
     host.innerHTML = `<div class="fm" id="fm">
     <div class="fm-side" id="fmSide">
       <div class="row" style="justify-content:space-between;gap:8px">
@@ -2298,7 +2308,11 @@ ${selectedOr("code")}
       const content = editor?.value(path);
       if (content === void 0) return;
       try {
-        await api(`${base}/content`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, content }) });
+        const saved = await api(`${base}/content`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, content }) });
+        if (saved?.pending) {
+          pendingNote(saved);
+          return;
+        }
         isNew.delete(path);
         editor?.markSaved(path);
         toast("Saved", "good");
@@ -2336,7 +2350,7 @@ ${selectedOr("code")}
       if (!name) return;
       if (/[\/\\]/.test(name) || nameTaken(dir, name)) return toast("Invalid or existing name", "bad");
       try {
-        await api.post(`${base}/folder`, { dir, name });
+        pendingNote(await api.post(`${base}/folder`, { dir, name }));
         await refreshDir(dir);
       } catch (e) {
         fail3(e);
@@ -2372,7 +2386,7 @@ ${selectedOr("code")}
       if (!to || to === from) return;
       if (/[\/\\]/.test(to) || nameTaken(dir, to)) return toast("Invalid or existing name", "bad");
       try {
-        await api.post(`${base}/rename`, { dir, from, to });
+        pendingNote(await api.post(`${base}/rename`, { dir, from, to }));
         await refreshDir(dir);
       } catch (e) {
         fail3(e);
@@ -2383,7 +2397,7 @@ ${selectedOr("code")}
       if (!await confirmDialog({ title: `Delete ${name}?`, message: "This cannot be undone.", confirmLabel: "Delete", danger: true })) return;
       const dir = parentOf(node.dataset["path"]);
       try {
-        await api.post(`${base}/delete`, { dir, names: [name] });
+        pendingNote(await api.post(`${base}/delete`, { dir, names: [name] }));
         tabs.filter((p) => p === node.dataset["path"] || p.startsWith(node.dataset["path"] + "/")).forEach((p) => {
           dirty.delete(p);
           void closeTab(p);
@@ -2430,7 +2444,7 @@ ${selectedOr("code")}
       const dest = await promptDialog({ title: `Move ${node.dataset["name"]}`, label: "Destination folder", value: from, placeholder: "/plugins", confirmLabel: "Move" });
       if (!dest || dest === from) return;
       try {
-        await api.post(`${base}/move`, { dir: from, name: node.dataset["name"], destDir: dest });
+        pendingNote(await api.post(`${base}/move`, { dir: from, name: node.dataset["name"], destDir: dest }));
         await refreshDir(from);
         await refreshDir(dest);
       } catch (e) {
@@ -2441,7 +2455,7 @@ ${selectedOr("code")}
       const mode = await promptDialog({ title: `Permissions for ${node.dataset["name"]}`, label: "Mode (octal)", value: node.dataset["file"] === "1" ? "644" : "755", placeholder: "644", inputMode: "numeric", maxLength: 4, confirmLabel: "Apply" });
       if (!mode) return;
       try {
-        await api.post(`${base}/chmod`, { dir: parentOf(node.dataset["path"]), names: [node.dataset["name"]], mode });
+        pendingNote(await api.post(`${base}/chmod`, { dir: parentOf(node.dataset["path"]), names: [node.dataset["name"]], mode }));
         toast("Permissions updated", "good");
       } catch (e) {
         fail3(e);
@@ -2480,7 +2494,7 @@ ${selectedOr("code")}
     }
     async function copy2(node) {
       try {
-        await api.post(`${base}/copy`, { path: node.dataset["path"] });
+        pendingNote(await api.post(`${base}/copy`, { path: node.dataset["path"] }));
         await refreshDir(parentOf(node.dataset["path"]));
       } catch (e) {
         fail3(e);
@@ -2528,7 +2542,7 @@ ${selectedOr("code")}
       const dir = parentOf(paths[0]);
       if (!await confirmDialog({ title: `Delete ${names.length} item(s)?`, message: "This cannot be undone.", confirmLabel: "Delete", danger: true })) return;
       try {
-        await api.post(`${base}/delete`, { dir, names });
+        pendingNote(await api.post(`${base}/delete`, { dir, names }));
         tabs.filter((p) => paths.some((d) => p === d || p.startsWith(d + "/"))).forEach((p) => {
           dirty.delete(p);
           void closeTab(p);
@@ -3631,7 +3645,11 @@ ${selectedOr("code")}
   // src/frontend/client/pages/services/panel-tabs.ts
   var fail2 = (e) => toast(e?.message || "Request failed", "bad");
   var copy = (v, label) => `<span class="cpf"><code>${esc(v)}</code><button class="ib xs" type="button" data-copy="${esc(v)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy", "xs")}</button></span>`;
-  var sendJson = (url, method, body) => api(url, { method, headers: { "Content-Type": "application/json" }, body: body === void 0 ? void 0 : JSON.stringify(body) });
+  var sendJson = async (url, method, body) => {
+    const result = await api(url, { method, headers: { "Content-Type": "application/json" }, body: body === void 0 ? void 0 : JSON.stringify(body) });
+    if (result?.pending) toast("The panel did not answer in time. The change may still be applied; check again shortly before repeating it.", "info");
+    return result;
+  };
   var empty = (title) => `<div class="es"><span class="tile neu lg">${hero("shield")}</span><h4>${esc(title)}</h4></div>`;
   var iconBtn = (attr, icon, tip) => `<button class="btn s sq ghost" type="button" ${attr} data-tip="${esc(tip)}" data-pos="bottom" aria-label="${esc(tip)}">${hero(icon, "s")}</button>`;
   function lazy(host, load) {

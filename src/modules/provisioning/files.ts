@@ -56,6 +56,29 @@ async function run<T>(
   return withAccountClientKey(ctx.accountId, adapter, db, secret, (key) => fn(adapter, service.external_id, key));
 }
 
+/**
+ * NEW-381: a timeout on a mutation is an unknown outcome. The change may have reached Wings, so it is reported as
+ * pending (and audited as such) rather than as a failure that invites a blind retry.
+ */
+async function mutating(
+  ctx: Ctx, db: Database.Database, action: string, metadata: Record<string, unknown>, work: () => Promise<void>
+): Promise<{ pending: boolean }> {
+  try {
+    await work();
+  } catch (err) {
+    if (!(err instanceof ProviderNetworkError)) throw err;
+    safeAudit(db, ctx, action, { ...metadata, pending: true });
+    return { pending: true };
+  }
+  safeAudit(db, ctx, action, metadata);
+  return { pending: false };
+}
+
+/** The audit row never turns a change that already happened into an error response. */
+function safeAudit(db: Database.Database, ctx: Ctx, action: string, metadata: Record<string, unknown>): void {
+  try { audit(db, ctx, action, metadata); } catch (err) { console.error('[Files] audit write failed for', action, (err as Error).message); }
+}
+
 export interface FilesDeps { adapter?: ProviderAdapter; db?: Database.Database; secret?: string }
 
 export function createFilesApi(deps: FilesDeps = {}) {
@@ -72,6 +95,15 @@ export function createFilesApi(deps: FilesDeps = {}) {
 
     async read(ctx: Ctx, path: unknown): Promise<{ path: string; content: string }> {
       const p = normalizeServerPath(path);
+      // NEW-382: the listed size decides before any content is downloaded, so a huge file is never buffered.
+      const slash = p.lastIndexOf('/');
+      const parent = slash <= 0 ? '/' : p.slice(0, slash);
+      const base = p.slice(slash + 1);
+      const siblings = await run(ctx, 'file.read-content', deps.adapter, db(), secret(), (a, id, key) => a.listFiles(id, parent, key));
+      const listed = siblings.find((e) => e.name === base && e.isFile);
+      if (listed && listed.size > MAX_EDIT_BYTES) {
+        throw new ConsoleAccessError('File is too large to edit here. Download it instead.', 'FILE_TOO_LARGE', 413);
+      }
       const content = await run(ctx, 'file.read-content', deps.adapter, db(), secret(), (a, id, key) => a.readFile(id, p, key));
       if (Buffer.byteLength(content, 'utf8') > MAX_EDIT_BYTES) {
         throw new ConsoleAccessError('File is too large to edit here. Download it instead.', 'FILE_TOO_LARGE', 413);
@@ -79,13 +111,13 @@ export function createFilesApi(deps: FilesDeps = {}) {
       return { path: p, content };
     },
 
-    async write(ctx: Ctx, path: unknown, content: unknown): Promise<void> {
+    async write(ctx: Ctx, path: unknown, content: unknown): Promise<{ pending: boolean }> {
       const p = normalizeServerPath(path);
       if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > MAX_EDIT_BYTES) {
         throw new ConsoleAccessError('File content is missing or larger than 1 MB.', 'FILE_TOO_LARGE', 413);
       }
-      await run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.writeFile(id, p, content, key));
-      audit(db(), ctx, 'service.file.write', { path: p, bytes: Buffer.byteLength(content, 'utf8') });
+      return mutating(ctx, db(), 'service.file.write', { path: p, bytes: Buffer.byteLength(content, 'utf8') },
+        () => run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.writeFile(id, p, content, key)));
       try {
         const { triggerAutoSyncOnFileEvent } = await import('../fastdl/service.js');
         triggerAutoSyncOnFileEvent(ctx.serviceId, ctx.accountId, p, db());
@@ -94,21 +126,21 @@ export function createFilesApi(deps: FilesDeps = {}) {
       }
     },
 
-    async createFolder(ctx: Ctx, dir: unknown, name: unknown): Promise<void> {
+    async createFolder(ctx: Ctx, dir: unknown, name: unknown): Promise<{ pending: boolean }> {
       const d = normalizeServerPath(dir);
       const n = validateEntryName(name);
-      await run(ctx, 'file.create', deps.adapter, db(), secret(), (a, id, key) => a.createFolder(id, d, n, key));
-      audit(db(), ctx, 'service.file.mkdir', { path: `${d === '/' ? '' : d}/${n}` });
+      return mutating(ctx, db(), 'service.file.mkdir', { path: `${d === '/' ? '' : d}/${n}` },
+        () => run(ctx, 'file.create', deps.adapter, db(), secret(), (a, id, key) => a.createFolder(id, d, n, key)));
     },
 
-    async remove(ctx: Ctx, dir: unknown, names: unknown): Promise<void> {
+    async remove(ctx: Ctx, dir: unknown, names: unknown): Promise<{ pending: boolean }> {
       const d = normalizeServerPath(dir);
       if (!Array.isArray(names) || names.length === 0 || names.length > 100) {
         throw new ConsoleAccessError('Provide between 1 and 100 names.', 'INVALID_NAME', 400);
       }
       const clean = names.map(validateEntryName);
-      await run(ctx, 'file.delete', deps.adapter, db(), secret(), (a, id, key) => a.deleteFiles(id, d, clean, key));
-      audit(db(), ctx, 'service.file.delete', { dir: d, names: clean });
+      return mutating(ctx, db(), 'service.file.delete', { dir: d, names: clean },
+        () => run(ctx, 'file.delete', deps.adapter, db(), secret(), (a, id, key) => a.deleteFiles(id, d, clean, key)));
       try {
         const { triggerAutoSyncOnFileEvent } = await import('../fastdl/service.js');
         triggerAutoSyncOnFileEvent(ctx.serviceId, ctx.accountId, `${d}/deleted`, db());
@@ -117,12 +149,12 @@ export function createFilesApi(deps: FilesDeps = {}) {
       }
     },
 
-    async rename(ctx: Ctx, dir: unknown, from: unknown, to: unknown): Promise<void> {
+    async rename(ctx: Ctx, dir: unknown, from: unknown, to: unknown): Promise<{ pending: boolean }> {
       const d = normalizeServerPath(dir);
       const f = validateEntryName(from);
       const t = validateEntryName(to);
-      await run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.renameFile(id, d, f, t, key));
-      audit(db(), ctx, 'service.file.rename', { dir: d, from: f, to: t });
+      return mutating(ctx, db(), 'service.file.rename', { dir: d, from: f, to: t },
+        () => run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.renameFile(id, d, f, t, key)));
     },
 
     /** A timeout is an unknown outcome: Wings may still finish, so it is reported as pending, never as a failure. */
@@ -157,32 +189,32 @@ export function createFilesApi(deps: FilesDeps = {}) {
       }
     },
 
-    async copy(ctx: Ctx, path: unknown): Promise<void> {
+    async copy(ctx: Ctx, path: unknown): Promise<{ pending: boolean }> {
       const p = normalizeServerPath(path);
       if (p === '/') throw new ConsoleAccessError('Invalid path.', 'INVALID_PATH', 400);
-      await run(ctx, 'file.create', deps.adapter, db(), secret(), (a, id, key) => a.copyFile(id, p, key));
-      audit(db(), ctx, 'service.file.copy', { path: p });
+      return mutating(ctx, db(), 'service.file.copy', { path: p },
+        () => run(ctx, 'file.create', deps.adapter, db(), secret(), (a, id, key) => a.copyFile(id, p, key)));
     },
 
     /** Moves an entry to another folder. Wings resolves the relative target and keeps it inside the server root. */
-    async move(ctx: Ctx, dir: unknown, name: unknown, destDir: unknown): Promise<void> {
+    async move(ctx: Ctx, dir: unknown, name: unknown, destDir: unknown): Promise<{ pending: boolean }> {
       const d = normalizeServerPath(dir);
       const n = validateEntryName(name);
       const dest = normalizeServerPath(destDir);
       const rel = path.posix.relative(d, dest);
       if (rel === '') throw new ConsoleAccessError('The file is already in that folder.', 'SAME_FOLDER', 400);
       if (dest === d + '/' + n || dest.startsWith((d === '/' ? '' : d) + '/' + n + '/')) throw new ConsoleAccessError('A folder cannot be moved into itself.', 'INVALID_PATH', 400);
-      await run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.renameFile(id, d, n, `${rel}/${n}`, key));
-      audit(db(), ctx, 'service.file.move', { dir: d, name: n, to: dest });
+      return mutating(ctx, db(), 'service.file.move', { dir: d, name: n, to: dest },
+        () => run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.renameFile(id, d, n, `${rel}/${n}`, key)));
     },
 
-    async chmod(ctx: Ctx, dir: unknown, names: unknown, mode: unknown): Promise<void> {
+    async chmod(ctx: Ctx, dir: unknown, names: unknown, mode: unknown): Promise<{ pending: boolean }> {
       const d = normalizeServerPath(dir);
       if (!Array.isArray(names) || names.length === 0 || names.length > 100) throw new ConsoleAccessError('Provide between 1 and 100 names.', 'INVALID_NAME', 400);
       if (typeof mode !== 'string' || !/^[0-7]{3,4}$/.test(mode)) throw new ConsoleAccessError('Permissions must be an octal mode such as 644.', 'INVALID_MODE', 400);
       const clean = names.map(validateEntryName);
-      await run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.chmodFiles(id, d, clean, mode, key));
-      audit(db(), ctx, 'service.file.chmod', { dir: d, names: clean, mode });
+      return mutating(ctx, db(), 'service.file.chmod', { dir: d, names: clean, mode },
+        () => run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.chmodFiles(id, d, clean, mode, key)));
     },
 
     /** The node downloads the file. The address must be public https, and a timeout is reported as pending. */

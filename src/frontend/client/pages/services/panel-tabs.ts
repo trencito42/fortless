@@ -9,8 +9,12 @@ import { confirmDialog, formDialog } from './dialog.js';
 type Tab = { open(): void };
 const fail = (e: any) => toast(e?.message || 'Request failed', 'bad');
 const copy = (v: string, label: string) => `<span class="cpf"><code>${esc(v)}</code><button class="ib xs" type="button" data-copy="${esc(v)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero('copy', 'xs')}</button></span>`;
-const sendJson = (url: string, method: string, body?: unknown) =>
-  api(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+// An unknown outcome (the panel did not answer in time) is shown as pending, never as success or as a failure to retry.
+const sendJson = async (url: string, method: string, body?: unknown) => {
+  const result = await api<{ pending?: boolean }>(url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (result?.pending) toast('The panel did not answer in time. The change may still be applied; check again shortly before repeating it.', 'info');
+  return result;
+};
 const empty = (title: string) => `<div class="es"><span class="tile neu lg">${hero('shield')}</span><h4>${esc(title)}</h4></div>`;
 const iconBtn = (attr: string, icon: string, tip: string) => `<button class="btn s sq ghost" type="button" ${attr} data-tip="${esc(tip)}" data-pos="bottom" aria-label="${esc(tip)}">${hero(icon, 's')}</button>`;
 

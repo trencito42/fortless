@@ -169,6 +169,10 @@ describe('Databases and schedules', () => {
     ad.reply = { data: [{ attributes: { id: 3, name: 's1_main', username: 'u_x', host: { address: 'db.example.test', port: 3306 }, connections_from: '%', relationships: { password: { attributes: { password: 'pw' } } } } }] };
     expect((await api.databases(c)).databases[0]).toMatchObject({ id: '3', host: 'db.example.test:3306', password: 'pw' });
     expect(ad.calls[0]!.sub).toBe('/databases?include=password');
+    // NEW-391: revealing credentials is audited, and the password itself never reaches the log
+    const viewed = db.prepare("SELECT metadata m FROM audit_events WHERE action = 'service.database.password_viewed'").get() as { m: string };
+    expect(JSON.parse(viewed.m)).toEqual({ databases: 1 });
+    expect(viewed.m).not.toContain('pw');
     await expect(api.createDatabase(c, { name: 'bad name;' })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     await expect(api.createDatabase(c, { name: 'ok', remote: "'; DROP" })).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     await expect(api.deleteDatabase(c, '1/../2')).rejects.toMatchObject({ code: 'INVALID_INPUT' });

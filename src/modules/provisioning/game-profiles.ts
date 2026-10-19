@@ -1,3 +1,4 @@
+import net from 'node:net';
 import type Database from 'better-sqlite3';
 import { generateId } from '../identity/auth.js';
 import { normalizeServerPath } from './files.js';
@@ -88,6 +89,9 @@ export function validateProfile(input: unknown): Omit<GameProfile, 'id'> {
     if (!facets.length || facets.length > 8 || facets.some((g) => !g.length)) throw new ProfileError('Invalid facets.');
     const hosts = (Array.isArray(o['downloadHosts']) ? (o['downloadHosts'] as unknown[]) : []).map((h) => text(h, 253, 'host').toLowerCase());
     if (!hosts.length || hosts.some((h) => !HOST.test(h))) throw new ProfileError('Provide the allowed download hosts.');
+    // NEW-410: only public DNS names; IP literals, bare names and internal suffixes would point the installer inwards.
+    const badHost = hosts.find((h) => net.isIP(h) !== 0 || !h.includes('.') || /(^|\.)(localhost|local|internal|lan|home|corp|intranet)$/.test(h) || h.startsWith('.') || h.endsWith('.') || h.includes('..'));
+    if (badHost) throw new ProfileError(`"${badHost}" is not an allowed download host. Use a public DNS name such as cdn.modrinth.com.`);
     return {
       provider: 'modrinth', label: text(o['label'], 60, 'label'), kind: text(o['kind'], 30, 'kind'),
       dir: normalizeServerPath(o['dir']), facets, loaders: (Array.isArray(o['loaders']) ? (o['loaders'] as unknown[]) : []).map((l) => text(l, 40, 'loader')), downloadHosts: hosts,
@@ -201,4 +205,12 @@ export function recommendedImage(rules: JavaRule[], gameVersion: string | null):
   if (!gameVersion || !VERSION.test(gameVersion)) return null;
   const sorted = [...rules].sort((a, b) => compareVersions(b.minGameVersion, a.minGameVersion));
   return sorted.find((r) => compareVersions(gameVersion, r.minGameVersion) >= 0)?.image ?? null;
+}
+
+/** NEW-410: what changed between two versions of a profile, kept in the audit trail (hosts and folders in full). */
+export function describeProfileChange(before: GameProfile | null, after: GameProfile): Record<string, unknown> {
+  const fields: Array<keyof GameProfile> = ['name', 'eggNames', 'configFile', 'configSchema', 'gameVersionVariable', 'javaRules', 'installSources', 'iconFile', 'enabled'];
+  const changed = before ? fields.filter((f) => JSON.stringify(before[f]) !== JSON.stringify(after[f])) : fields;
+  const sources = (p: GameProfile | null) => (p?.installSources ?? []).map((i) => ({ label: i.label, dir: i.dir, downloadHosts: i.downloadHosts, loaders: i.loaders }));
+  return { slug: after.slug, changed, installSources: { before: before ? sources(before) : null, after: sources(after) } };
 }

@@ -46,7 +46,7 @@ export async function makeHarness(): Promise<Harness> {
       return { token: createSessionForUser(id, '127.0.0.1', 'test', true, db), accountId, id };
     },
     async call(method, url, token, body) {
-      const csrf = (await app.inject({ method: 'GET', url: '/api/v1/auth/csrf' })).json().csrfToken as string;
+      const csrf = (await app.inject({ method: 'GET', url: '/api/v1/auth/csrf', headers: token ? { cookie: `fortless_session=${token}` } : {} })).json().csrfToken as string;
       const cookie = `${token ? `fortless_session=${token}; ` : ''}fortless_csrf=${csrf}`;
       return app.inject({ method, url, payload: body as object | undefined, headers: { cookie, 'x-csrf-token': csrf, 'content-type': 'application/json' } });
     },

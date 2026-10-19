@@ -202,7 +202,12 @@ export async function reconcileWithPanel(adapter: PterodactylHttpAdapter, db: Da
     if (!panel.has(svc.external_id)) continue;
     try {
       const res = await withAccountClientKey(svc.account_id, adapter, db, secret, (key) => adapter.clientServerCall(svc.external_id, key, 'GET', '/users'));
-      const live = new Set<string>((res?.data ?? []).map((u: any) => String(u.attributes?.uuid)));
+      // NEW-389: a reply without a user list is an error, not "everyone was removed". Members are only revoked when two
+      //          consecutive reads both lack them.
+      if (!Array.isArray(res?.data)) throw new Error('The panel returned an unexpected sub-user listing; no member was changed.');
+      const confirm = await withAccountClientKey(svc.account_id, adapter, db, secret, (key) => adapter.clientServerCall(svc.external_id, key, 'GET', '/users'));
+      if (!Array.isArray(confirm?.data)) throw new Error('The panel returned an unexpected sub-user listing; no member was changed.');
+      const live = new Set<string>([...res.data, ...confirm.data].map((u: any) => String(u.attributes?.uuid)));
       const members = db.prepare('SELECT id, user_id, panel_subuser_uuid FROM service_members WHERE service_id = ? AND panel_subuser_uuid IS NOT NULL').all(svc.id) as Array<{ id: string; user_id: string; panel_subuser_uuid: string }>;
       for (const m of members) {
         if (live.has(m.panel_subuser_uuid)) continue;
@@ -229,7 +234,7 @@ export class RelinkError extends Error {
  * must not already belong to another service, and is handed to the account's own panel user.
  */
 export async function relinkService(
-  params: { serviceId: string; panelServerId: unknown; actorUserId: string; ipAddress?: string },
+  params: { serviceId: string; panelServerId: unknown; actorUserId: string; ipAddress?: string; confirmTakeover?: boolean },
   adapter: PterodactylHttpAdapter,
   db: Database.Database
 ): Promise<{ externalId: string; identifier: string }> {
@@ -250,16 +255,33 @@ export async function relinkService(
     throw new RelinkError('Failed to resolve panel user for service account.', 'PANEL_USER_MISSING', 502);
   }
   if (server.userId !== panelUserId) {
-    await adapter.assignServerOwner(String(id), panelUserId);
+    // NEW-388: never hand a server that belongs to someone else to this customer by accident.
+    const holder = db.prepare("SELECT account_id FROM panel_users WHERE panel_user_id = ? AND provider_type = 'PTERODACTYL'").get(server.userId) as { account_id: string } | undefined;
+    if (holder && holder.account_id !== svc.account_id) {
+      throw new RelinkError('That panel server belongs to a different customer account.', 'OWNED_BY_OTHER_ACCOUNT', 409);
+    }
+    if (!params.confirmTakeover) {
+      throw new RelinkError(`That panel server is owned by panel user ${server.userId}, who is not linked to this account. Repeat with confirmation to take it over.`, 'TAKEOVER_CONFIRMATION_REQUIRED', 409);
+    }
   }
 
   const oldExternal = svc.external_id;
-  db.prepare("UPDATE services SET external_id = ?, identifier = ?, updated_at = datetime('now', 'utc') WHERE id = ?").run(String(id), server.identifier, svc.id);
-  db.prepare("UPDATE service_observed_states SET runtime_state = 'UNKNOWN', raw_metrics = '{}', last_checked_at = datetime('now', 'utc', '-1 day') WHERE service_id = ?").run(svc.id);
-  await ensureAccountPanelAccess(svc.account_id, adapter, db);
-  db.prepare(`
+  const intent = (action: string, extra: Record<string, unknown>) => db.prepare(`
     INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
-    VALUES (?, ?, ?, 'STAFF', 'service.relinked', 'service', ?, ?, ?, ?)
-  `).run(`aud_${crypto.randomUUID()}`, svc.account_id, params.actorUserId, svc.id, params.ipAddress || '127.0.0.1', `corr_${crypto.randomUUID()}`, JSON.stringify({ from: oldExternal, to: String(id) }));
+    VALUES (?, ?, ?, 'STAFF', ?, 'service', ?, ?, ?, ?)
+  `).run(`aud_${crypto.randomUUID()}`, svc.account_id, params.actorUserId, action, svc.id, params.ipAddress || '127.0.0.1', `corr_${crypto.randomUUID()}`, JSON.stringify({ from: oldExternal, to: String(id), ...extra }));
+  // The intent is recorded before the first provider call, so a failure half way still leaves a trace.
+  intent('service.relink_requested', { previousPanelOwner: server.userId, takeover: server.userId !== panelUserId });
+  if (server.userId !== panelUserId) {
+    await adapter.assignServerOwner(String(id), panelUserId);
+  }
+  await ensureAccountPanelAccess(svc.account_id, adapter, db);
+
+  // Provider steps are done; the local change and its audit event are one transaction.
+  db.transaction(() => {
+    db.prepare("UPDATE services SET external_id = ?, identifier = ?, updated_at = datetime('now', 'utc') WHERE id = ?").run(String(id), server.identifier, svc.id);
+    db.prepare("UPDATE service_observed_states SET runtime_state = 'UNKNOWN', raw_metrics = '{}', last_checked_at = datetime('now', 'utc', '-1 day') WHERE service_id = ?").run(svc.id);
+    intent('service.relinked', {});
+  })();
   return { externalId: String(id), identifier: server.identifier };
 }

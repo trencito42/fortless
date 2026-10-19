@@ -1,6 +1,6 @@
 import { updateProfile, getBillingProfile, saveBillingProfile, ProfileValidationError } from './modules/identity/profile.js';
 import { createGameTools } from './modules/provisioning/game-tools.js';
-import { listProfiles, saveProfile, deleteProfile, ProfileError } from './modules/provisioning/game-profiles.js';
+import { listProfiles, saveProfile, deleteProfile, describeProfileChange, ProfileError } from './modules/provisioning/game-profiles.js';
 import { getProviderAdapter } from './modules/outbox/worker.js';
 import { createServiceSharing, SharingError } from './modules/provisioning/service-members.js';
 import { getServiceAccess } from './modules/provisioning/service-access.js';
@@ -33,6 +33,10 @@ import {
   authenticateSession,
   listUserWorkspaces,
   switchWorkspace,
+  EmailAlreadyRegisteredError,
+  SESSION_TTL_HOURS,
+  STEP_UP_TTL_MS,
+  STEP_UP_TTL_MINUTES,
   revokeSession,
   listUserSessions,
   revokeUserSession,
@@ -138,6 +142,8 @@ import {
 } from './modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
 import { applyStaffChange, StaffChangeError } from './modules/admin/staff.js';
+import { csvRow } from './utils/csv.js';
+import { customerAuditView } from './modules/audit/customer-view.js';
 import {
   listTickets,
   createTicket,
@@ -145,6 +151,7 @@ import {
   addCustomerReply,
   resolveTicket,
   addTicketAttachment,
+  ATTACHMENT_BODY_LIMIT_BYTES,
   listTicketAttachments,
   getTicketAttachment,
   toPublicAttachment,
@@ -180,7 +187,7 @@ import {
   runServiceDiagnostic,
   runTicketTriage,
 } from './modules/ai/diagnostics.js';
-import { MockAiProviderAdapter } from './modules/ai/adapter.js';
+import { OpenAiCompatibleAiAdapter } from './modules/ai/adapter.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -195,7 +202,12 @@ export function buildServer(): FastifyInstance {
     trustProxy: (address) => address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1',
   });
 
-  const aiAdapter = new MockAiProviderAdapter();
+  // NEW-386: the keyword-matching mock is for tests only. Without a configured provider the AI routes answer 503
+  // instead of returning invented diagnoses with made-up confidence.
+  const aiAdapter = config.AI_BASE_URL && config.AI_API_KEY
+    ? new OpenAiCompatibleAiAdapter({ baseUrl: config.AI_BASE_URL, apiKey: config.AI_API_KEY, model: config.AI_MODEL || undefined })
+    : null;
+  const aiUnavailable = (reply: FastifyReply) => reply.status(503).send({ error: 'AI assistance is not configured.', code: 'AI_NOT_CONFIGURED' });
 
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => {
     done(null, Object.fromEntries(new URLSearchParams(body as string)));
@@ -236,15 +248,18 @@ export function buildServer(): FastifyInstance {
     timeWindow: '1 minute',
   });
 
-  const makeCsrfToken = () => {
+  // NEW-395: a CSRF token is bound to the session it was issued for (or to "anon" before sign-in), so a token an
+  // attacker obtained or planted for another session is worthless.
+  const csrfBinding = (sessionId: string | undefined) => sessionId ?? 'anon';
+  const makeCsrfToken = (sessionId?: string) => {
     const nonce = crypto.randomBytes(24).toString('base64url');
-    const signature = crypto.createHmac('sha256', config.SESSION_SECRET).update(nonce).digest('base64url');
+    const signature = crypto.createHmac('sha256', config.SESSION_SECRET).update(`${nonce}.${csrfBinding(sessionId)}`).digest('base64url');
     return `${nonce}.${signature}`;
   };
-  const validCsrfToken = (token: string) => {
+  const validCsrfToken = (token: string, sessionId?: string) => {
     const [nonce, signature] = token.split('.');
     if (!nonce || !signature) return false;
-    const expected = crypto.createHmac('sha256', config.SESSION_SECRET).update(nonce).digest('base64url');
+    const expected = crypto.createHmac('sha256', config.SESSION_SECRET).update(`${nonce}.${csrfBinding(sessionId)}`).digest('base64url');
     try { return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected)); } catch { return false; }
   };
 
@@ -298,7 +313,7 @@ export function buildServer(): FastifyInstance {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) || req.url.startsWith('/api/v1/webhooks/') || req.url.split('?')[0] === '/oidc/token') return;
     const cookieToken = req.cookies['fortless_csrf'];
     const headerToken = req.headers['x-csrf-token'];
-    if (!cookieToken || typeof headerToken !== 'string' || cookieToken !== headerToken || !validCsrfToken(cookieToken)) {
+    if (!cookieToken || typeof headerToken !== 'string' || cookieToken !== headerToken || !validCsrfToken(cookieToken, req.auth?.session.id)) {
       return reply.status(403).send({ error: 'CSRF validation failed', code: 'CSRF_INVALID' });
     }
   });
@@ -344,7 +359,7 @@ export function buildServer(): FastifyInstance {
 
   const requireRecentStepUp = async (req: FastifyRequest, reply: FastifyReply) => {
     const verifiedAt = req.auth?.session.stepUpVerifiedAt;
-    if (!verifiedAt || Date.now() - Date.parse(verifiedAt) > 10 * 60 * 1000) {
+    if (!verifiedAt || Date.now() - Date.parse(verifiedAt) > STEP_UP_TTL_MS) {
       return reply.status(403).send({ error: 'Recent verification required', code: 'STEP_UP_REQUIRED' });
     }
   };
@@ -668,8 +683,9 @@ export function buildServer(): FastifyInstance {
     return false;
   };
 
-  app.get('/api/v1/auth/csrf', async (_req, reply) => {
-    const token = makeCsrfToken();
+  app.get('/api/v1/auth/csrf', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const token = makeCsrfToken(req.auth?.session.id);
     reply.setCookie('fortless_csrf', token, {
       path: '/', httpOnly: false, secure: config.NODE_ENV === 'production', sameSite: 'strict', maxAge: 60 * 60,
     });
@@ -736,13 +752,16 @@ export function buildServer(): FastifyInstance {
         ? 'QUEUED'
         : 'CONFIGURATION_REQUIRED';
 
-      return reply.status(201).send({
-        user: result.user,
-        account: result.account,
-        requiresEmailVerification: true,
-        emailDelivery,
-      });
+      void result;
+      return reply.status(201).send({ requiresEmailVerification: true, emailDelivery });
     } catch (err: unknown) {
+      // NEW-362: an address that already has an account gets the same answer as a new one.
+      if (err instanceof EmailAlreadyRegisteredError) {
+        return reply.status(201).send({
+          requiresEmailVerification: true,
+          emailDelivery: (config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox') ? 'QUEUED' : 'CONFIGURATION_REQUIRED',
+        });
+      }
       return reply.status(400).send({ error: (err as Error).message });
     }
   });
@@ -902,7 +921,7 @@ export function buildServer(): FastifyInstance {
 
   app.get('/api/v1/auth/step-up', { preHandler: [requireAuth] }, async (req) => {
     const verifiedAt = req.auth!.session.stepUpVerifiedAt;
-    const validUntil = verifiedAt ? new Date(new Date(verifiedAt).getTime() + 10 * 60 * 1000).toISOString() : null;
+    const validUntil = verifiedAt ? new Date(new Date(verifiedAt).getTime() + STEP_UP_TTL_MS).toISOString() : null;
     return { verifiedAt, validUntil, valid: Boolean(validUntil && Date.parse(validUntil) > Date.now()) };
   });
 
@@ -1137,7 +1156,7 @@ export function buildServer(): FastifyInstance {
     if (!parse.success) return reply.status(400).send({ error: 'A valid email and role (OWNER, BILLING_MANAGER, TECH_ADMIN, VIEWER) are required.' });
     if (parse.data.role === 'OWNER') {
       const isSteppedUp = req.auth?.session?.stepUpVerifiedAt &&
-        (Date.now() - new Date(req.auth.session.stepUpVerifiedAt).getTime() < 15 * 60 * 1000);
+        (Date.now() - new Date(req.auth.session.stepUpVerifiedAt).getTime() < STEP_UP_TTL_MS);
       if (!isSteppedUp) {
         return reply.status(403).send({ error: 'Step-up authentication required to invite or grant the OWNER role.' });
       }
@@ -1804,16 +1823,16 @@ export function buildServer(): FastifyInstance {
   const b = (req: any) => (req.body ?? {}) as Record<string, unknown>;
   app.get('/api/v1/services/:id/files', filesGuard, filesHandler((req) => filesApi.list(filesCtx(req), q(req)['dir'] ?? '/')));
   app.get('/api/v1/services/:id/files/content', filesGuard, filesHandler((req) => filesApi.read(filesCtx(req), q(req)['path'])));
-  app.put('/api/v1/services/:id/files/content', filesGuard, filesHandler(async (req) => { await filesApi.write(filesCtx(req), b(req)['path'], b(req)['content']); return { success: true }; }));
-  app.post('/api/v1/services/:id/files/folder', filesGuard, filesHandler(async (req) => { await filesApi.createFolder(filesCtx(req), b(req)['dir'], b(req)['name']); return { success: true }; }));
-  app.post('/api/v1/services/:id/files/delete', filesGuard, filesHandler(async (req) => { await filesApi.remove(filesCtx(req), b(req)['dir'], b(req)['names']); return { success: true }; }));
-  app.post('/api/v1/services/:id/files/rename', filesGuard, filesHandler(async (req) => { await filesApi.rename(filesCtx(req), b(req)['dir'], b(req)['from'], b(req)['to']); return { success: true }; }));
+  app.put('/api/v1/services/:id/files/content', filesGuard, filesHandler(async (req) => { const result = await filesApi.write(filesCtx(req), b(req)['path'], b(req)['content']); return { success: true, ...result }; }));
+  app.post('/api/v1/services/:id/files/folder', filesGuard, filesHandler(async (req) => { const result = await filesApi.createFolder(filesCtx(req), b(req)['dir'], b(req)['name']); return { success: true, ...result }; }));
+  app.post('/api/v1/services/:id/files/delete', filesGuard, filesHandler(async (req) => { const result = await filesApi.remove(filesCtx(req), b(req)['dir'], b(req)['names']); return { success: true, ...result }; }));
+  app.post('/api/v1/services/:id/files/rename', filesGuard, filesHandler(async (req) => { const result = await filesApi.rename(filesCtx(req), b(req)['dir'], b(req)['from'], b(req)['to']); return { success: true, ...result }; }));
   app.post('/api/v1/services/:id/files/archive', filesGuard, filesHandler((req) => filesApi.archive(filesCtx(req), b(req)['dir'], b(req)['names'])));
   app.post('/api/v1/services/:id/files/unarchive', filesGuard, filesHandler(async (req) => ({ success: true, ...(await filesApi.unarchive(filesCtx(req), b(req)['dir'], b(req)['file'])) })));
-  app.post('/api/v1/services/:id/files/move', filesGuard, filesHandler(async (req) => { await filesApi.move(filesCtx(req), b(req)['dir'], b(req)['name'], b(req)['destDir']); return { success: true }; }));
-  app.post('/api/v1/services/:id/files/chmod', filesGuard, filesHandler(async (req) => { await filesApi.chmod(filesCtx(req), b(req)['dir'], b(req)['names'], b(req)['mode']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/move', filesGuard, filesHandler(async (req) => { const result = await filesApi.move(filesCtx(req), b(req)['dir'], b(req)['name'], b(req)['destDir']); return { success: true, ...result }; }));
+  app.post('/api/v1/services/:id/files/chmod', filesGuard, filesHandler(async (req) => { const result = await filesApi.chmod(filesCtx(req), b(req)['dir'], b(req)['names'], b(req)['mode']); return { success: true, ...result }; }));
   app.post('/api/v1/services/:id/files/pull', filesGuard, filesHandler(async (req) => ({ success: true, ...(await filesApi.pull(filesCtx(req), b(req)['dir'], b(req)['url'], b(req)['filename'])) })));
-  app.post('/api/v1/services/:id/files/copy', filesGuard, filesHandler(async (req) => { await filesApi.copy(filesCtx(req), b(req)['path']); return { success: true }; }));
+  app.post('/api/v1/services/:id/files/copy', filesGuard, filesHandler(async (req) => { const result = await filesApi.copy(filesCtx(req), b(req)['path']); return { success: true, ...result }; }));
   app.get('/api/v1/services/:id/files/upload-url', filesGuard, filesHandler(async (req) => ({ url: await filesApi.signedUrl(filesCtx(req), 'upload', q(req)['dir'] ?? '/') })));
   app.get('/api/v1/services/:id/files/download-url', filesGuard, filesHandler(async (req) => ({ url: await filesApi.signedUrl(filesCtx(req), 'download', q(req)['path']) })));
 
@@ -1917,10 +1936,12 @@ export function buildServer(): FastifyInstance {
   };
   app.get('/api/v1/admin/game-profiles', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => ({ profiles: listProfiles(getDatabase()) }));
   app.post('/api/v1/admin/game-profiles', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, profileHandler((req) => {
-    const p = saveProfile(getDatabase(), req.body); profileAudit(req, 'admin.game_profile_created', p.id, { slug: p.slug }); return { profile: p };
+    const p = saveProfile(getDatabase(), req.body); profileAudit(req, 'admin.game_profile_created', p.id, describeProfileChange(null, p)); return { profile: p };
   }));
   app.put('/api/v1/admin/game-profiles/:id', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, profileHandler((req) => {
-    const p = saveProfile(getDatabase(), req.body, (req.params as { id: string }).id); profileAudit(req, 'admin.game_profile_updated', p.id, { slug: p.slug }); return { profile: p };
+    const profileId = (req.params as { id: string }).id;
+    const before = listProfiles(getDatabase()).find((x) => x.id === profileId) ?? null;
+    const p = saveProfile(getDatabase(), req.body, profileId); profileAudit(req, 'admin.game_profile_updated', p.id, describeProfileChange(before, p)); return { profile: p };
   }));
   app.delete('/api/v1/admin/game-profiles/:id', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, profileHandler((req) => {
     const id = (req.params as { id: string }).id; deleteProfile(getDatabase(), id); profileAudit(req, 'admin.game_profile_deleted', id, {}); return { success: true };
@@ -1948,7 +1969,10 @@ export function buildServer(): FastifyInstance {
 
   // Services: backups, network, startup, settings (same gate as the file manager)
   const panelApi = createServerPanelApi();
-  const ok = async (fn: () => Promise<unknown>) => { await fn(); return { success: true }; };
+  const ok = async (fn: () => Promise<unknown>) => {
+    const result = await fn();
+    return { success: true, ...(result && typeof result === 'object' && 'pending' in result ? { pending: Boolean((result as { pending: unknown }).pending) } : {}) };
+  };
   const pid = (req: any, k: string) => String((req.params as Record<string, string>)[k] ?? '');
   app.get('/api/v1/services/:id/backups', filesGuard, filesHandler((req) => panelApi.backups(filesCtx(req))));
   app.post('/api/v1/services/:id/backups', filesGuard, filesHandler((req) => ok(() => panelApi.createBackup(filesCtx(req), b(req)))));
@@ -1984,6 +2008,7 @@ export function buildServer(): FastifyInstance {
   // Services: AI Diagnostic Analysis (Tenant Isolated)
   app.post('/api/v1/services/:id/diagnostics', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    if (!aiAdapter) return aiUnavailable(reply);
     const body = req.body as { recentLogs?: string } | undefined;
     try {
       const report = await runServiceDiagnostic(
@@ -2121,29 +2146,20 @@ export function buildServer(): FastifyInstance {
   });
 
   // Activity: CSV Export
-  app.get('/api/v1/activity/export', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.get('/api/v1/activity/export', { preHandler: [requireAuth, requireRole('OWNER', 'TECH_ADMIN', 'BILLING_MANAGER')] }, async (req, reply) => {
     const db = getDatabase();
     const rows = db.prepare(`
-      SELECT id, action, actor_type, resource_type, resource_id, correlation_id, created_at, metadata
+      SELECT id, action, actor_type, actor_user_id, resource_type, resource_id, correlation_id, created_at, metadata, ip_address
       FROM audit_events
       WHERE account_id = ?
       ORDER BY created_at DESC
       LIMIT 1000
-    `).all(req.auth!.account.id) as Array<{
-      id: string;
-      action: string;
-      actor_type: string;
-      resource_type: string;
-      resource_id: string;
-      correlation_id: string;
-      created_at: string;
-      metadata: string;
-    }>;
+    `).all(req.auth!.account.id) as Array<Record<string, string | null>>;
 
-    const escapeCsv = (str: string) => `"${String(str || '').replace(/"/g, '""')}"`;
     let csv = 'id,action,actor_type,resource_type,resource_id,correlation_id,created_at,metadata\n';
-    for (const r of rows) {
-      csv += `${escapeCsv(r.id)},${escapeCsv(r.action)},${escapeCsv(r.actor_type)},${escapeCsv(r.resource_type)},${escapeCsv(r.resource_id)},${escapeCsv(r.correlation_id)},${escapeCsv(r.created_at)},${escapeCsv(r.metadata)}\n`;
+    for (const raw of rows) {
+      const r = customerAuditView(raw as { actor_user_id: string | null; actor_type: string | null; ip_address: string | null; metadata: string | null }, req.auth!.user.id) as Record<string, string | null>;
+      csv += csvRow([r['id'], r['action'], r['actor_type'], r['resource_type'], r['resource_id'], r['correlation_id'], r['created_at'], r['metadata']]) + '\n';
     }
 
     return reply
@@ -2429,7 +2445,7 @@ export function buildServer(): FastifyInstance {
     messageId: z.string().optional(),
   });
 
-  app.post('/api/v1/tickets/:id/attachments', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/api/v1/tickets/:id/attachments', { preHandler: [requireAuth], bodyLimit: ATTACHMENT_BODY_LIMIT_BYTES }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = uploadAttachmentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2459,6 +2475,7 @@ export function buildServer(): FastifyInstance {
     } catch (err: unknown) {
       const msg = (err as Error).message;
       if (msg === 'Ticket not found.') return reply.status(404).send({ error: msg });
+      if (msg.startsWith('QUOTA_EXCEEDED')) return reply.status(429).send({ error: msg, code: 'QUOTA_EXCEEDED' });
       return reply.status(400).send({ error: msg });
     }
   });
@@ -2487,6 +2504,7 @@ export function buildServer(): FastifyInstance {
 
   // Tickets: AI Diagnostic Triage & Reply Drafting (Customer self-service, tenant isolated)
   app.post('/api/v1/tickets/:id/ai-assist', { preHandler: [requireAuth] }, async (req, reply) => {
+    if (!aiAdapter) return aiUnavailable(reply);
     const { id } = req.params as { id: string };
     try {
       const triage = await runTicketTriage(
@@ -2510,7 +2528,7 @@ export function buildServer(): FastifyInstance {
   });
 
   // Admin Tickets: Staff Upload Attachment
-  app.post('/api/v1/admin/tickets/:ticketId/attachments', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+  app.post('/api/v1/admin/tickets/:ticketId/attachments', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')], bodyLimit: ATTACHMENT_BODY_LIMIT_BYTES }, async (req, reply) => {
     const { ticketId } = req.params as { ticketId: string };
     const parsed = uploadAttachmentSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -2576,12 +2594,12 @@ export function buildServer(): FastifyInstance {
       { id: 'adm-overview', title: 'Admin: Operations Overview', category: 'Admin Control Plane', icon: 'home-01', path: '/admin', perm: null },
       { id: 'adm-accounts', title: 'Admin: Customer Accounts', category: 'Admin Control Plane', icon: 'user-group', path: '/admin/accounts', perm: 'accounts:read' as StaffPermission },
       { id: 'adm-services', title: 'Admin: Service Inventory', category: 'Admin Control Plane', icon: 'server', path: '/admin/services', perm: 'services:read' as StaffPermission },
-      { id: 'adm-orders', title: 'Admin: Orders', category: 'Admin Control Plane', icon: 'package', path: '/admin/orders', perm: 'billing:read' as StaffPermission },
-      { id: 'adm-billing', title: 'Admin: Billing Operations', category: 'Admin Control Plane', icon: 'credit-card', path: '/admin/billing', perm: 'billing:read' as StaffPermission },
+      { id: 'adm-orders', title: 'Admin: Orders', category: 'Admin Control Plane', icon: 'package', path: '/admin/orders', perm: 'accounts:read' as StaffPermission },
+      { id: 'adm-billing', title: 'Admin: Billing Operations', category: 'Admin Control Plane', icon: 'credit-card', path: '/admin/billing', perm: 'accounts:read' as StaffPermission },
       { id: 'adm-infrastructure', title: 'Admin: Infrastructure Capacity', category: 'Admin Control Plane', icon: 'database', path: '/admin/infrastructure', perm: 'services:read' as StaffPermission },
       { id: 'adm-tickets', title: 'Admin: Support Queue', category: 'Admin Control Plane', icon: 'bubble-chat', path: '/admin/tickets', perm: 'tickets:read' as StaffPermission },
       { id: 'adm-audit', title: 'Admin: Global Audit Trail', category: 'Admin Control Plane', icon: 'shield-01', path: '/admin/audit', perm: 'audit:read' as StaffPermission },
-      { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff', perm: 'staff:manage' as StaffPermission },
+      { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff', perm: 'staff:read' as StaffPermission },
       { id: 'adm-status', title: 'Admin: System Status', category: 'Admin Control Plane', icon: 'activity', path: '/admin/status', perm: 'services:read' as StaffPermission },
     ];
 
@@ -2598,14 +2616,14 @@ export function buildServer(): FastifyInstance {
       JOIN plan_versions pv ON pv.id = oi.plan_version_id
       JOIN nodes n ON n.id = s.node_id
       LEFT JOIN service_observed_states sos ON sos.service_id = s.id
-      WHERE s.account_id = ? AND (
+      WHERE (s.account_id = ? OR s.id IN (SELECT service_id FROM service_members WHERE user_id = ?)) AND (
         s.id LIKE ? ESCAPE '\\' OR
         coalesce(s.identifier, '') LIKE ? ESCAPE '\\' OR
         pv.name LIKE ? ESCAPE '\\' OR
         n.name LIKE ? ESCAPE '\\'
       )
       LIMIT 5
-    `).all(accountId, like, like, like, like) as Array<{ id: string; identifier: string | null; plan_name: string; node_name: string; runtime_state: string }>) : [];
+    `).all(accountId, req.auth!.user.id, like, like, like, like) as Array<{ id: string; identifier: string | null; plan_name: string; node_name: string; runtime_state: string }>) : [];
 
     const tickets = query ? (db.prepare(`
       SELECT id, subject, priority, status, updated_at
@@ -2713,8 +2731,8 @@ export function buildServer(): FastifyInstance {
       WHERE ae.account_id = ?
       ORDER BY ae.created_at DESC
       LIMIT ? OFFSET ?
-    `).all(req.auth!.account.id, limit, offset);
-    return { logs };
+    `).all(req.auth!.account.id, limit, offset) as Array<Record<string, any>>;
+    return { logs: logs.map((row) => customerAuditView(row, req.auth!.user.id)) };
   });
 
   // Legacy instant-deploy is deliberately disabled: it used to fabricate payment
@@ -2909,13 +2927,15 @@ export function buildServer(): FastifyInstance {
     const parse = adminServiceActionSchema.safeParse(req.body);
     if (!parse.success) return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
     try {
-      await suspendService({
+      const result = await suspendService({
         serviceId: id,
         reason: parse.data.reason,
         actorUserId: req.auth!.user.id,
         actorType: 'STAFF',
+        category: 'STAFF',
+        ipAddress: req.ip,
       });
-      return { success: true };
+      return result.pending ? reply.status(202).send({ success: true, pending: true }) : { success: true };
     } catch (err: unknown) {
       return reply.status(422).send({ error: (err as Error).message });
     }
@@ -2925,12 +2945,13 @@ export function buildServer(): FastifyInstance {
   app.post('/api/v1/admin/services/:id/unsuspend', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
-      await unsuspendService({
+      const result = await unsuspendService({
         serviceId: id,
         actorUserId: req.auth!.user.id,
         actorType: 'STAFF',
+        ipAddress: req.ip,
       });
-      return { success: true };
+      return result.pending ? reply.status(202).send({ success: true, pending: true }) : { success: true };
     } catch (err: unknown) {
       return reply.status(422).send({ error: (err as Error).message });
     }
@@ -2947,6 +2968,7 @@ export function buildServer(): FastifyInstance {
         reason: parse.data.reason,
         actorUserId: req.auth!.user.id,
         actorType: 'STAFF',
+        ipAddress: req.ip,
       });
       return { success: true };
     } catch (err: unknown) {
@@ -3058,6 +3080,7 @@ export function buildServer(): FastifyInstance {
 
   // Admin Tickets: AI Staff Assistance & Draft Generation
   app.post('/api/v1/admin/tickets/:ticketId/ai-assist', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+    if (!aiAdapter) return aiUnavailable(reply);
     const { ticketId } = req.params as { ticketId: string };
     try {
       const triage = await runTicketTriage(
@@ -3086,18 +3109,27 @@ export function buildServer(): FastifyInstance {
     return listAdminAudit(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
   });
 
-  app.get('/api/v1/admin/audit/export', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (_req, reply) => {
-    const rows = getDatabase().prepare(`
+  app.get('/api/v1/admin/audit/export', { preHandler: [requireAuth, requireStaffPermission('audit:read'), requireRecentStepUp] }, async (req, reply) => {
+    const EXPORT_LIMIT = 10_000;
+    const db = getDatabase();
+    const rows = db.prepare(`
       SELECT id, account_id, actor_user_id, actor_type, action, resource_type,
              resource_id, ip_address, correlation_id, created_at
-      FROM audit_events ORDER BY created_at DESC, id DESC LIMIT 10000
-    `).all() as Array<Record<string, unknown>>;
+      FROM audit_events ORDER BY created_at DESC, id DESC LIMIT ?
+    `).all(EXPORT_LIMIT + 1) as Array<Record<string, unknown>>;
+    const truncated = rows.length > EXPORT_LIMIT;
+    const exported = truncated ? rows.slice(0, EXPORT_LIMIT) : rows;
     const columns = ['id', 'account_id', 'actor_user_id', 'actor_type', 'action', 'resource_type', 'resource_id', 'ip_address', 'correlation_id', 'created_at'];
-    const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const csv = [columns.join(','), ...rows.map((row) => columns.map((column) => csvCell(row[column])).join(','))].join('\n');
+    const csv = [columns.join(','), ...exported.map((row) => csvRow(columns.map((column) => row[column])))].join('\n');
+    // NEW-380: the export is itself an audited event, and a cut-off is stated, never silent.
+    db.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, NULL, ?, 'STAFF', 'audit.exported', 'audit', 'export', ?, ?, ?)
+    `).run(generateId('aud'), req.auth!.user.id, req.ip, generateId('cor'), JSON.stringify({ rows: exported.length, truncated }));
     return reply.header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', 'attachment; filename="fortless-audit.csv"')
-      .send(csv);
+      .header('X-Fortless-Truncated', String(truncated))
+      .send(truncated ? `${csv}\n${csvRow(['# TRUNCATED', `only the newest ${EXPORT_LIMIT} events are included`])}` : csv);
   });
 
   app.get('/api/v1/admin/staff', { preHandler: [requireAuth, requireStaffPermission('staff:read')] }, async (req, reply) => {
@@ -3208,7 +3240,7 @@ export function buildServer(): FastifyInstance {
     const adapter = getProviderAdapter();
     if (!(adapter instanceof PterodactylHttpAdapter)) return reply.status(503).send({ error: 'Pterodactyl provider is not configured.', code: 'PROVIDER_NOT_CONFIGURED' });
     try {
-      const result = await relinkService({ serviceId: id, panelServerId: ((req.body ?? {}) as { panelServerId?: unknown }).panelServerId, actorUserId: req.auth!.user.id, ipAddress: req.ip }, adapter, getDatabase());
+      const result = await relinkService({ serviceId: id, panelServerId: ((req.body ?? {}) as { panelServerId?: unknown }).panelServerId, confirmTakeover: ((req.body ?? {}) as { confirmTakeover?: unknown }).confirmTakeover === true, actorUserId: req.auth!.user.id, ipAddress: req.ip }, adapter, getDatabase());
       recordCatalogAudit(req, 'admin.service_relinked', 'service', id, result);
       return { success: true, ...result };
     } catch (err: unknown) {
@@ -3252,7 +3284,7 @@ export function buildServer(): FastifyInstance {
   });
 
   // --- Staff Service State Sync ---
-  app.post('/api/v1/admin/services/:id/sync', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async (req, reply) => {
+  app.post('/api/v1/admin/services/:id/sync', { preHandler: [requireAuth, requireStaffPermission('services:manage')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const db = getDatabase();
     const svc = db.prepare(`
@@ -3263,7 +3295,8 @@ export function buildServer(): FastifyInstance {
     `).get(id) as { id: string; account_id: string; external_id: string | null; runtime_state: string } | undefined;
     if (!svc) return reply.status(404).send({ error: 'Service not found.' });
     if (!svc.external_id || config.PROVIDER_MODE !== 'pterodactyl_1' || !(config.PTERODACTYL_KEYMINT_SECRET || config.PTERODACTYL_CLIENT_API_KEY)) {
-      return reply.send({ success: true, serviceId: id, runtimeState: svc.runtime_state, synced: false });
+      // NEW-378: not configured is a typed refusal, never a success.
+      return reply.status(503).send({ error: 'The provider is not configured for synchronisation.', code: 'PROVIDER_NOT_CONFIGURED' });
     }
     try {
       const adapter = new PterodactylHttpAdapter({
@@ -3286,12 +3319,14 @@ export function buildServer(): FastifyInstance {
       `).run(id, runtimeState, JSON.stringify(usage));
       return reply.send({ success: true, serviceId: id, runtimeState, synced: true });
     } catch (err: unknown) {
-      return reply.send({ success: true, serviceId: id, runtimeState: svc.runtime_state, synced: false, error: (err as Error).message });
+      console.error('[AdminSync] provider call failed:', (err as Error).name, (err as Error).message);
+      return reply.status(502).send({ error: 'The provider did not answer. The stored state was left unchanged.', code: 'PROVIDER_ERROR' });
     }
   });
 
   // --- Admin Platform Settings & Diagnostic State ---
-  app.get('/api/v1/admin/settings', { preHandler: [requireAuth, requireStaffPermission('admin:access')] }, async () => {
+  app.get('/api/v1/admin/settings', { preHandler: [requireAuth, requireStaffPermission('admin:access')] }, async (req) => {
+    const privileged = hasStaffPermission(req.auth!.user.id, 'services:manage', getDatabase());
     const db = getDatabase();
     const [accountsCount, servicesCount, staffCount, catalogCount] = await Promise.all([
       db.prepare('SELECT COUNT(*) as count FROM accounts').get() as { count: number },
@@ -3304,7 +3339,7 @@ export function buildServer(): FastifyInstance {
       general: {
         platformName: 'Fortless',
         appOrigin: config.APP_ORIGIN,
-        nodeEnv: config.NODE_ENV,
+        nodeEnv: privileged ? config.NODE_ENV : null,
         currency: 'EUR',
         currencyMinorUnits: 'Cents',
       },
@@ -3312,7 +3347,7 @@ export function buildServer(): FastifyInstance {
         type: 'PTERODACTYL',
         mode: config.PROVIDER_MODE,
         configured: Boolean(config.PTERODACTYL_PANEL_URL && config.PTERODACTYL_API_KEY),
-        panelUrl: config.PTERODACTYL_PANEL_URL ? config.PTERODACTYL_PANEL_URL.replace(/\/+$/, '') : null,
+        panelUrl: privileged && config.PTERODACTYL_PANEL_URL ? config.PTERODACTYL_PANEL_URL.replace(/\/+$/, '') : null,
         verificationTier: config.PROVIDER_VERIFICATION_TIER,
       },
       payments: {
@@ -3324,15 +3359,15 @@ export function buildServer(): FastifyInstance {
       email: {
         mode: config.EMAIL_MODE,
         configured: Boolean(config.SMTP_PASSWORD),
-        host: config.SMTP_HOST,
-        port: config.SMTP_PORT,
-        user: config.SMTP_USER,
+        host: privileged ? config.SMTP_HOST : null,
+        port: privileged ? config.SMTP_PORT : null,
+        user: privileged ? config.SMTP_USER : null,
         from: config.EMAIL_FROM,
       },
       security: {
         staffMfaMandatory: true,
-        sessionTtlHours: 72,
-        stepUpTtlMinutes: 15,
+        sessionTtlHours: SESSION_TTL_HOURS,
+        stepUpTtlMinutes: STEP_UP_TTL_MINUTES,
         antiSsrBlacklistActive: true,
       },
       counts: {

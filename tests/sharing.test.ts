@@ -87,7 +87,7 @@ describe('Service sharing', () => {
     expect(sharing.peek(raw)).toMatchObject({ email: 'guest@example.test', userExists: true });
     await expect(sharing.accept(raw, { userId: 'usr_x', accountId: 'acc_x' })).rejects.toMatchObject({ code: 'WRONG_ACCOUNT' });
     await sharing.accept(raw, guest);
-    const call = ad.calls.find((c) => c.sub === '/users')!;
+    const call = ad.calls.find((c) => c.sub === '/users' && c.method === 'POST')!;
     expect(call.method).toBe('POST');
     expect(call.body.permissions).toEqual([...PERMISSION_PRESETS.viewer]);
     expect(call.body.email).toBe('guest@example.test'.replace('guest', 'usr_g'));
@@ -159,5 +159,24 @@ describe('Service sharing', () => {
     const noSecret = createServiceSharing({ adapter: new FakeAdapter(), db, secret: '' });
     expect(() => noSecret.invite(owner, { email: 'guest@example.test', preset: 'viewer' })).toThrow(SharingError);
     expect(db.prepare('SELECT COUNT(*) c FROM service_invitations').get()).toEqual({ c: 0 });
+  });
+});
+
+describe('NEW-393: accepting an invitation is retry-safe', () => {
+  it('adopts a sub-user left behind by an earlier attempt instead of creating a second one', async () => {
+    const ad = new FakeAdapter();
+    const original = ad.clientServerCall.bind(ad);
+    // The panel already knows the invitee (a previous attempt created it, then the local write failed).
+    (ad as any).clientServerCall = async (i: string, key: string, method: any, sub: string, body?: any) => {
+      if (method === 'GET' && sub === '/users') { ad.calls.push({ method, sub, body: null, key }); return { data: [{ attributes: { uuid: 'sub-left-over', email: 'usr_g@example.test' } }] }; }
+      return original(i, key, method, sub, body);
+    };
+    const sharing = createServiceSharing({ adapter: ad, db, secret: SECRET });
+    sharing.invite(owner, { email: 'guest@example.test', preset: 'viewer' });
+    await sharing.accept(tokenFromEmail(), guest);
+    expect(ad.calls.filter((c) => c.sub === '/users' && c.method === 'POST')).toHaveLength(0);
+    const update = ad.calls.find((c) => c.sub === '/users/sub-left-over');
+    expect(update?.body.permissions).toEqual([...PERMISSION_PRESETS.viewer]);
+    expect((db.prepare('SELECT panel_subuser_uuid u FROM service_members WHERE user_id = ?').get('usr_g') as any).u).toBe('sub-left-over');
   });
 });

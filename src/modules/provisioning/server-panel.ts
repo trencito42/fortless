@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { config } from '../../config/index.js';
 import { getDatabase } from '../../database/index.js';
 import { getProviderAdapter } from '../outbox/worker.js';
-import type { ProviderAdapter, PterodactylHttpAdapter } from './adapter.js';
+import { ProviderNetworkError, type ProviderAdapter, type PterodactylHttpAdapter } from './adapter.js';
 import { ConsoleAccessError, resolveOwnedService, withAccountClientKey } from './console.js';
 import { allows } from './service-access.js';
 
@@ -57,6 +57,22 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
       (key) => adapter.clientServerCall(service.external_id, key, method, sub, body));
   };
 
+  /**
+   * NEW-381: a mutation whose answer never arrived has an unknown outcome. It is audited and reported as pending, not as
+   * a failure that invites a blind retry; the audit row is written even when the panel call timed out.
+   */
+  const mut = async (ctx: Ctx, need: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', sub: string, body: unknown, action: string, metadata: Record<string, unknown>): Promise<{ pending: boolean }> => {
+    try {
+      await call(ctx, need, method, sub, body);
+    } catch (err) {
+      if (!(err instanceof ProviderNetworkError)) throw err;
+      try { audit(ctx, action, { ...metadata, pending: true }); } catch (e) { console.error('[ServerPanel] audit failed for', action, (e as Error).message); }
+      return { pending: true };
+    }
+    try { audit(ctx, action, metadata); } catch (e) { console.error('[ServerPanel] audit failed for', action, (e as Error).message); }
+    return { pending: false };
+  };
+
   return {
     // ----- Backups -----
     async backups(ctx: Ctx) {
@@ -75,23 +91,19 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
       if (input.name !== undefined && input.name !== '') body['name'] = str(input.name, 191, 'name');
       if (input.ignored !== undefined && input.ignored !== '') body['ignored'] = str(input.ignored, 4096, 'ignored files');
       if (input.locked === true) body['is_locked'] = true;
-      await call(ctx, 'backup.create', 'POST', '/backups', body);
-      audit(ctx, 'service.backup.create', { name: body['name'] ?? null });
+      return mut(ctx, 'backup.create', 'POST', '/backups', body, 'service.backup.create', { name: body['name'] ?? null });
     },
     async deleteBackup(ctx: Ctx, uuid: string) {
       if (!UUID.test(uuid)) throw bad('Invalid backup.');
-      await call(ctx, 'backup.delete', 'DELETE', `/backups/${uuid}`);
-      audit(ctx, 'service.backup.delete', { uuid });
+      return mut(ctx, 'backup.delete', 'DELETE', `/backups/${uuid}`, undefined, 'service.backup.delete', { uuid });
     },
     async lockBackup(ctx: Ctx, uuid: string) {
       if (!UUID.test(uuid)) throw bad('Invalid backup.');
-      await call(ctx, 'backup.delete', 'POST', `/backups/${uuid}/lock`);
-      audit(ctx, 'service.backup.lock', { uuid });
+      return mut(ctx, 'backup.delete', 'POST', `/backups/${uuid}/lock`, undefined, 'service.backup.lock', { uuid });
     },
     async restoreBackup(ctx: Ctx, uuid: string, truncate: unknown) {
       if (!UUID.test(uuid)) throw bad('Invalid backup.');
-      await call(ctx, 'backup.restore', 'POST', `/backups/${uuid}/restore`, { truncate: truncate === true });
-      audit(ctx, 'service.backup.restore', { uuid, truncate: truncate === true });
+      return mut(ctx, 'backup.restore', 'POST', `/backups/${uuid}/restore`, { truncate: truncate === true }, 'service.backup.restore', { uuid, truncate: truncate === true });
     },
     async backupDownloadUrl(ctx: Ctx, uuid: string): Promise<string> {
       if (!UUID.test(uuid)) throw bad('Invalid backup.');
@@ -113,23 +125,19 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
       };
     },
     async assignAllocation(ctx: Ctx) {
-      await call(ctx, 'allocation.create', 'POST', '/network/allocations');
-      audit(ctx, 'service.network.assign', {});
+      return mut(ctx, 'allocation.create', 'POST', '/network/allocations', undefined, 'service.network.assign', {});
     },
     async setAllocationNotes(ctx: Ctx, id: string, notes: unknown) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid allocation.');
-      await call(ctx, 'allocation.update', 'POST', `/network/allocations/${id}`, { notes: str(notes, 191, 'notes', true) });
-      audit(ctx, 'service.network.notes', { allocationId: Number(id) });
+      return mut(ctx, 'allocation.update', 'POST', `/network/allocations/${id}`, { notes: str(notes, 191, 'notes', true) }, 'service.network.notes', { allocationId: Number(id) });
     },
     async setPrimaryAllocation(ctx: Ctx, id: string) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid allocation.');
-      await call(ctx, 'allocation.update', 'POST', `/network/allocations/${id}/primary`);
-      audit(ctx, 'service.network.primary', { allocationId: Number(id) });
+      return mut(ctx, 'allocation.update', 'POST', `/network/allocations/${id}/primary`, undefined, 'service.network.primary', { allocationId: Number(id) });
     },
     async removeAllocation(ctx: Ctx, id: string) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid allocation.');
-      await call(ctx, 'allocation.delete', 'DELETE', `/network/allocations/${id}`);
-      audit(ctx, 'service.network.remove', { allocationId: Number(id) });
+      return mut(ctx, 'allocation.delete', 'DELETE', `/network/allocations/${id}`, undefined, 'service.network.remove', { allocationId: Number(id) });
     },
 
     // ----- Startup -----
@@ -146,13 +154,11 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
     },
     async setVariable(ctx: Ctx, key: unknown, value: unknown) {
       if (typeof key !== 'string' || !ENV_KEY.test(key)) throw bad('Invalid variable.');
-      await call(ctx, 'startup.update', 'PUT', '/startup/variable', { key, value: str(value, 4096, 'value', true) });
-      audit(ctx, 'service.startup.variable', { key });
+      return mut(ctx, 'startup.update', 'PUT', '/startup/variable', { key, value: str(value, 4096, 'value', true) }, 'service.startup.variable', { key });
     },
     async setImage(ctx: Ctx, image: unknown) {
       if (typeof image !== 'string' || !DOCKER_IMAGE.test(image)) throw bad('Invalid image.');
-      await call(ctx, 'startup.docker-image', 'PUT', '/settings/docker-image', { docker_image: image });
-      audit(ctx, 'service.startup.image', { image });
+      return mut(ctx, 'startup.docker-image', 'PUT', '/settings/docker-image', { docker_image: image }, 'service.startup.image', { image });
     },
 
     // ----- Databases -----
@@ -161,6 +167,10 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
       const canViewPassword = allows(access, 'database.view_password');
       const endpoint = canViewPassword ? '/databases?include=password' : '/databases';
       const res = await call(ctx, 'database.read', 'GET', endpoint);
+      if (canViewPassword && (res?.data ?? []).length) {
+        // NEW-391: revealing database credentials leaves a trace (the passwords themselves are never logged).
+        audit(ctx, 'service.database.password_viewed', { databases: (res.data as any[]).length });
+      }
       return {
         databases: (res?.data ?? []).map((d: any) => ({
           id: String(d.attributes.id), name: String(d.attributes.name), username: String(d.attributes.username),
@@ -175,8 +185,7 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
       if (typeof input.name !== 'string' || !DB_NAME.test(input.name)) throw bad('Database name can use letters, numbers and underscores (up to 48).');
       const remote = input.remote === undefined || input.remote === '' ? '%' : input.remote;
       if (typeof remote !== 'string' || !DB_REMOTE.test(remote)) throw bad('Invalid connections-from value.');
-      await call(ctx, 'database.create', 'POST', '/databases', { database: input.name, remote });
-      audit(ctx, 'service.database.create', { name: input.name });
+      return mut(ctx, 'database.create', 'POST', '/databases', { database: input.name, remote }, 'service.database.create', { name: input.name });
     },
     async rotateDatabasePassword(ctx: Ctx, id: string) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid database.');
@@ -186,8 +195,7 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
     },
     async deleteDatabase(ctx: Ctx, id: string) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid database.');
-      await call(ctx, 'database.delete', 'DELETE', `/databases/${id}`);
-      audit(ctx, 'service.database.delete', { databaseId: Number(id) });
+      return mut(ctx, 'database.delete', 'DELETE', `/databases/${id}`, undefined, 'service.database.delete', { databaseId: Number(id) });
     },
 
     // ----- Schedules -----
@@ -216,35 +224,29 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
         month: cron(input['month'], 'month'), day_of_week: cron(input['dayOfWeek'], 'day of week'),
         is_active: input['active'] !== false, only_when_online: input['onlyWhenOnline'] === true,
       };
-      await call(ctx, id === null ? 'schedule.create' : 'schedule.update', 'POST', id === null ? '/schedules' : `/schedules/${id}`, body);
-      audit(ctx, id === null ? 'service.schedule.create' : 'service.schedule.update', { name: body.name });
+      return mut(ctx, id === null ? 'schedule.create' : 'schedule.update', 'POST', id === null ? '/schedules' : `/schedules/${id}`, body, id === null ? 'service.schedule.create' : 'service.schedule.update', { name: body.name });
     },
     async deleteSchedule(ctx: Ctx, id: string) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid schedule.');
-      await call(ctx, 'schedule.delete', 'DELETE', `/schedules/${id}`);
-      audit(ctx, 'service.schedule.delete', { scheduleId: Number(id) });
+      return mut(ctx, 'schedule.delete', 'DELETE', `/schedules/${id}`, undefined, 'service.schedule.delete', { scheduleId: Number(id) });
     },
     async executeSchedule(ctx: Ctx, id: string) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid schedule.');
-      await call(ctx, 'schedule.update', 'POST', `/schedules/${id}/execute`);
-      audit(ctx, 'service.schedule.execute', { scheduleId: Number(id) });
+      return mut(ctx, 'schedule.update', 'POST', `/schedules/${id}/execute`, undefined, 'service.schedule.execute', { scheduleId: Number(id) });
     },
     async addTask(ctx: Ctx, id: string, input: Record<string, unknown>) {
       if (!ALLOC_ID.test(id)) throw bad('Invalid schedule.');
       const body = taskBody(input);
-      await call(ctx, 'schedule.update', 'POST', `/schedules/${id}/tasks`, body);
-      audit(ctx, 'service.schedule.task_add', { scheduleId: Number(id), action: body.action });
+      return mut(ctx, 'schedule.update', 'POST', `/schedules/${id}/tasks`, body, 'service.schedule.task_add', { scheduleId: Number(id), action: body.action });
     },
     async updateTask(ctx: Ctx, id: string, taskId: string, input: Record<string, unknown>) {
       if (!ALLOC_ID.test(id) || !ALLOC_ID.test(taskId)) throw bad('Invalid task.');
       const body = taskBody(input);
-      await call(ctx, 'schedule.update', 'POST', `/schedules/${id}/tasks/${taskId}`, body);
-      audit(ctx, 'service.schedule.task_update', { scheduleId: Number(id), taskId: Number(taskId), action: body.action });
+      return mut(ctx, 'schedule.update', 'POST', `/schedules/${id}/tasks/${taskId}`, body, 'service.schedule.task_update', { scheduleId: Number(id), taskId: Number(taskId), action: body.action });
     },
     async deleteTask(ctx: Ctx, id: string, taskId: string) {
       if (!ALLOC_ID.test(id) || !ALLOC_ID.test(taskId)) throw bad('Invalid task.');
-      await call(ctx, 'schedule.update', 'DELETE', `/schedules/${id}/tasks/${taskId}`);
-      audit(ctx, 'service.schedule.task_delete', { scheduleId: Number(id), taskId: Number(taskId) });
+      return mut(ctx, 'schedule.update', 'DELETE', `/schedules/${id}/tasks/${taskId}`, undefined, 'service.schedule.task_delete', { scheduleId: Number(id), taskId: Number(taskId) });
     },
 
     // ----- Events recorded by the panel itself (SFTP, panel UI, API) -----
@@ -273,8 +275,7 @@ export function createServerPanelApi(deps: { adapter?: ProviderAdapter; db?: Dat
       };
     },
     async rename(ctx: Ctx, name: unknown, description: unknown) {
-      await call(ctx, 'settings.rename', 'POST', '/settings/rename', { name: str(name, 191, 'name'), description: str(description ?? '', 191, 'description', true) });
-      audit(ctx, 'service.settings.rename', {});
+      return mut(ctx, 'settings.rename', 'POST', '/settings/rename', { name: str(name, 191, 'name'), description: str(description ?? '', 191, 'description', true) }, 'service.settings.rename', {});
     },
     async reinstall(ctx: Ctx) {
       await call(ctx, 'settings.reinstall', 'POST', '/settings/reinstall');
