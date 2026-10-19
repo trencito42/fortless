@@ -147,6 +147,20 @@ Reviewed at `d036b0f`. The panel patch files were read from the repository copy 
 
 Checked and not filed: the SSO callback validates state, nonce, issuer, audience and expiry, matches users by `external_id` plus email and refuses root admins; the key-mint endpoint uses HMAC with a 60 s window and single-use nonces; notification routes are scoped by account and user; preference updates are strict booleans and audited.
 
+## New findings, batch 8 (7) — frontend permissions and failure states
+
+Reviewed at `a236de9`. Full role × state × action table: [AUDIT_BATCH8_ROLE_STATE_MATRIX.md](./AUDIT_BATCH8_ROLE_STATE_MATRIX.md).
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-403 | P1 | Quote tax country and B2B flag are client-chosen; the UI hardcodes DE |
+| NEW-404 | P1 | Shared "viewer" preset can send console commands and read file contents |
+| NEW-405 | P2 | CSRF token cached forever; writes fail after the 1 h cookie expiry |
+| NEW-406 | P2 | Admin settings page shows wrong security TTLs and infrastructure details to every staff role |
+| NEW-407 | P2 | Global search uses non-existent permissions and omits shared services |
+| NEW-408 | P2 | Customer UI shows all actions to all roles; billing and audit readable by all (POLICY_DECISION) |
+| NEW-409 | P1 | Locking or fraud-flagging an account only ends its login; services, shares and panel access continue |
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
