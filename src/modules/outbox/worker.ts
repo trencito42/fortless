@@ -8,6 +8,7 @@ import { resolvePanelUserId } from '../provisioning/panel-link.js';
 import { capacityIsHeld } from '../provisioning/services.js';
 import { queueEmail } from '../email/outbox.js';
 import { createNotification } from '../notifications/notifications.js';
+import { resolveEggForWorkload, runPostProvisionTasks, type DeploymentSpecification } from '../deployment/index.js';
 
 let defaultAdapter: ProviderAdapter = new MockPterodactylAdapter();
 
@@ -365,6 +366,8 @@ async function executeProvisioningSaga(
       hostname?: string;
       osImage?: string;
       sshKey?: string;
+      deploymentSpec?: DeploymentSpecification;
+      [key: string]: unknown;
     };
   },
   adapter: ProviderAdapter,
@@ -459,7 +462,46 @@ async function executeProvisioningSaga(
     identifier = existingOnProvider.identifier;
   } else {
     try {
-      const envVars: Record<string, string> = {};
+      const deploymentSpec: DeploymentSpecification | undefined = payload.customOptions?.deploymentSpec || (payload.customOptions?.['workloadId'] ? (payload.customOptions as unknown as DeploymentSpecification) : undefined);
+
+      let resolvedEggId = resources.eggId;
+      let resolvedDockerImage = resources.dockerImage;
+      let resolvedStartup: string | undefined = undefined;
+
+      const serviceRow = db.prepare('SELECT provider_type FROM services WHERE id = ?').get(serviceId) as { provider_type?: string } | undefined;
+      const providerType = serviceRow?.provider_type || adapter.providerType || 'PTERODACTYL';
+      const isPterodactyl = providerType === 'PTERODACTYL';
+
+      if (isPterodactyl) {
+        if (deploymentSpec?.workloadId && deploymentSpec?.softwareId) {
+          try {
+            const target = await resolveEggForWorkload(adapter, deploymentSpec.workloadId, deploymentSpec.softwareId, db);
+            resolvedEggId = target.eggId;
+            if (target.dockerImage) resolvedDockerImage = target.dockerImage;
+            if (target.startupCommand) resolvedStartup = target.startupCommand;
+          } catch (err: any) {
+            db.prepare(`
+              UPDATE provision_operations
+              SET status = 'NEEDS_MANUAL_REVIEW', last_error = ?, updated_at = datetime('now', 'utc')
+              WHERE service_id = ?
+            `).run(`EGG_MAPPING_FAILED: ${err.message}`, serviceId);
+            throw err;
+          }
+        } else {
+          resolvedEggId = resources.eggId || 1;
+        }
+
+        if (!resolvedEggId) {
+          db.prepare(`
+            UPDATE provision_operations
+            SET status = 'NEEDS_MANUAL_REVIEW', last_error = 'No egg ID configured on plan or deployment specification', updated_at = datetime('now', 'utc')
+            WHERE service_id = ?
+          `).run(serviceId);
+          throw new Error('No egg ID could be resolved for this workload; provisioning cannot proceed.');
+        }
+      }
+
+      const envVars: Record<string, string> = { ...(deploymentSpec?.environmentVariables || {}) };
       if (payload.customOptions?.repoUrl) envVars.GIT_REPO = payload.customOptions.repoUrl;
       if (payload.customOptions?.branch) envVars.GIT_BRANCH = payload.customOptions.branch;
       if (payload.customOptions?.buildCommand) envVars.BUILD_CMD = payload.customOptions.buildCommand;
@@ -474,15 +516,16 @@ async function executeProvisioningSaga(
 
       const provisionRes = await adapter.provision({
         serviceId,
-        name: payload.customOptions?.serverName || plan.name,
+        name: deploymentSpec?.serverName || payload.customOptions?.serverName || plan.name,
         memoryMb: resources.memoryMb,
         cpuPct: resources.cpuPct,
         diskMb: resources.diskMb,
         databases: resources.databases || 1,
         backups: resources.backups || 2,
-        eggId: resources.eggId || 1,
+        eggId: resolvedEggId,
         ownerPanelUserId,
-        dockerImage: resources.dockerImage,
+        dockerImage: resolvedDockerImage,
+        startupCommand: resolvedStartup,
         environmentVariables: envVars,
         correlationTag,
       });
@@ -576,4 +619,13 @@ async function executeProvisioningSaga(
       linkUrl: `/app/services/${serviceId}`,
     }, trx);
   }, db);
+
+  const deploymentSpec = (payload.customOptions?.deploymentSpec as DeploymentSpecification) || (payload.customOptions?.workloadId ? (payload.customOptions as unknown as DeploymentSpecification) : undefined);
+  if (deploymentSpec) {
+    try {
+      await runPostProvisionTasks(serviceId, externalId, payload.accountId, deploymentSpec, adapter, db, config.PTERODACTYL_KEYMINT_SECRET);
+    } catch (err: any) {
+      console.error('[Deployment] Post-provision task failed:', err.message);
+    }
+  }
 }

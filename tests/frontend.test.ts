@@ -241,7 +241,7 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(serviceSource).toContain('data-service-mode="easy"');
       expect(serviceSource).toContain('data-service-mode="advanced"');
       expect(serviceSource).toContain("fortless_service_mode_${serviceId}");
-      expect(deploySource).toContain('if (deployStep !== 2)');
+      expect(deploySource).toContain('if (deployStep !== 4)');
       expect(deploySource).toContain("item.id === deployState.selectedRegionId && !item.isSoldOut");
       expect(deploySource).not.toContain('deployState.selectedPlanId = deployState.plans[0].planVersionId');
       expect(deploySource).toContain("marker.innerHTML = hero('check', 'xs')");

@@ -102,6 +102,14 @@ PHASE 6: AI-Assisted Operations & Advanced Diagnostics
 - [ ] **Slice 2.6: Settlement Transaction & Sequential Invoice Issuance**
   - Webhook worker commits atomic transaction: Order `PAID`, sequential invoice issued (`INV-2026-XXXXX`), entitlement granted, outbox event enqueued.
   - *Acceptance:* Invoice number sequence monotonically increases without gaps; credit note issuance tested.
+- [x] **Slice 2.7: Universal Deployment Experience & Workload Registry**
+  - 5-step contextual deployment wizard with Petal UI components: category filtering, Quick vs Custom setup, dynamic configuration, plan/region selection, and immutable specification review.
+  - Workload registry covering Game Servers (Minecraft, CS 1.6, CS2, FiveM fail-closed), Discord Bots (Node.js, Python), Web Applications, and Databases.
+  - Server-side validation enforcing clean installations, mod loader isolation, anti-SSRF protections on Git repositories, and masked secret protection.
+  - Dynamic Pterodactyl egg resolution against live inventory with cached mappings and fail-closed unmapped behavior.
+  - Migration 63 schema: `service_deployment_specs`, `service_deployment_tasks`, `provider_egg_mappings`.
+  - Outbox provisioning saga integration and post-provisioning configuration tasks.
+  - *Acceptance:* Automated tests pass across 16 scenarios (`tests/deployment.test.ts`), 100% full platform test suite pass (475 tests). `[MOCK_ONLY]`
 
 ---
 

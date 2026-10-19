@@ -177,6 +177,8 @@ Every vertical slice must be validated across the testing pyramid before being m
 
 - [x] `PRO-01`..`PRO-04`: Profile editing: own name, workspace name for the owner only, roles, ownership and staff flags refused (not ignored), control characters rejected, billing details limited to owners and billing managers, nothing invented before it is saved, tax id never written to the audit log. `[MOCK_ONLY]` (tests/profile.test.ts)
 
+- [x] `DEP-01`..`DEP-16`: Universal Deployment Experience: 5-step contextual onboarding wizard with category filtering and Petal UI. Quick vs Custom setup without configuration loss. Server-side validation enforcing clean installations, mod loader isolation (rejecting Bukkit plugins on Forge/Fabric), CS 1.6 GoldSrc parameters and Metamod/AMX Mod X dependency trees, Discord Bot masked secrets and unready state guard, SSRF anti-loopback protections on repository URLs, dynamic provider egg resolution from live inventory with fail-closed missing mapping guards, migration 63 schema snapshotting, and post-provisioning file initializers (`eula.txt`, `server.properties`, `cstrike/server.cfg`, `.env`, starter templates). `[MOCK_ONLY]` (tests/deployment.test.ts)
+
 ---
 
 ## 3. Strict P0 Release Acceptance Gate Checklist

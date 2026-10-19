@@ -15,6 +15,13 @@ import {
   updateGlobalSettings,
 } from './modules/fastdl/index.js';
 import { createPlayerManagerService } from './modules/player-manager/index.js';
+import {
+  listWorkloads,
+  getWorkloadDefinition,
+  validateDeploymentSpec,
+  DeploymentValidationError,
+  resolveEggForWorkload,
+} from './modules/deployment/index.js';
 import { getServiceConsoleCredentials, ConsoleAccessError, withAccountClientKey } from './modules/provisioning/console.js';
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
@@ -1286,6 +1293,44 @@ export function buildServer(): FastifyInstance {
     return { regions };
   });
 
+  // Deployment: Workloads Catalog
+  app.get('/api/v1/deploy/workloads', async (req) => {
+    const q = req.query as { category?: string } | undefined;
+    const workloads = listWorkloads(q?.category as any);
+    return { workloads };
+  });
+
+  // Deployment: Validate Specification
+  app.post('/api/v1/deploy/validate', async (req, reply) => {
+    try {
+      const result = validateDeploymentSpec(req.body);
+      return reply.send(result);
+    } catch (err: any) {
+      if (err instanceof DeploymentValidationError) {
+        return reply.status(422).send({ error: err.message, errors: err.errors, code: err.code });
+      }
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  // Deployment: Service Deployment Spec & Tasks
+  app.get('/api/v1/services/:id/deployment', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const db = getDatabase();
+    const svc = db.prepare('SELECT id, account_id FROM services WHERE id = ?').get(id) as { id: string; account_id: string } | undefined;
+    if (!svc || svc.account_id !== req.auth!.account.id) {
+      return reply.status(404).send({ error: 'Service not found.', code: 'NOT_FOUND' });
+    }
+
+    const specRow = db.prepare('SELECT workload_id, setup_mode, software_id, software_version, preset_id, spec_json, updated_at FROM service_deployment_specs WHERE service_id = ?').get(id) as any;
+    const tasks = db.prepare('SELECT id, task_name, task_type, status, error_message, details_json, started_at, completed_at, created_at FROM service_deployment_tasks WHERE service_id = ? ORDER BY created_at ASC').all(id) as any[];
+
+    return {
+      spec: specRow ? { ...specRow, details: JSON.parse(specRow.spec_json || '{}') } : null,
+      tasks: tasks.map((t) => ({ ...t, details: JSON.parse(t.details_json || '{}') })),
+    };
+  });
+
   // Catalog: Validate Coupon
   app.post('/api/v1/catalog/validate-coupon', { preHandler: [requireAuth] }, async (req, reply) => {
     const body = req.body as { code?: string; subtotalMinorUnits?: number } | undefined;
@@ -1326,6 +1371,13 @@ export function buildServer(): FastifyInstance {
     }
 
     try {
+      for (const item of parse.data.items) {
+        const spec = item.customOptions?.['deploymentSpec'] || (item.customOptions?.['workloadId'] ? item.customOptions : undefined);
+        if (spec) {
+          validateDeploymentSpec(spec);
+        }
+      }
+
       const profile = getDatabase().prepare('SELECT country, tax_id, tax_id_type, company_name FROM billing_profiles WHERE account_id = ?').get(req.auth!.account.id) as
         { country?: string | null; tax_id?: string | null; tax_id_type?: string | null; company_name?: string | null } | undefined;
       // NEW-304: a tax id the customer typed is not evidence. Reverse charge needs a tax id that staff verified.
@@ -1629,6 +1681,11 @@ export function buildServer(): FastifyInstance {
     }
 
     try {
+      const spec = parse.data.customOptions?.['deploymentSpec'] || (parse.data.customOptions?.['workloadId'] ? parse.data.customOptions : undefined);
+      if (spec) {
+        validateDeploymentSpec(spec);
+      }
+
       const result = await processCheckout({
         accountId: req.auth!.account.id,
         quoteId: parse.data.quoteId,
