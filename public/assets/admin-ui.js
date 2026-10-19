@@ -1008,71 +1008,6 @@
   `;
   }
 
-  // src/frontend/admin/pages/overview/index.ts
-  async function renderOverview() {
-    const d = await api("/api/v1/admin/overview");
-    const metrics = [
-      ["Users", d.users, "users", ""],
-      ["Accounts", d.accounts, "users", ""],
-      ["Active services", d.activeServices, "server", "good"],
-      ["Open tickets", d.openTickets, "support", d.openTickets ? "warn" : "good"],
-      ["Orders", d.orders, "cube", ""],
-      ["Overdue invoices", d.overdueInvoices, "document", d.overdueInvoices ? "warn" : "good"],
-      ["Pending events", d.pendingOutboxEvents, "refresh", d.pendingOutboxEvents ? "warn" : "good"],
-      ["Dead letters", d.deadLetterEvents, "warning", d.deadLetterEvents ? "bad" : "good"]
-    ];
-    const metricsBox = document.querySelector("#overviewMetrics");
-    if (metricsBox) {
-      metricsBox.innerHTML = metrics.map(([label, value, icon, tone]) => `<article class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${Number(value || 0)}</b></div><span class="tile ${tone}">${hero(icon)}</span></article>`).join("");
-    }
-    const capabilityList = document.querySelector("#capabilityList");
-    if (capabilityList) {
-      capabilityList.innerHTML = Object.entries(d.capabilities).map(
-        ([k, v]) => row({
-          symbol: "shield",
-          title: k.replace(/([A-Z])/g, " $1"),
-          sub: "Release gate from server configuration",
-          status: v
-        })
-      ).join("");
-    }
-    const attentionList = document.querySelector("#attentionList");
-    if (attentionList) {
-      attentionList.innerHTML = [
-        row({
-          symbol: "support",
-          title: "Open support tickets",
-          sub: "Unresolved customer conversations",
-          meta: `${d.openTickets} open`
-        }),
-        row({
-          symbol: "server",
-          title: "Pending outbox events",
-          sub: "Async work awaiting worker dispatch",
-          meta: `${d.pendingOutboxEvents} pending`
-        }),
-        row({
-          symbol: "warning",
-          title: "Dead-letter events",
-          sub: "Events requiring engineering review",
-          status: d.deadLetterEvents ? "ATTENTION" : "CLEAR",
-          meta: `${d.deadLetterEvents} dead`
-        })
-      ].join("");
-    }
-    const outboxHealth = document.querySelector("#outboxHealth");
-    if (outboxHealth) {
-      outboxHealth.innerHTML = [
-        row({ symbol: "refresh", title: "Retries pending", sub: "Events awaiting worker dispatch", status: d.pendingOutboxEvents ? "PENDING" : "CLEAR", meta: String(d.pendingOutboxEvents) }),
-        row({ symbol: "warning", title: "Dead-letter events", sub: "Manual review required", status: d.deadLetterEvents ? "ATTENTION" : "CLEAR", meta: String(d.deadLetterEvents) })
-      ].join("");
-    }
-    const supportSummary = document.querySelector("#supportSummary");
-    if (supportSummary) {
-      supportSummary.innerHTML = row({ symbol: "support", title: "Open support tickets", sub: "Inspect priority and recent activity in the support queue", status: d.openTickets ? "OPEN" : "CLEAR", meta: String(d.openTickets) });
-    }
-  }
-
   // src/frontend/core/utils/dates.ts
   function formatDate(value) {
     if (!value) return "\u2014";
@@ -1095,6 +1030,61 @@
       style: "currency",
       currency
     }).format(val / 100);
+  }
+
+  // src/frontend/admin/pages/overview/index.ts
+  function linkRow(path, route, icon, title, sub, state = "", meta = "") {
+    return `<a class="li" href="${path}" data-route="${route}"><span class="tile neu sm">${hero(icon)}</span><span class="tx"><b>${esc(title)}</b><small>${esc(sub)}</small></span>${state ? badge(state) : ""}${meta ? `<span class="faint hide-n">${esc(meta)}</span>` : ""}</a>`;
+  }
+  function empty(message) {
+    return `<div class="es" style="padding:24px 12px"><span class="tile good sm">${hero("check")}</span><h4>${esc(message)}</h4></div>`;
+  }
+  async function renderOverview() {
+    const d = await api("/api/v1/admin/overview");
+    const metrics = [
+      ["Active services", d.activeServices, "server", "good"],
+      ["Suspended", d.suspendedServices, "warning", d.suspendedServices ? "bad" : "good"],
+      ["Provisioning", d.provisioningServices, "refresh", d.provisioningServices ? "warn" : "good"],
+      ["Failed jobs", d.failedProvisioningJobs, "warning", d.failedProvisioningJobs ? "bad" : "good"],
+      ["Pending orders", d.pendingOrders, "cube", d.pendingOrders ? "warn" : "good"],
+      ["Overdue invoices", d.overdueInvoices, "document", d.overdueInvoices ? "bad" : "good"],
+      ["Waiting for staff", d.waitingStaffTickets, "support", d.waitingStaffTickets ? "warn" : "good"],
+      ["Capacity alerts", d.capacityAlerts, "servers", d.capacityAlerts ? "bad" : "good"]
+    ];
+    const metricsBox = document.querySelector("#overviewMetrics");
+    if (metricsBox) metricsBox.innerHTML = metrics.map(([label, value, icon, tone]) => `<article class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${Number(value || 0)}</b></div><span class="tile ${tone}">${hero(icon)}</span></article>`).join("");
+    const capabilityList = document.querySelector("#capabilityList");
+    if (capabilityList) capabilityList.innerHTML = Object.entries(d.capabilities || {}).map(([key, value]) => row({ symbol: "shield", title: key.replace(/([A-Z])/g, " $1"), sub: "Server environment and verification state", status: String(value) })).join("");
+    const collections = document.querySelector("#collectionsSummary");
+    if (collections) collections.innerHTML = d.collections?.length ? d.collections.map((item) => row({ symbol: "credit", title: item.currency, sub: "Settled invoice collections", meta: money(item.amount_minor_units, item.currency), status: "COLLECTED" })).join("") : empty("No settled collections in this period");
+    const attention = [
+      ...(d.attention?.invoices || []).map((item) => linkRow(`/admin/billing/${encodeURIComponent(item.id)}`, "invoice-detail", "document", item.invoice_number || item.id, `Overdue since ${formatDate(item.due_date)}`, item.status, money(item.balance_minor_units, item.currency))),
+      ...(d.attention?.provisioning || []).map((item) => linkRow(`/admin/services/${encodeURIComponent(item.service_id)}`, "admin-service-detail", "server", item.identifier || item.service_id, item.last_error || `${item.account_name} requires review`, item.status)),
+      ...(d.attention?.tickets || []).map((item) => linkRow(`/admin/tickets/${encodeURIComponent(item.id)}`, "admin-ticket-detail", "support", item.subject, `${item.account_name} \xB7 waiting since ${formatDate(item.updated_at)}`, item.priority))
+    ];
+    const attentionList = document.querySelector("#attentionList");
+    if (attentionList) attentionList.innerHTML = attention.join("") || empty("No records currently need attention");
+    const outboxHealth = document.querySelector("#outboxHealth");
+    if (outboxHealth) outboxHealth.innerHTML = [
+      row({ symbol: "refresh", title: "Pending worker events", sub: "Awaiting background dispatch", status: d.pendingOutboxEvents ? "PENDING" : "CLEAR", meta: String(d.pendingOutboxEvents) }),
+      row({ symbol: "warning", title: "Dead-letter events", sub: "Manual engineering review required", status: d.deadLetterEvents ? "ATTENTION" : "CLEAR", meta: String(d.deadLetterEvents) }),
+      row({ symbol: "support", title: "Failed email deliveries", sub: "Failed or dead-letter transactional messages", status: d.failedEmails ? "ATTENTION" : "CLEAR", meta: String(d.failedEmails) }),
+      row({ symbol: "credit", title: "Webhook failures or anomalies", sub: "Persisted PSP inbox records", status: d.webhookFailures ? "ATTENTION" : "CLEAR", meta: String(d.webhookFailures) })
+    ].join("");
+    const commercial = document.querySelector("#recentCommercial");
+    if (commercial) {
+      const records = [
+        ...(d.recent?.accounts || []).map((item) => ({ at: item.created_at, html: linkRow(`/admin/accounts/${encodeURIComponent(item.id)}`, "account-detail", "users", item.name, `Customer created ${formatDate(item.created_at)}`, item.status) })),
+        ...(d.recent?.orders || []).map((item) => ({ at: item.created_at, html: linkRow(`/admin/orders/${encodeURIComponent(item.id)}`, "order-detail", "cube", item.account_name, `Order ${item.id} \xB7 ${formatDate(item.created_at)}`, item.status, money(item.total_minor_units, item.currency)) }))
+      ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 8);
+      commercial.innerHTML = records.map((record) => record.html).join("") || empty("No customer or order records");
+    }
+    const operations = document.querySelector("#recentOperations");
+    if (operations) operations.innerHTML = (d.recent?.operations || []).map((event) => {
+      const target = event.resource_type === "service" ? `/admin/services/${encodeURIComponent(event.resource_id)}` : event.resource_type === "ticket" ? `/admin/tickets/${encodeURIComponent(event.resource_id)}` : event.resource_type === "account" ? `/admin/accounts/${encodeURIComponent(event.resource_id)}` : "/admin/audit";
+      const route = event.resource_type === "service" ? "admin-service-detail" : event.resource_type === "ticket" ? "admin-ticket-detail" : event.resource_type === "account" ? "account-detail" : "audit";
+      return linkRow(target, route, "shield", event.action, `${event.actor_type} \xB7 ${formatDate(event.created_at)}`, "", event.correlation_id);
+    }).join("") || empty("No administrative operations recorded");
   }
 
   // src/frontend/admin/pages/accounts/index.ts
@@ -2309,7 +2299,7 @@
   function moneySummary(rows, field) {
     return rows.length ? rows.map((row2) => money2(Number(row2[field] || 0), row2.currency)).join(" \xB7 ") : "\u2014";
   }
-  function empty(message) {
+  function empty2(message) {
     return `<div class="es"><h4>${esc(message)}</h4><p>No persisted records match the current filter.</p></div>`;
   }
   function metric(label, value, icon, tone = "", detail = "") {
@@ -2329,7 +2319,7 @@
     if (!host) return;
     if (!cachedOrders.length) {
       if (paginationRow) paginationRow.style.display = "none";
-      host.innerHTML = `<tr><td colspan="5">${empty("No orders")}</td></tr>`;
+      host.innerHTML = `<tr><td colspan="5">${empty2("No orders")}</td></tr>`;
       return;
     }
     const pages = Math.max(1, Math.ceil(ordersTotal / ordersPageSize));
@@ -2380,7 +2370,7 @@
       paintOrdersList();
       bindOrdersListeners();
     } catch (error) {
-      host.innerHTML = `<tr><td colspan="5">${empty(error.message)}</td></tr>`;
+      host.innerHTML = `<tr><td colspan="5">${empty2(error.message)}</td></tr>`;
     }
   }
   var cachedInvoices = [];
@@ -2400,7 +2390,7 @@
     if (!invoiceHost) return;
     if (!cachedInvoices.length) {
       if (paginationRow) paginationRow.style.display = "none";
-      invoiceHost.innerHTML = `<tr><td colspan="6">${empty("No invoices")}</td></tr>`;
+      invoiceHost.innerHTML = `<tr><td colspan="6">${empty2("No invoices")}</td></tr>`;
       return;
     }
     const pages = Math.max(1, Math.ceil(invoicesTotal / adminBillingPageSize));
@@ -2424,7 +2414,7 @@
     if (!creditHost) return;
     if (!cachedCreditNotes.length) {
       if (paginationRow) paginationRow.style.display = "none";
-      creditHost.innerHTML = `<tr><td colspan="6">${empty("No credit notes")}</td></tr>`;
+      creditHost.innerHTML = `<tr><td colspan="6">${empty2("No credit notes")}</td></tr>`;
       return;
     }
     const pages = Math.max(1, Math.ceil(creditsTotal / adminBillingPageSize));
@@ -2487,7 +2477,7 @@
       paintAdminCreditsList();
       bindBillingOpsListeners();
     } catch (error) {
-      invoiceHost.innerHTML = `<tr><td colspan="6">${empty(error.message)}</td></tr>`;
+      invoiceHost.innerHTML = `<tr><td colspan="6">${empty2(error.message)}</td></tr>`;
     }
   }
   async function renderOrderDetail(orderId) {
@@ -2513,8 +2503,8 @@
         ${data.items.map((item) => `<tr><td><b>${esc(item.product_name)}</b><small>${esc(item.plan_name)}</small></td><td>${esc(item.region_name)}</td><td>${item.unit_price_minor_units == null ? "\u2014" : money2(item.unit_price_minor_units, order.currency)}</td><td>${badge(item.fulfillment_status)}</td><td>${item.provision_status ? badge(item.provision_status) : '<span class="muted">Not queued</span>'}${item.last_error ? `<small class="bad">${esc(item.last_error)}</small>` : ""}</td><td>${item.service_id ? `<a class="btn xs" href="/admin/services/${encodeURIComponent(item.service_id)}" data-route="admin-service-detail">Manage</a>` : "\u2014"}</td></tr>`).join("") || '<tr><td colspan="6">No order items.</td></tr>'}
       </tbody></table></div></article>
       <div class="g g2">
-        <article class="card"><div class="ch"><div class="tx"><h3>Related invoices</h3><p>Authoritative accounting state.</p></div></div><div class="col">${data.invoices.map((invoice) => `<a class="li" href="/admin/billing/${encodeURIComponent(invoice.id)}" data-route="invoice-detail"><span class="tx"><b>${esc(invoice.invoice_number || invoice.id)}</b><small>Due ${formatDate(invoice.due_date)}</small></span><b>${money2(invoice.total_minor_units, invoice.currency)}</b>${badge(invoice.status)}</a>`).join("") || empty("No invoice linked")}</div></article>
-        <article class="card"><div class="ch"><div class="tx"><h3>Order audit</h3><p>Correlation-aware lifecycle evidence.</p></div></div><div class="col">${data.audit.map((event) => `<div class="li h"><span class="tx"><b>${esc(event.action)}</b><small>${esc(event.correlation_id || "No correlation id")} \xB7 ${formatDate(event.created_at)}</small></span></div>`).join("") || empty("No order audit events")}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Related invoices</h3><p>Authoritative accounting state.</p></div></div><div class="col">${data.invoices.map((invoice) => `<a class="li" href="/admin/billing/${encodeURIComponent(invoice.id)}" data-route="invoice-detail"><span class="tx"><b>${esc(invoice.invoice_number || invoice.id)}</b><small>Due ${formatDate(invoice.due_date)}</small></span><b>${money2(invoice.total_minor_units, invoice.currency)}</b>${badge(invoice.status)}</a>`).join("") || empty2("No invoice linked")}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Order audit</h3><p>Correlation-aware lifecycle evidence.</p></div></div><div class="col">${data.audit.map((event) => `<div class="li h"><span class="tx"><b>${esc(event.action)}</b><small>${esc(event.correlation_id || "No correlation id")} \xB7 ${formatDate(event.created_at)}</small></span></div>`).join("") || empty2("No order audit events")}</div></article>
       </div>`;
     } catch (error) {
       host.innerHTML = `<div class="alert bad"><div><b>Order unavailable</b><span>${esc(error.message)}</span></div></div>`;
@@ -2542,10 +2532,10 @@
       <div class="row wrap"><a class="btn s" href="/admin/accounts/${encodeURIComponent(invoice.account_id)}" data-route="account-detail">Customer account</a>${invoice.order_id ? `<a class="btn s" href="/admin/orders/${encodeURIComponent(invoice.order_id)}" data-route="order-detail">Related order</a>` : ""}${badge(invoice.status)}${invoice.status === "PAID" && Number(invoice.amount_paid_minor_units) > 0 ? `<button class="btn s" data-refund-invoice="${esc(invoice.id)}" data-refund-max="${Number(invoice.amount_paid_minor_units)}" data-refund-currency="${esc(invoice.currency)}" data-permission="accounts:manage">Refund</button>` : ""}</div>
       <article class="card table-card"><div class="ch"><div class="tx"><h3>Invoice lines</h3><p>Persisted fiscal line items and tax basis points.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Description</th><th>Quantity</th><th>Unit price</th><th>Tax</th><th>Total</th></tr></thead><tbody>${data.lines.map((line) => `<tr><td><b>${esc(line.description)}</b></td><td>${Number(line.quantity)}</td><td>${money2(line.unit_price_minor_units, invoice.currency)}</td><td>${(Number(line.tax_rate_basis_points) / 100).toFixed(2)}%</td><td><b>${money2(line.total_minor_units, invoice.currency)}</b></td></tr>`).join("") || '<tr><td colspan="5">No invoice lines.</td></tr>'}</tbody></table></div></article>
       <div class="g g2">
-        <article class="card"><div class="ch"><div class="tx"><h3>Payments</h3><p>PSP attempts remain distinct from invoice settlement.</p></div></div><div class="col">${data.payments.map((payment) => `<div class="li h"><span class="tx"><b>${money2(payment.amount_minor_units, payment.currency)} via ${esc(payment.psp_name)}</b><small>${esc(payment.psp_payment_intent_id || payment.id)} \xB7 ${formatDate(payment.created_at)}</small></span>${badge(payment.status)}</div>`).join("") || empty("No payment attempts")}</div></article>
-        <article class="card"><div class="ch"><div class="tx"><h3>Credits & refunds</h3><p>PSP refund state and fiscal credit notes.</p></div></div><div class="col">${data.refunds.map((refund) => `<div class="li h"><span class="tx"><b>${money2(refund.amount_minor_units, invoice.currency)}</b><small>${esc(refund.reason)} \xB7 ${esc(refund.psp_refund_id || "PSP reference pending")}</small></span>${badge(refund.status)}</div>`).join("")}${data.creditNotes.map((note) => `<div class="li h"><span class="tx"><b>${esc(note.credit_note_number)}</b><small>${esc(note.reason)}</small></span><b>${money2(note.amount_minor_units, invoice.currency)}</b></div>`).join("") || (!data.refunds.length ? empty("No credits or refunds") : "")}</div></article>
-        <article class="card"><div class="ch"><div class="tx"><h3>Related services</h3><p>Services fulfilled by the linked order.</p></div></div><div class="col">${data.services.map((service) => `<a class="li" href="/admin/services/${encodeURIComponent(service.id)}" data-route="admin-service-detail"><span class="tx"><b>${esc(service.plan_name || service.product_name)}</b><small>${esc(service.identifier || service.id)}</small></span>${badge(service.contract_status)}</a>`).join("") || empty("No related services")}</div></article>
-        <article class="card"><div class="ch"><div class="tx"><h3>Invoice audit</h3><p>Security and accounting mutations.</p></div></div><div class="col">${data.audit.map((event) => `<div class="li h"><span class="tx"><b>${esc(event.action)}</b><small>${esc(event.correlation_id || "No correlation id")} \xB7 ${formatDate(event.created_at)}</small></span></div>`).join("") || empty("No invoice audit events")}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Payments</h3><p>PSP attempts remain distinct from invoice settlement.</p></div></div><div class="col">${data.payments.map((payment) => `<div class="li h"><span class="tx"><b>${money2(payment.amount_minor_units, payment.currency)} via ${esc(payment.psp_name)}</b><small>${esc(payment.psp_payment_intent_id || payment.id)} \xB7 ${formatDate(payment.created_at)}</small></span>${badge(payment.status)}</div>`).join("") || empty2("No payment attempts")}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Credits & refunds</h3><p>PSP refund state and fiscal credit notes.</p></div></div><div class="col">${data.refunds.map((refund) => `<div class="li h"><span class="tx"><b>${money2(refund.amount_minor_units, invoice.currency)}</b><small>${esc(refund.reason)} \xB7 ${esc(refund.psp_refund_id || "PSP reference pending")}</small></span>${badge(refund.status)}</div>`).join("")}${data.creditNotes.map((note) => `<div class="li h"><span class="tx"><b>${esc(note.credit_note_number)}</b><small>${esc(note.reason)}</small></span><b>${money2(note.amount_minor_units, invoice.currency)}</b></div>`).join("") || (!data.refunds.length ? empty2("No credits or refunds") : "")}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Related services</h3><p>Services fulfilled by the linked order.</p></div></div><div class="col">${data.services.map((service) => `<a class="li" href="/admin/services/${encodeURIComponent(service.id)}" data-route="admin-service-detail"><span class="tx"><b>${esc(service.plan_name || service.product_name)}</b><small>${esc(service.identifier || service.id)}</small></span>${badge(service.contract_status)}</a>`).join("") || empty2("No related services")}</div></article>
+        <article class="card"><div class="ch"><div class="tx"><h3>Invoice audit</h3><p>Security and accounting mutations.</p></div></div><div class="col">${data.audit.map((event) => `<div class="li h"><span class="tx"><b>${esc(event.action)}</b><small>${esc(event.correlation_id || "No correlation id")} \xB7 ${formatDate(event.created_at)}</small></span></div>`).join("") || empty2("No invoice audit events")}</div></article>
       </div>`;
     } catch (error) {
       host.innerHTML = `<div class="alert bad"><div><b>Invoice unavailable</b><span>${esc(error.message)}</span></div></div>`;
@@ -2567,10 +2557,10 @@
       regionsHost.innerHTML = data.regions.length ? data.regions.map((x) => {
         const used = x.total_memory_mb ? Math.round(x.allocated_memory_mb / x.total_memory_mb * 100) : 0;
         return `<article class="cap"><div><b>${esc(x.name)}</b><small>${esc(x.code)} \xB7 ${esc(x.country)} \xB7 ${x.node_count} nodes</small></div>${badge(x.is_active ? "ACTIVE" : "INACTIVE")}<div class="meter"><i style="width:${Math.min(used, 100)}%"></i></div><small>${used}% memory allocated</small></article>`;
-      }).join("") : empty("No configured capacity regions");
-      nodesHost.innerHTML = data.nodes.length ? data.nodes.map((x) => `<tr><td data-l="Node"><b>${esc(x.name)}</b><small>${esc(x.fqdn)}</small></td><td data-l="Region">${esc(x.region_name)}</td><td data-l="Services">${Number(x.active_service_count)}</td><td data-l="Memory">${Math.round(x.allocated_memory_mb / 1024)} / ${Math.round(x.max_memory_mb / 1024)} GB</td><td data-l="Disk">${Math.round(x.allocated_disk_mb / 1024)} / ${Math.round(x.max_disk_mb / 1024)} GB</td><td data-l="Mode">${badge(x.maintenance_mode ? "MAINTENANCE" : "AVAILABLE")}</td></tr>`).join("") : `<tr><td colspan="6">${empty("No configured nodes")}</td></tr>`;
+      }).join("") : empty2("No configured capacity regions");
+      nodesHost.innerHTML = data.nodes.length ? data.nodes.map((x) => `<tr><td data-l="Node"><b>${esc(x.name)}</b><small>${esc(x.fqdn)}</small></td><td data-l="Region">${esc(x.region_name)}</td><td data-l="Services">${Number(x.active_service_count)}</td><td data-l="Memory">${Math.round(x.allocated_memory_mb / 1024)} / ${Math.round(x.max_memory_mb / 1024)} GB</td><td data-l="Disk">${Math.round(x.allocated_disk_mb / 1024)} / ${Math.round(x.max_disk_mb / 1024)} GB</td><td data-l="Mode">${badge(x.maintenance_mode ? "MAINTENANCE" : "AVAILABLE")}</td></tr>`).join("") : `<tr><td colspan="6">${empty2("No configured nodes")}</td></tr>`;
     } catch (error) {
-      regionsHost.innerHTML = empty(error.message);
+      regionsHost.innerHTML = empty2(error.message);
     }
   }
   async function renderStatus() {
@@ -2587,11 +2577,11 @@
       }
       const headline = document.querySelector("#statusHeadline");
       if (headline) headline.innerHTML = `<b>${esc(data.headline)}</b>${badge(data.indicator)}`;
-      componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} \xB7 updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}" data-permission="services:manage">Change</button></article>`).join("") || empty("No status components");
+      componentsHost.innerHTML = data.components.map((x) => `<article class="li"><span class="tx"><b>${esc(x.name)}</b><small>${esc(x.groupName)} \xB7 updated ${formatDate(x.updatedAt)}</small></span>${badge(x.status)}<button class="btn xs" data-component-id="${esc(x.id)}" data-component-status="${esc(x.status)}" data-permission="services:manage">Change</button></article>`).join("") || empty2("No status components");
       const incidents = [...data.activeIncidents, ...data.pastIncidents];
-      incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates \xB7 ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== "RESOLVED" ? `<button class="btn xs" data-incident-id="${esc(x.id)}" data-permission="services:manage">Update</button>` : ""}</article>`).join("") || empty("No incidents recorded");
+      incidentsHost.innerHTML = incidents.map((x) => `<article class="li"><span class="tx"><b>${esc(x.title)}</b><small>${x.updates.length} updates \xB7 ${formatDate(x.updatedAt)}</small></span>${badge(x.impact)}${badge(x.status)}${x.status !== "RESOLVED" ? `<button class="btn xs" data-incident-id="${esc(x.id)}" data-permission="services:manage">Update</button>` : ""}</article>`).join("") || empty2("No incidents recorded");
     } catch (error) {
-      componentsHost.innerHTML = empty(error.message);
+      componentsHost.innerHTML = empty2(error.message);
     }
   }
 

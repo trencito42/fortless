@@ -30,19 +30,54 @@ export function getAdminOverview(db: Database.Database) {
       (SELECT count(*) FROM accounts) AS accounts,
       (SELECT count(*) FROM orders) AS orders,
       (SELECT count(*) FROM services WHERE contract_status = 'ACTIVE') AS activeServices,
+      (SELECT count(*) FROM services WHERE contract_status = 'SUSPENDED') AS suspendedServices,
+      (SELECT count(*) FROM services WHERE contract_status = 'TERMINATED') AS terminatedServices,
+      (SELECT count(*) FROM provision_operations WHERE status IN ('PENDING', 'IN_PROGRESS', 'VERIFYING')) AS provisioningServices,
+      (SELECT count(*) FROM provision_operations WHERE status IN ('FAILED', 'NEEDS_MANUAL_REVIEW')) AS failedProvisioningJobs,
       (SELECT count(*) FROM tickets WHERE status NOT IN ('RESOLVED', 'CLOSED')) AS openTickets,
+      (SELECT count(*) FROM tickets WHERE status = 'WAITING_STAFF') AS waitingStaffTickets,
+      (SELECT count(*) FROM orders WHERE status IN ('DRAFT', 'AWAITING_PAYMENT', 'FULFILLING', 'PARTIALLY_FULFILLED')) AS pendingOrders,
+      (SELECT count(*) FROM invoices WHERE status IN ('ISSUED', 'OVERDUE') AND amount_paid_minor_units < total_minor_units) AS unpaidInvoices,
       (SELECT count(*) FROM invoices WHERE status = 'OVERDUE') AS overdueInvoices,
+      (SELECT count(*) FROM payment_attempts WHERE status = 'FAILED') AS failedPayments,
       (SELECT count(*) FROM outbox_events WHERE status = 'PENDING') AS pendingOutboxEvents,
-      (SELECT count(*) FROM outbox_events WHERE status = 'DEAD_LETTER') AS deadLetterEvents
+      (SELECT count(*) FROM outbox_events WHERE status = 'DEAD_LETTER') AS deadLetterEvents,
+      (SELECT count(*) FROM email_outbox WHERE status IN ('FAILED', 'DEAD_LETTER')) AS failedEmails,
+      (SELECT count(*) FROM psp_inbox_events WHERE status IN ('FAILED', 'ANOMALY')) AS webhookFailures,
+      (SELECT count(*) FROM nodes WHERE maintenance_mode = 0 AND (
+        (max_memory_mb > 0 AND allocated_memory_mb * 100 >= max_memory_mb * 90) OR
+        (max_disk_mb > 0 AND allocated_disk_mb * 100 >= max_disk_mb * 90)
+      )) AS capacityAlerts
   `).get() as Record<string, number>;
 
-  const capabilities = {
-    payments: 'NOT_CONFIGURED',
-    provisioning: 'MOCK_ONLY',
-    transactionalEmail: 'NOT_CONFIGURED',
-  } as const;
+  const collections = db.prepare(`
+    SELECT currency, coalesce(sum(amount_paid_minor_units), 0) AS amount_minor_units
+    FROM invoices
+    WHERE paid_at IS NOT NULL AND paid_at >= datetime('now', '-30 days')
+    GROUP BY currency ORDER BY currency
+  `).all() as Array<{ currency: string; amount_minor_units: number }>;
+  const attention = {
+    invoices: db.prepare(`SELECT id, invoice_number, account_id, currency,
+      total_minor_units - amount_paid_minor_units AS balance_minor_units, due_date, status
+      FROM invoices WHERE status = 'OVERDUE' ORDER BY due_date ASC LIMIT 5`).all(),
+    provisioning: db.prepare(`SELECT po.id, po.service_id, po.status, po.last_error, po.updated_at,
+      s.identifier, a.name AS account_name FROM provision_operations po
+      JOIN services s ON s.id = po.service_id JOIN accounts a ON a.id = s.account_id
+      WHERE po.status IN ('FAILED', 'NEEDS_MANUAL_REVIEW') ORDER BY po.updated_at DESC LIMIT 5`).all(),
+    tickets: db.prepare(`SELECT t.id, t.subject, t.priority, t.updated_at, a.name AS account_name
+      FROM tickets t JOIN accounts a ON a.id = t.account_id
+      WHERE t.status = 'WAITING_STAFF'
+      ORDER BY CASE t.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 ELSE 2 END, t.updated_at ASC LIMIT 5`).all(),
+  };
+  const recent = {
+    accounts: db.prepare(`SELECT id, name, status, created_at FROM accounts ORDER BY created_at DESC LIMIT 5`).all(),
+    orders: db.prepare(`SELECT o.id, o.status, o.currency, o.total_minor_units, o.created_at, a.name AS account_name
+      FROM orders o JOIN accounts a ON a.id = o.account_id ORDER BY o.created_at DESC LIMIT 5`).all(),
+    operations: db.prepare(`SELECT action, resource_type, resource_id, actor_type, correlation_id, created_at
+      FROM audit_events ORDER BY created_at DESC, id DESC LIMIT 8`).all(),
+  };
 
-  return { ...counts, capabilities };
+  return { ...counts, collections, attention, recent };
 }
 
 export function listAdminAccounts(db: Database.Database, options: AdminListOptions = {}) {

@@ -58,9 +58,11 @@
         <div class="g g4 k2" id="overviewMetrics" aria-live="polite" style="margin-bottom:12px"></div>
         <div class="g g2">
           <article class="card"><div class="card-head"><div><h2>Release gates</h2><p>Provider-backed operations remain unavailable until verified.</p></div></div><div id="capabilityList" class="stack"></div></article>
-          <article class="card"><div class="card-head"><div><h2>Operational attention</h2><p>Queues and records requiring review.</p></div></div><div id="attentionList" class="stack"></div></article>
-          <article class="card"><div class="card-head"><div><h2>Outbox health</h2><p>Current persisted transactional queue state.</p></div></div><div id="outboxHealth" class="stack"></div></article>
-          <article class="card"><div class="card-head"><div><h2>Support queue</h2><p>Ordered by priority and activity.</p></div></div><div id="supportSummary" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Collections · 30 days</h2><p>Settled invoice amounts grouped by currency.</p></div></div><div id="collectionsSummary" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Needs attention</h2><p>Actual overdue, failed and customer-waiting records.</p></div></div><div id="attentionList" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Delivery & webhook health</h2><p>Persisted outbox, email and payment event queues.</p></div></div><div id="outboxHealth" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Recent customers & orders</h2><p>Newest commercial records.</p></div></div><div id="recentCommercial" class="stack"></div></article>
+          <article class="card"><div class="card-head"><div><h2>Recent administrative operations</h2><p>Latest correlation-aware audit events.</p></div></div><div id="recentOperations" class="stack"></div></article>
         </div>
       </section>
 

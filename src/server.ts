@@ -2621,7 +2621,20 @@ export function buildServer(): FastifyInstance {
 
   // Admin: operational workspace (persisted permission + MFA; mutations also require recent step-up).
   app.get('/api/v1/admin/overview', { preHandler: [requireAuth, requireStaff] }, async () => {
-    return getAdminOverview(getDatabase());
+    return {
+      ...getAdminOverview(getDatabase()),
+      capabilities: {
+        payments: config.PAYMENTS_MODE === 'disabled'
+          ? 'DISABLED'
+          : config.STRIPE_SECRET_KEY && config.STRIPE_WEBHOOK_SECRET ? 'CONFIGURED' : 'NOT_CONFIGURED',
+        provisioning: config.PROVIDER_MODE === 'disabled'
+          ? 'DISABLED'
+          : config.PTERODACTYL_PANEL_URL && config.PTERODACTYL_API_KEY ? config.PROVIDER_VERIFICATION_TIER : 'NOT_CONFIGURED',
+        transactionalEmail: config.EMAIL_MODE === 'disabled'
+          ? 'DISABLED'
+          : config.SMTP_PASSWORD ? 'CONFIGURED' : 'NOT_CONFIGURED',
+      },
+    };
   });
 
   app.get('/api/v1/admin/me', { preHandler: [requireAuth, requireStaff] }, async (req) => {

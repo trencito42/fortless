@@ -1672,7 +1672,9 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         activeServices: 0,
         openTickets: 0,
         pendingOutboxEvents: 0,
-        capabilities: { payments: 'NOT_CONFIGURED', provisioning: 'MOCK_ONLY' },
+        failedEmails: 0,
+        webhookFailures: 0,
+        collections: [],
       });
       expect(listAdminServices(db)).toMatchObject({ services: [], total: 0 });
       expect(listAdminTickets(db)).toMatchObject({ tickets: [], total: 0 });
