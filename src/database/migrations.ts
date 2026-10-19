@@ -1140,6 +1140,36 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       `);
     },
   },
+  {
+    version: 44,
+    name: 'commercial catalog editing and sales controls',
+    up(db) {
+      if (!hasColumn(db, 'products', 'description')) db.exec("ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS product_sales_restrictions (
+          product_id TEXT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+          allowed_countries TEXT NOT NULL DEFAULT '[]',
+          max_services_per_account INTEGER,
+          available_from TEXT,
+          available_until TEXT,
+          requires_verified_email INTEGER NOT NULL DEFAULT 1 CHECK(requires_verified_email IN (0, 1)),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE TABLE IF NOT EXISTS plan_configurable_options (
+          id TEXT PRIMARY KEY,
+          plan_version_id TEXT NOT NULL REFERENCES plan_versions(id) ON DELETE CASCADE,
+          option_key TEXT NOT NULL,
+          label TEXT NOT NULL,
+          input_type TEXT NOT NULL CHECK(input_type IN ('BOOLEAN', 'SELECT', 'INTEGER')),
+          is_required INTEGER NOT NULL DEFAULT 0 CHECK(is_required IN (0, 1)),
+          config_json TEXT NOT NULL DEFAULT '{}',
+          price_delta_minor_units INTEGER NOT NULL DEFAULT 0 CHECK(price_delta_minor_units >= 0),
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          UNIQUE(plan_version_id, option_key)
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {
