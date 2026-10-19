@@ -1,4 +1,4 @@
-# Independent audit, batch 1 — reviewed commit `3cb35de`
+# Independent audit, batches 1–3 — reviewed commit `3cb35de`
 
 Canonical register: [FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx](./FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx)
 Method: source reading and local reproductions only (in-memory database, no provider or payment calls). No implementation code was changed. Tests at audit time: 237/237 passing, `tsc` clean.
@@ -69,10 +69,29 @@ Reproductions: `npx tsx audits/proofs/repro-3cb35de.mts` (NEW-347, NEW-349, NEW-
 
 NEW-361 also gained a note: `SESSION_SECRET` is empty in `.env`, so the process uses a random file secret in `data/` (see the register row). Totals after batch 2: 110 findings: 29 OPEN, 15 PARTIAL, 58 FIXED_IN_CODE, 6 NEEDS_VERIFICATION, 2 POLICY_DECISION, 0 TESTED or CLOSED. By priority: 39 P0, 62 P1, 9 P2.
 
+## New findings, batch 3 (10) — MFA, sessions, DNS, attachments, backups
+
+Reviewed at `fc02778`. Full detail (file:line, evidence, fix, acceptance test) is in the workbook.
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-366 | P2 | TOTP codes can be replayed inside their window (no used-step counter) |
+| NEW-367 | P2 | Step-up, MFA disable, enrolment confirm and password change have no failed-attempt limiting |
+| NEW-368 | P1 | Active workspace is always the oldest account; accepting an invite swaps the session context (reproduced: `audits/proofs/repro-batch3-fc02778.mts`) |
+| NEW-369 | P1 | DNS zone/record mutations need authentication only, not a role permission |
+| NEW-370 | P1 | Any account can claim any unclaimed domain without ownership proof (squatting; mock-verified default) |
+| NEW-371 | P2 | Attachments above ~0.75 MB fail: default 1 MiB body limit vs advertised 5 MB |
+| NEW-372 | P2 | No per-ticket/account attachment quota |
+| NEW-373 | P1 | Backup script falls back to a hardcoded encryption key |
+| NEW-374 | P1 | No scheduled/off-host backups; only backup on this host is unencrypted, from 2026-10-17 |
+| NEW-375 | P2 | Restore without the same SESSION_SECRET breaks all MFA; secret is not in the backup |
+
+Checked and not filed: attachment code otherwise sound (size cap, MIME allowlist, sanitized names, tenant scoping, internal-note filtering); the mod installer already uses manual redirects, a host allowlist and SHA-512 checks. Only NEW-368 was reproduced; the rest are source traces.
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
 
 ## Not covered yet (scope checked, not "safe")
 
-MFA enrolment and challenge internals, session rotation, runtime timing behaviour, DNS and domains, support attachments, cPanel and Proxmox adapters, Pterodactyl console, file manager and backups (tracked from earlier work, not re-audited here), email deliverability, and the frontend states for permissions and provider outages. These remain for the next batches.
+Runtime timing behaviour, session revocation routes, DNS record validation and update/delete paths in depth, Pterodactyl console and file manager (permission paths read earlier, not re-audited as an independent pass), frontend permission and provider-outage states, staff/admin permission matrix, email deliverability, and the cPanel and Proxmox adapters (cPanel not implemented yet).
