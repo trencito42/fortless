@@ -7,7 +7,6 @@ import { SCHEMA_SQL } from '../src/database/schema.js';
 import { config } from '../src/config/index.js';
 import { createDatabaseBackup, verifyAndRestoreBackup, requireBackupKey, sessionSecretFingerprint } from '../src/modules/backup/backup.js';
 import { runScheduledBackup, pruneBackups, cleanStrayBackupFiles } from '../src/modules/backup/scheduler.js';
-import { config } from '../src/config/index.js';
 
 const KEY = 'k'.repeat(40);
 let dir: string; let db: Database.Database;
