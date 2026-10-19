@@ -86,6 +86,12 @@ export function createFilesApi(deps: FilesDeps = {}) {
       }
       await run(ctx, 'file.update', deps.adapter, db(), secret(), (a, id, key) => a.writeFile(id, p, content, key));
       audit(db(), ctx, 'service.file.write', { path: p, bytes: Buffer.byteLength(content, 'utf8') });
+      try {
+        const { triggerAutoSyncOnFileEvent } = await import('../fastdl/service.js');
+        triggerAutoSyncOnFileEvent(ctx.serviceId, ctx.accountId, p, db());
+      } catch {
+        // non-blocking
+      }
     },
 
     async createFolder(ctx: Ctx, dir: unknown, name: unknown): Promise<void> {
@@ -103,6 +109,12 @@ export function createFilesApi(deps: FilesDeps = {}) {
       const clean = names.map(validateEntryName);
       await run(ctx, 'file.delete', deps.adapter, db(), secret(), (a, id, key) => a.deleteFiles(id, d, clean, key));
       audit(db(), ctx, 'service.file.delete', { dir: d, names: clean });
+      try {
+        const { triggerAutoSyncOnFileEvent } = await import('../fastdl/service.js');
+        triggerAutoSyncOnFileEvent(ctx.serviceId, ctx.accountId, `${d}/deleted`, db());
+      } catch {
+        // non-blocking
+      }
     },
 
     async rename(ctx: Ctx, dir: unknown, from: unknown, to: unknown): Promise<void> {
@@ -185,6 +197,12 @@ export function createFilesApi(deps: FilesDeps = {}) {
       try {
         await run(ctx, 'file.create', deps.adapter, db(), secret(), (a, id, key) => a.pullFile(id, d, url.toString(), name, key));
         audit(db(), ctx, 'service.file.pull', { dir: d, host: url.hostname, name: name ?? null });
+        try {
+          const { triggerAutoSyncOnFileEvent } = await import('../fastdl/service.js');
+          triggerAutoSyncOnFileEvent(ctx.serviceId, ctx.accountId, `${d}/${name || 'pulled'}`, db());
+        } catch {
+          // non-blocking
+        }
         return { pending: false };
       } catch (err) {
         if (!(err instanceof ProviderNetworkError)) throw err;

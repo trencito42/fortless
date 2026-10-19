@@ -1028,6 +1028,78 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       if (!hasColumn(db, 'services', 'suspension_reason')) db.exec('ALTER TABLE services ADD COLUMN suspension_reason TEXT');
     },
   },
+  {
+    version: 42,
+    name: 'fortless auto fastdl tables: settings, manifests, sync jobs, configs',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS fastdl_settings (
+          id TEXT PRIMARY KEY,
+          public_domain TEXT NOT NULL DEFAULT '',
+          storage_backend TEXT NOT NULL DEFAULT 'local' CHECK(storage_backend IN ('local', 's3', 'custom_cdn')),
+          storage_path TEXT NOT NULL DEFAULT './data/fastdl',
+          default_quota_bytes INTEGER NOT NULL DEFAULT 5368709120,
+          max_file_size_bytes INTEGER NOT NULL DEFAULT 524288000,
+          auto_sync_enabled INTEGER NOT NULL DEFAULT 1,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE TABLE IF NOT EXISTS fastdl_configs (
+          service_id TEXT PRIMARY KEY REFERENCES services(id) ON DELETE CASCADE,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          auto_sync INTEGER NOT NULL DEFAULT 1,
+          compression_mode TEXT NOT NULL DEFAULT 'bz2' CHECK(compression_mode IN ('bz2', 'raw', 'both')),
+          quota_bytes INTEGER NOT NULL DEFAULT 5368709120,
+          custom_public_url TEXT,
+          last_sync_at TEXT,
+          cvar_configured_at TEXT,
+          cvar_backup_path TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE TABLE IF NOT EXISTS fastdl_manifest (
+          id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+          file_path TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          compressed_size INTEGER NOT NULL,
+          file_hash TEXT NOT NULL,
+          is_compressed INTEGER NOT NULL DEFAULT 1,
+          storage_rel_path TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'SYNCED' CHECK(status IN ('SYNCED', 'PENDING', 'FAILED', 'DELETED')),
+          last_error TEXT,
+          synced_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          UNIQUE(service_id, file_path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_fastdl_manifest_svc ON fastdl_manifest(service_id, status);
+        CREATE INDEX IF NOT EXISTS idx_fastdl_manifest_hash ON fastdl_manifest(file_hash);
+        CREATE TABLE IF NOT EXISTS fastdl_sync_jobs (
+          id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+          account_id TEXT NOT NULL,
+          trigger_type TEXT NOT NULL DEFAULT 'MANUAL' CHECK(trigger_type IN ('MANUAL', 'SCHEDULED', 'WEBHOOK', 'FILE_EVENT', 'RETRY')),
+          status TEXT NOT NULL DEFAULT 'QUEUED' CHECK(status IN ('QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED')),
+          total_files INTEGER NOT NULL DEFAULT 0,
+          processed_files INTEGER NOT NULL DEFAULT 0,
+          synced_files INTEGER NOT NULL DEFAULT 0,
+          deleted_files INTEGER NOT NULL DEFAULT 0,
+          failed_files INTEGER NOT NULL DEFAULT 0,
+          total_bytes INTEGER NOT NULL DEFAULT 0,
+          current_file TEXT,
+          error_message TEXT,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_fastdl_sync_jobs_svc ON fastdl_sync_jobs(service_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_fastdl_sync_jobs_status ON fastdl_sync_jobs(status);
+      `);
+      db.prepare(`
+        INSERT OR IGNORE INTO fastdl_settings (id, public_domain, storage_backend, storage_path, default_quota_bytes, max_file_size_bytes, auto_sync_enabled)
+        VALUES ('default', '', 'local', './data/fastdl', 5368709120, 524288000, 1)
+      `).run();
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

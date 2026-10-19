@@ -7,6 +7,13 @@ import { getServiceAccess } from './modules/provisioning/service-access.js';
 import { touchService, relinkService, RelinkError } from './modules/provisioning/runtime-sync.js';
 import { createServerPanelApi } from './modules/provisioning/server-panel.js';
 import { createFilesApi } from './modules/provisioning/files.js';
+import {
+  createFastDlService,
+  getFastDlStorage,
+  FastDlSecurityError,
+  getGlobalSettings,
+  updateGlobalSettings,
+} from './modules/fastdl/index.js';
 import { getServiceConsoleCredentials, ConsoleAccessError, withAccountClientKey } from './modules/provisioning/console.js';
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
@@ -556,6 +563,58 @@ export function buildServer(): FastifyInstance {
       return reply.type(mimeFor(file)).header('Cache-Control', 'no-cache').send(fs.readFileSync(filePath));
     }
     return reply.status(404).send('Asset Not Found');
+  });
+
+  // Dedicated HTTP FastDL Asset Server (Isolated per server, strict anti-traversal)
+  app.get('/fastdl/:serviceId', async (_req, reply) => {
+    return reply.status(404).header('Cache-Control', 'no-store').send('Not Found');
+  });
+
+  app.get('/fastdl/:serviceId/*', async (req, reply) => {
+    const { serviceId } = req.params as { serviceId: string };
+    const rawPath = (req.params as any)['*'] as string;
+    if (!serviceId || !rawPath) {
+      return reply.status(404).header('Cache-Control', 'no-store').send('Not Found');
+    }
+
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(serviceId)) {
+      return reply.status(404).header('Cache-Control', 'no-store').send('Not Found');
+    }
+
+    // Verify service exists and is active
+    const db = getDatabase();
+    const svc = db.prepare('SELECT id, contract_status FROM services WHERE id = ?').get(serviceId) as { id: string; contract_status: string } | undefined;
+    if (!svc || svc.contract_status === 'TERMINATED') {
+      return reply.status(404).header('Cache-Control', 'no-store').send('Not Found');
+    }
+
+    try {
+      const storage = getFastDlStorage();
+      let file = await storage.read(serviceId, rawPath);
+
+      if (!file) {
+        return reply.status(404).header('Cache-Control', 'no-store').send('Not Found');
+      }
+
+      const etag = `"${crypto.createHash('md5').update(file.data).digest('hex')}"`;
+      if (req.headers['if-none-match'] === etag) {
+        return reply.status(304).send();
+      }
+
+      return reply
+        .header('Content-Type', file.mime)
+        .header('Content-Length', file.size)
+        .header('ETag', etag)
+        .header('Last-Modified', file.mtime.toUTCString())
+        .header('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800')
+        .header('Accept-Ranges', 'bytes')
+        .send(file.data);
+    } catch (err: unknown) {
+      if (err instanceof FastDlSecurityError) {
+        return reply.status(400).header('Cache-Control', 'no-store').send('Invalid Path');
+      }
+      return reply.status(404).header('Cache-Control', 'no-store').send('Not Found');
+    }
   });
 
   // --- API ROUTES ---
@@ -1716,6 +1775,24 @@ export function buildServer(): FastifyInstance {
   app.get('/api/v1/services/:id/game/mods/installed', filesGuard, filesHandler((req) => gameTools.installed(filesCtx(req), q(req)['source'])));
   app.post('/api/v1/services/:id/game/icon', filesGuard, filesHandler(async (req) => { await gameTools.setIcon(filesCtx(req), b(req) as { png?: unknown }); return { success: true }; }));
 
+  // Fortless Auto FastDL endpoints
+  const fastDlService = createFastDlService();
+  app.get('/api/v1/services/:id/fastdl', filesGuard, filesHandler((req) => fastDlService.getStatus(filesCtx(req))));
+  app.post('/api/v1/services/:id/fastdl/sync', filesGuard, filesHandler((req) => fastDlService.triggerSync(filesCtx(req), 'MANUAL')));
+  app.post('/api/v1/services/:id/fastdl/sync/cancel', filesGuard, filesHandler((req) => fastDlService.cancelSync(filesCtx(req))));
+  app.post('/api/v1/services/:id/fastdl/sync/retry', filesGuard, filesHandler((req) => fastDlService.retrySync(filesCtx(req))));
+  app.get('/api/v1/services/:id/fastdl/manifest', filesGuard, filesHandler((req) => {
+    const query = q(req);
+    return fastDlService.listManifest(filesCtx(req), {
+      page: Number(query['page'] || 1),
+      limit: Number(query['limit'] || 20),
+      search: query['search'] as string | undefined,
+      status: query['status'] as string | undefined,
+    });
+  }));
+  app.post('/api/v1/services/:id/fastdl/configure-cvar', filesGuard, filesHandler((req) => fastDlService.configureCvar(filesCtx(req))));
+  app.put('/api/v1/services/:id/fastdl/settings', filesGuard, filesHandler((req) => fastDlService.updateConfig(filesCtx(req), b(req) as any)));
+
   // Staff: game profiles are data, managed here instead of in code
   const profileAudit = (req: FastifyRequest, action: string, id: string, metadata: Record<string, unknown>) =>
     getDatabase().prepare(`
@@ -1738,6 +1815,26 @@ export function buildServer(): FastifyInstance {
   app.delete('/api/v1/admin/game-profiles/:id', { preHandler: [requireAuth, requireStaffPermission('catalog:manage'), requireRecentStepUp] }, profileHandler((req) => {
     const id = (req.params as { id: string }).id; deleteProfile(getDatabase(), id); profileAudit(req, 'admin.game_profile_deleted', id, {}); return { success: true };
   }));
+
+  // Staff: FastDL admin settings & overview
+  app.get('/api/v1/admin/fastdl/settings', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => ({ settings: getGlobalSettings(getDatabase()) }));
+  app.put('/api/v1/admin/fastdl/settings', { preHandler: [requireAuth, requireStaffPermission('catalog:manage')] }, async (req) => ({ settings: updateGlobalSettings(getDatabase(), req.body as any) }));
+  app.get('/api/v1/admin/fastdl/overview', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => {
+    const db = getDatabase();
+    const rows = db.prepare(`
+      SELECT
+        c.service_id, c.enabled, c.auto_sync, c.compression_mode, c.quota_bytes, c.last_sync_at, c.cvar_configured_at,
+        s.account_id, s.provider_type, s.node_id,
+        COUNT(m.id) as total_files,
+        COALESCE(SUM(m.compressed_size), 0) as stored_bytes
+      FROM fastdl_configs c
+      JOIN services s ON s.id = c.service_id
+      LEFT JOIN fastdl_manifest m ON m.service_id = c.service_id AND m.status = 'SYNCED'
+      GROUP BY c.service_id
+      ORDER BY c.updated_at DESC
+    `).all();
+    return { servers: rows };
+  });
 
   // Services: backups, network, startup, settings (same gate as the file manager)
   const panelApi = createServerPanelApi();
