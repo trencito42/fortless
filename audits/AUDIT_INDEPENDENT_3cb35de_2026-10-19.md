@@ -31,7 +31,7 @@ Method: source reading and local reproductions only (in-memory database, no prov
 | NEW-342 | OPEN | FIXED_IN_CODE | OWNER invitation requires step-up |
 | NEW-343 | OPEN | FIXED_IN_CODE | Capacity released once; see NEW-357 |
 
-## New findings (18)
+## New findings, batch 1 (18)
 
 | ID | Priority | Status | Summary |
 |---|---|---|---|
@@ -58,10 +58,21 @@ Existing `FTL-BILL-206` (OPEN) received additional evidence instead of a new ID.
 
 Reproductions: `npx tsx audits/proofs/repro-3cb35de.mts` (NEW-347, NEW-349, NEW-354).
 
+## New findings, batch 2 (4) — identity flows
+
+| ID | Priority | Status | Summary |
+|---|---|---|---|
+| NEW-362 | P2 | OPEN | Account enumeration through registration errors and login timing |
+| NEW-363 | P1 | OPEN | Verification link signs in whoever clicks it, enabling pre-registration hijack |
+| NEW-364 | P2 | POLICY_DECISION | Account-wide failure limit lets anyone lock a known account out |
+| NEW-365 | P2 | OPEN | No per-recipient cooldown on verification and reset emails |
+
+NEW-361 also gained a note: `SESSION_SECRET` is empty in `.env`, so the process uses a random file secret in `data/` (see the register row). Totals after batch 2: 110 findings: 29 OPEN, 15 PARTIAL, 58 FIXED_IN_CODE, 6 NEEDS_VERIFICATION, 2 POLICY_DECISION, 0 TESTED or CLOSED. By priority: 39 P0, 62 P1, 9 P2.
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
 
 ## Not covered yet (scope checked, not "safe")
 
-Register/verify/login/MFA runtime behaviour, sessions, DNS and domains, support attachments, cPanel and Proxmox adapters, Pterodactyl console, file manager and backups (tracked from earlier work, not re-audited here), email deliverability, and the frontend states for permissions and provider outages. These remain for the next batches.
+MFA enrolment and challenge internals, session rotation, runtime timing behaviour, DNS and domains, support attachments, cPanel and Proxmox adapters, Pterodactyl console, file manager and backups (tracked from earlier work, not re-audited here), email deliverability, and the frontend states for permissions and provider outages. These remain for the next batches.
