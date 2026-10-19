@@ -14,6 +14,7 @@
     "staff:bootstrap-owner": "tsx src/scripts/bootstrap-owner.ts",
     "test": "vitest run --reporter=verbose",
     "test:sandbox": "vitest run -c vitest.sandbox.config.ts --reporter=verbose",
+    "test:sandbox:panel": "FORTLESS_PANEL_IS_TEST=yes vitest run -c vitest.sandbox.config.ts tests/sandbox/panel-sandbox.test.ts --reporter=verbose",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "profiles:import": "tsx src/scripts/import-game-profiles.ts"
