@@ -5,14 +5,14 @@
 
 import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
-import { hero, toast } from '../../../petal/index.js';
+import { hero, toast, paginateItems, renderPager } from '../../../petal/index.js';
 import { serviceState } from '../services/status.js';
 import { isTerminated, loadFilters, saveFilters } from '../services/filters.js';
 import { capabilitiesStore } from '../../../core/state/capabilities.js';
 
 let serviceInventory: any[] = [];
-
-
+let servicePage = 1;
+const servicePageSize = 8;
 
 function metricCard(label: string, value: string | number, icon: string, tone = '', sub = ''): string {
   return `<div class="card mt" data-c="Metric tile"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-${icon}"/></svg></span></div>`;
@@ -40,15 +40,29 @@ function renderServiceInventory(): void {
   const count = document.getElementById('serviceResultCount');
   if (count) count.textContent = `${filtered.length} of ${serviceInventory.length} services`;
 
+  const infoEl = document.getElementById('servicePageInfo');
+  const pagerEl = document.getElementById('servicePager');
+  const paginationRow = document.getElementById('servicePaginationRow');
+
   if (!filtered.length) {
+    if (paginationRow) paginationRow.style.display = 'none';
+    if (infoEl) infoEl.textContent = '0 services';
+    if (pagerEl) pagerEl.innerHTML = '';
     host.innerHTML = serviceInventory.length
       ? `<div class="es" data-c="Empty state"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-search-01"/></svg></span><h4>No matching services</h4><p>Try a different name, product or runtime filter.</p></div>`
       : `<div class="es" data-c="Empty state"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span><h4>No services yet</h4><p>Ordering stays unavailable until payment and infrastructure providers are configured and verified.</p><a class="btn s tint" href="/app/deploy" data-app-route="deploy"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>View catalog</a></div>`;
     return;
   }
 
+  const pagination = paginateItems(filtered, servicePage, servicePageSize);
+  servicePage = pagination.page;
+
+  if (paginationRow) paginationRow.style.display = filtered.length > servicePageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
   const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
-  host.innerHTML = filtered.map((svc) => {
+  host.innerHTML = pagination.items.map((svc) => {
     const st = serviceState(svc);
     const rt = st.label;
     const tone = st.tone;
@@ -120,25 +134,48 @@ export async function renderServices(): Promise<void> {
         <span class="faint" style="font-weight:650;font-size:13px" id="serviceResultCount"></span>
       </div>
 
-      <div id="serversContainer" class="col" style="gap:8px" data-flt></div>`;
+      <div id="serversContainer" class="col" style="gap:8px" data-flt></div>
+      <div class="row wrap" id="servicePaginationRow" style="justify-content:space-between;align-items:center;padding:12px 4px 4px;margin-top:8px;display:none">
+        <span class="muted" id="servicePageInfo" style="font-size:12.5px"></span>
+        <div class="pager" id="servicePager" data-c="Pagination"></div>
+      </div>`;
 
     const typeSelect = document.getElementById('serviceTypeFilter') as HTMLSelectElement | null;
     if (typeSelect && [...typeSelect.options].some((o) => o.value === saved.type)) typeSelect.value = saved.type;
+    servicePage = 1;
     renderServiceInventory();
 
     document.getElementById('serviceShowTerminated')?.addEventListener('click', (e) => {
       const sw = e.currentTarget as HTMLElement;
       sw.setAttribute('aria-checked', String(sw.getAttribute('aria-checked') !== 'true'));
+      servicePage = 1;
       renderServiceInventory();
     });
-    document.getElementById('serviceSearch')?.addEventListener('input', () => renderServiceInventory());
-    document.getElementById('serviceTypeFilter')?.addEventListener('change', () => renderServiceInventory());
+    document.getElementById('serviceSearch')?.addEventListener('input', () => {
+      servicePage = 1;
+      renderServiceInventory();
+    });
+    document.getElementById('serviceTypeFilter')?.addEventListener('change', () => {
+      servicePage = 1;
+      renderServiceInventory();
+    });
     document.getElementById('serviceStateSeg')?.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-v]');
       if (!btn) return;
       document.querySelectorAll('#serviceStateSeg button').forEach((b) => b.setAttribute('aria-selected', 'false'));
       btn.setAttribute('aria-selected', 'true');
+      servicePage = 1;
       renderServiceInventory();
+    });
+    document.getElementById('servicePager')?.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pg]');
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== servicePage) {
+          servicePage = p;
+          renderServiceInventory();
+        }
+      }
     });
     document.getElementById('refreshServicesBtn')?.addEventListener('click', async (e) => {
       const btn = e.currentTarget as HTMLButtonElement | null;

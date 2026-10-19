@@ -8,9 +8,13 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { money } from '../../../core/utils/formatting.js';
 import { badge } from '../../shell/admin-shell.js';
-import { hero } from '../../../petal/index.js';
+import { hero, paginateItems, renderPager } from '../../../petal/index.js';
 
 let activeAccountId: string | null = null;
+let cachedAccounts: any[] = [];
+let adminAccountsPage = 1;
+const adminAccountsPageSize = 10;
+let adminAccountsListenersBound = false;
 
 export function getActiveAccountId(): string | null {
   return activeAccountId;
@@ -20,22 +24,60 @@ export function setActiveAccountId(id: string | null): void {
   activeAccountId = id;
 }
 
+function paintAccountsList(): void {
+  const host = document.querySelector<HTMLElement>('#accountsList');
+  const paginationRow = document.getElementById('adminAccountsPaginationRow');
+  const infoEl = document.getElementById('adminAccountsPageInfo');
+  const pagerEl = document.getElementById('adminAccountsPager');
+  if (!host) return;
+
+  if (!cachedAccounts.length) {
+    if (paginationRow) paginationRow.style.display = 'none';
+    host.innerHTML = `<div class="empty"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"></use></svg></span><b>No matching accounts.</b></div>`;
+    return;
+  }
+
+  const pagination = paginateItems(cachedAccounts, adminAccountsPage, adminAccountsPageSize);
+  adminAccountsPage = pagination.page;
+
+  if (paginationRow) paginationRow.style.display = cachedAccounts.length > adminAccountsPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
+  host.innerHTML = pagination.items.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
+    <span class="tile sm ${x.status === 'LOCKED' ? 'bad' : x.status === 'FLAGGED_FRAUD' ? 'warn' : ''}">${hero('users')}</span>
+    <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} · ${esc(x.owner_email)}</small></span>
+    <span class="faint hide-n">${Number(x.member_count)} members · ${Number(x.service_count)} services · ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
+  </button>`).join('');
+}
+
+function bindAdminAccountsListeners(): void {
+  if (adminAccountsListenersBound) return;
+  adminAccountsListenersBound = true;
+
+  const pagerEl = document.getElementById('adminAccountsPager');
+  pagerEl?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pg]');
+    if (btn && !btn.disabled) {
+      const p = Number(btn.dataset.pg);
+      if (p && p !== adminAccountsPage) {
+        adminAccountsPage = p;
+        paintAccountsList();
+      }
+    }
+  });
+}
+
 export async function renderAccounts(q = ''): Promise<void> {
   const host = document.querySelector<HTMLElement>('#accountsList');
   if (!host) return;
 
   try {
     const d = await api<{ accounts: any[] }>(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`);
-    if (!d.accounts.length) {
-      host.innerHTML = `<div class="empty"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"></use></svg></span><b>No matching accounts.</b></div>`;
-      return;
-    }
-
-    host.innerHTML = d.accounts.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
-      <span class="tile sm ${x.status === 'LOCKED' ? 'bad' : x.status === 'FLAGGED_FRAUD' ? 'warn' : ''}">${hero('users')}</span>
-      <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} · ${esc(x.owner_email)}</small></span>
-      <span class="faint hide-n">${Number(x.member_count)} members · ${Number(x.service_count)} services · ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
-    </button>`).join('');
+    cachedAccounts = d.accounts || [];
+    adminAccountsPage = 1;
+    paintAccountsList();
+    bindAdminAccountsListeners();
   } catch (e: any) {
     host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
   }

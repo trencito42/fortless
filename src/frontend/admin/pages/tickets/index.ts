@@ -8,8 +8,13 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { renderMarkdown } from '../../../core/utils/markdown.js';
 import { badge } from '../../shell/admin-shell.js';
+import { paginateItems, renderPager } from '../../../petal/index.js';
 
 let activeTicketId: string | null = null;
+let cachedTickets: any[] = [];
+let adminTicketsPage = 1;
+const adminTicketsPageSize = 10;
+let adminTicketsListenersBound = false;
 
 export function getActiveTicketId(): string | null {
   return activeTicketId;
@@ -19,18 +24,56 @@ export function setActiveTicketId(id: string | null): void {
   activeTicketId = id;
 }
 
+function paintTicketsList(): void {
+  const host = document.querySelector<HTMLElement>('#ticketsList');
+  const paginationRow = document.getElementById('adminTicketsPaginationRow');
+  const infoEl = document.getElementById('adminTicketsPageInfo');
+  const pagerEl = document.getElementById('adminTicketsPager');
+  if (!host) return;
+
+  if (!cachedTickets.length) {
+    if (paginationRow) paginationRow.style.display = 'none';
+    host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
+    return;
+  }
+
+  const pagination = paginateItems(cachedTickets, adminTicketsPage, adminTicketsPageSize);
+  adminTicketsPage = pagination.page;
+
+  if (paginationRow) paginationRow.style.display = cachedTickets.length > adminTicketsPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
+  host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${esc(x.status === 'WAITING_STAFF' ? 'WAITING_STAFF' : 'OPEN')}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages · ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join('');
+}
+
+function bindAdminTicketsListeners(): void {
+  if (adminTicketsListenersBound) return;
+  adminTicketsListenersBound = true;
+
+  const pagerEl = document.getElementById('adminTicketsPager');
+  pagerEl?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pg]');
+    if (btn && !btn.disabled) {
+      const p = Number(btn.dataset.pg);
+      if (p && p !== adminTicketsPage) {
+        adminTicketsPage = p;
+        paintTicketsList();
+      }
+    }
+  });
+}
+
 export async function renderTickets(q = ''): Promise<void> {
   const host = document.querySelector<HTMLElement>('#ticketsList');
   if (!host) return;
 
   try {
     const d = await api<{ tickets: any[] }>(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}`);
-    if (!d.tickets.length) {
-      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
-      return;
-    }
-
-    host.innerHTML = d.tickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === 'WAITING_STAFF' ? 'WAITING_STAFF' : 'OPEN')}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages · ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join('');
+    cachedTickets = d.tickets || [];
+    adminTicketsPage = 1;
+    paintTicketsList();
+    bindAdminTicketsListeners();
   } catch (e: any) {
     host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
   }

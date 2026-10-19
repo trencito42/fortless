@@ -7,12 +7,63 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { badge } from '../../shell/admin-shell.js';
-import { hero, toast } from '../../../petal/index.js';
+import { hero, toast, paginateItems, renderPager } from '../../../petal/index.js';
 
 let activeServiceId: string | null = null;
+let cachedAdminServices: any[] = [];
+let adminServicesPage = 1;
+const adminServicesPageSize = 10;
+let adminServicesListenersBound = false;
 
 export function getActiveServiceId(): string | null {
   return activeServiceId;
+}
+
+function paintAdminServicesList(): void {
+  const host = document.querySelector<HTMLElement>('#servicesList');
+  const paginationRow = document.getElementById('adminServicesPaginationRow');
+  const infoEl = document.getElementById('adminServicesPageInfo');
+  const pagerEl = document.getElementById('adminServicesPager');
+  if (!host) return;
+
+  if (!cachedAdminServices.length) {
+    if (paginationRow) paginationRow.style.display = 'none';
+    host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching services.</b></div></td></tr>`;
+    return;
+  }
+
+  const pagination = paginateItems(cachedAdminServices, adminServicesPage, adminServicesPageSize);
+  adminServicesPage = pagination.page;
+
+  if (paginationRow) paginationRow.style.display = cachedAdminServices.length > adminServicesPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
+  host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === 'RUNNING' ? 'RUNNING' : 'OTHER'}" data-service-id="${esc(x.id)}" style="cursor:pointer">
+    <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
+    <td data-l="Account">${esc(x.account_name)}</td>
+    <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
+    <td data-l="Contract">${badge(x.contract_status)}</td>
+    <td data-l="Runtime">${badge(x.runtime_state || 'UNKNOWN')}</td>
+    <td class="r" data-l="Manage"><button type="button" class="btn xs pri" data-service-id="${esc(x.id)}">Manage</button></td>
+  </tr>`).join('');
+}
+
+function bindAdminServicesListeners(): void {
+  if (adminServicesListenersBound) return;
+  adminServicesListenersBound = true;
+
+  const pagerEl = document.getElementById('adminServicesPager');
+  pagerEl?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pg]');
+    if (btn && !btn.disabled) {
+      const p = Number(btn.dataset.pg);
+      if (p && p !== adminServicesPage) {
+        adminServicesPage = p;
+        paintAdminServicesList();
+      }
+    }
+  });
 }
 
 export async function renderServices(q = ''): Promise<void> {
@@ -21,19 +72,10 @@ export async function renderServices(q = ''): Promise<void> {
 
   try {
     const d = await api<{ services: any[] }>(`/api/v1/admin/services?q=${encodeURIComponent(q)}`);
-    if (!d.services.length) {
-      host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching services.</b></div></td></tr>`;
-      return;
-    }
-
-    host.innerHTML = d.services.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === 'RUNNING' ? 'RUNNING' : 'OTHER'}" data-service-id="${esc(x.id)}" style="cursor:pointer">
-      <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
-      <td data-l="Account">${esc(x.account_name)}</td>
-      <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
-      <td data-l="Contract">${badge(x.contract_status)}</td>
-      <td data-l="Runtime">${badge(x.runtime_state || 'UNKNOWN')}</td>
-      <td class="r" data-l="Manage"><button type="button" class="btn xs pri" data-service-id="${esc(x.id)}">Manage</button></td>
-    </tr>`).join('');
+    cachedAdminServices = d.services || [];
+    adminServicesPage = 1;
+    paintAdminServicesList();
+    bindAdminServicesListeners();
   } catch (e: any) {
     host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
   }

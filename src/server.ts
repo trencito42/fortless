@@ -2441,6 +2441,9 @@ export function buildServer(): FastifyInstance {
   // Audit Log: List (Tenant Isolated!)
   app.get('/api/v1/audit', { preHandler: [requireAuth] }, async (req) => {
     const db = getDatabase();
+    const query = (req.query as Record<string, any>) || {};
+    const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 500);
+    const offset = Math.max(Number(query.offset) || 0, 0);
     const logs = db.prepare(`
       SELECT ae.id, ae.actor_user_id, ae.actor_type, ae.action, ae.resource_type,
              ae.resource_id, ae.ip_address, ae.correlation_id, ae.metadata, ae.created_at,
@@ -2472,8 +2475,8 @@ export function buildServer(): FastifyInstance {
       LEFT JOIN users u ON u.id = ae.actor_user_id
       WHERE ae.account_id = ?
       ORDER BY ae.created_at DESC
-      LIMIT 50
-    `).all(req.auth!.account.id);
+      LIMIT ? OFFSET ?
+    `).all(req.auth!.account.id, limit, offset);
     return { logs };
   });
 

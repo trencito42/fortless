@@ -66,18 +66,42 @@
 
       <section class="page" id="page-accounts">
         <div class="hd"><div class="tx"><h2>Customer accounts</h2><p>Ownership, membership and workload counts.</p></div></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search name or email" data-search="accounts" aria-label="Search accounts"></label><div id="accountsList" class="records"></div>
+        <div class="row wrap" id="adminAccountsPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 4px 4px;margin-top:8px;display:none">
+          <span class="muted" id="adminAccountsPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminAccountsPager" data-c="Pagination"></div>
+        </div>
       </section>
 
       <section class="page" id="page-services">
         <div class="hd"><div><h2>Service inventory</h2><p>Contract and provider-observed state.</p></div></div>
         <div class="alert info"><span class="ic" data-icon="shield"></span><div><b>Read only</b><span>Runtime changes happen through audited provider operations.</span></div></div>
         <div class="row" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search service or account" data-search="services" aria-label="Search services"></label><div class="seg" data-filter-target="servicesList"><button aria-selected="true" data-filter-value="ALL">All</button><button aria-selected="false" data-filter-value="RUNNING">Running</button><button aria-selected="false" data-filter-value="OTHER">Other</button></div></div>
-        <div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Service</th><th>Account</th><th>Node</th><th>Contract</th><th>Runtime</th></tr></thead><tbody id="servicesList"></tbody></table></div></div>
+        <div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Service</th><th>Account</th><th>Node</th><th>Contract</th><th>Runtime</th></tr></thead><tbody id="servicesList"></tbody></table></div>
+        <div class="row wrap" id="adminServicesPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+          <span class="muted" id="adminServicesPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminServicesPager" data-c="Pagination"></div>
+        </div>
+        </div>
       </section>
 
-      <section class="page" id="page-orders"><div class="hd"><div><h2>Orders</h2><p>Immutable totals and current fulfillment state.</p></div></div><div id="orderMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search order or customer" data-search="orders"></div><div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Order</th><th>Account</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody id="ordersList"></tbody></table></div></div></section>
+      <section class="page" id="page-orders"><div class="hd"><div><h2>Orders</h2><p>Immutable totals and current fulfillment state.</p></div></div><div id="orderMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search order or customer" data-search="orders"></div><div class="card table-card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Order</th><th>Account</th><th>Items</th><th>Total</th><th>Status</th></tr></thead><tbody id="ordersList"></tbody></table></div>
+        <div class="row wrap" id="adminOrdersPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+          <span class="muted" id="adminOrdersPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminOrdersPager" data-c="Pagination"></div>
+        </div>
+      </div></section>
 
-      <section class="page" id="page-billing"><div class="hd"><div><h2>Billing operations</h2><p>Authoritative invoices and issued credit notes, stored in minor units.</p></div></div><div id="billingMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search invoice or customer" data-search="billing"></div><article class="card table-card"><div class="card-head"><div><h2>Invoices</h2><p>Refunds are step-up protected and create credit notes.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Invoice</th><th>Account</th><th>Due</th><th>Paid / total</th><th>Status</th><th></th></tr></thead><tbody id="invoicesList"></tbody></table></div></article><article class="card table-card"><div class="card-head"><div><h2>Credit notes</h2><p>Persisted refund records.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Credit note</th><th>Invoice</th><th>Account</th><th>Amount</th><th>Reason</th><th>Created</th></tr></thead><tbody id="creditNotesList"></tbody></table></div></article></section>
+      <section class="page" id="page-billing"><div class="hd"><div><h2>Billing operations</h2><p>Authoritative invoices and issued credit notes, stored in minor units.</p></div></div><div id="billingMetrics" class="g g4 k2 admin-metrics"></div><div class="search page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search invoice or customer" data-search="billing"></div><article class="card table-card"><div class="card-head"><div><h2>Invoices</h2><p>Refunds are step-up protected and create credit notes.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Invoice</th><th>Account</th><th>Due</th><th>Paid / total</th><th>Status</th><th></th></tr></thead><tbody id="invoicesList"></tbody></table></div>
+        <div class="row wrap" id="adminInvoicesPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+          <span class="muted" id="adminInvoicesPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminInvoicesPager" data-c="Pagination"></div>
+        </div>
+      </article><article class="card table-card"><div class="card-head"><div><h2>Credit notes</h2><p>Persisted refund records.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Credit note</th><th>Invoice</th><th>Account</th><th>Amount</th><th>Reason</th><th>Created</th></tr></thead><tbody id="creditNotesList"></tbody></table></div>
+        <div class="row wrap" id="adminCreditsPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+          <span class="muted" id="adminCreditsPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminCreditsPager" data-c="Pagination"></div>
+        </div>
+      </article></section>
 
       <section class="page" id="page-infrastructure"><div class="hd"><div><h2>Infrastructure</h2><p>Local allocation ledger and provider readiness.</p></div></div><div id="infrastructureMetrics" class="g g4 k2 admin-metrics"></div><div id="capacityRegions" class="g g3" style="margin-bottom:12px"></div><article class="card table-card"><div class="card-head"><div><h2>Capacity nodes</h2><p>Only persisted nodes are shown; no inferred capacity.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Node</th><th>Region</th><th>Services</th><th>Memory</th><th>Disk</th><th>Mode</th></tr></thead><tbody id="capacityNodes"></tbody></table></div></article></section>
 
@@ -124,11 +148,21 @@
       </section>
 
       <section class="page" id="page-tickets">
-        <div class="hd"><div class="tx"><h2>Support queue</h2><p>Real customer threads ordered by priority and activity.</p></div></div><div class="row" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></label><div class="seg" data-filter-target="ticketsList"><button aria-selected="true" data-filter-value="ALL">All</button><button aria-selected="false" data-filter-value="OPEN">Open</button><button aria-selected="false" data-filter-value="WAITING_STAFF">Waiting staff</button></div></div><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Priority</th><th>Subject</th><th>Account</th><th>Status</th><th>Updated</th></tr></thead><tbody id="ticketsList"></tbody></table></div></div>
+        <div class="hd"><div class="tx"><h2>Support queue</h2><p>Real customer threads ordered by priority and activity.</p></div></div><div class="row" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></label><div class="seg" data-filter-target="ticketsList"><button aria-selected="true" data-filter-value="ALL">All</button><button aria-selected="false" data-filter-value="OPEN">Open</button><button aria-selected="false" data-filter-value="WAITING_STAFF">Waiting staff</button></div></div><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Priority</th><th>Subject</th><th>Account</th><th>Status</th><th>Updated</th></tr></thead><tbody id="ticketsList"></tbody></table></div>
+        <div class="row wrap" id="adminTicketsPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+          <span class="muted" id="adminTicketsPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminTicketsPager" data-c="Pagination"></div>
+        </div>
+        </div>
       </section>
 
       <section class="page" id="page-audit">
-        <div class="hd"><div class="tx"><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><a class="btn" href="/api/v1/admin/audit/export"><span class="ic" data-icon="document"></span>Export</a></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action or resource" data-search="audit" aria-label="Search audit events"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>IP</th></tr></thead><tbody id="auditList"></tbody></table></div></div>
+        <div class="hd"><div class="tx"><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><a class="btn" href="/api/v1/admin/audit/export"><span class="ic" data-icon="document"></span>Export</a></div><label class="sch page-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action or resource" data-search="audit" aria-label="Search audit events"></label><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>IP</th></tr></thead><tbody id="auditList"></tbody></table></div>
+        <div class="row wrap" id="adminAuditPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+          <span class="muted" id="adminAuditPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="adminAuditPager" data-c="Pagination"></div>
+        </div>
+        </div>
       </section>
 
       <section class="page" id="page-staff">

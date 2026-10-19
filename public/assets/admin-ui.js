@@ -765,6 +765,39 @@
     }
   };
 
+  // src/frontend/petal/components/pagination.ts
+  function paginateItems(items, page, pageSize) {
+    const total = items.length;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    const currentPage = Math.max(1, Math.min(page, pages));
+    const start = (currentPage - 1) * pageSize;
+    const sliced = items.slice(start, start + pageSize);
+    const info = total === 0 ? "0 items" : `Showing ${start + 1}\u2013${start + sliced.length} of ${total}`;
+    return {
+      items: sliced,
+      total,
+      page: currentPage,
+      pages,
+      pageSize,
+      info
+    };
+  }
+  function renderPager(page, pages) {
+    if (pages <= 1) return "";
+    const nums = /* @__PURE__ */ new Set([1, pages, page - 1, page, page + 1]);
+    const seq = [...nums].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+    const btn = (label, p, extra = "") => `<button type="button" data-pg="${p}" ${extra}>${label}</button>`;
+    let html = btn(hero("arrow-left-01", "s"), page - 1, page === 1 ? 'disabled aria-label="Previous page"' : 'aria-label="Previous page"');
+    let prev = 0;
+    for (const n of seq) {
+      if (n - prev > 1) html += '<button type="button" disabled aria-hidden="true">\u2026</button>';
+      html += btn(String(n), n, n === page ? 'aria-current="true" aria-label="Page ' + n + '"' : 'aria-label="Page ' + n + '"');
+      prev = n;
+    }
+    html += btn(hero("arrow-right-01", "s"), page + 1, page === pages ? 'disabled aria-label="Next page"' : 'aria-label="Next page"');
+    return html;
+  }
+
   // src/frontend/admin/shell/admin-shell.ts
   var AdminShell = class {
     permissions = /* @__PURE__ */ new Set();
@@ -1014,23 +1047,59 @@
 
   // src/frontend/admin/pages/accounts/index.ts
   var activeAccountId = null;
+  var cachedAccounts = [];
+  var adminAccountsPage = 1;
+  var adminAccountsPageSize = 10;
+  var adminAccountsListenersBound = false;
   function getActiveAccountId() {
     return activeAccountId;
+  }
+  function paintAccountsList() {
+    const host = document.querySelector("#accountsList");
+    const paginationRow = document.getElementById("adminAccountsPaginationRow");
+    const infoEl = document.getElementById("adminAccountsPageInfo");
+    const pagerEl = document.getElementById("adminAccountsPager");
+    if (!host) return;
+    if (!cachedAccounts.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      host.innerHTML = `<div class="empty"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"></use></svg></span><b>No matching accounts.</b></div>`;
+      return;
+    }
+    const pagination = paginateItems(cachedAccounts, adminAccountsPage, adminAccountsPageSize);
+    adminAccountsPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedAccounts.length > adminAccountsPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.innerHTML = pagination.items.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
+    <span class="tile sm ${x.status === "LOCKED" ? "bad" : x.status === "FLAGGED_FRAUD" ? "warn" : ""}">${hero("users")}</span>
+    <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} \xB7 ${esc(x.owner_email)}</small></span>
+    <span class="faint hide-n">${Number(x.member_count)} members \xB7 ${Number(x.service_count)} services \xB7 ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
+  </button>`).join("");
+  }
+  function bindAdminAccountsListeners() {
+    if (adminAccountsListenersBound) return;
+    adminAccountsListenersBound = true;
+    const pagerEl = document.getElementById("adminAccountsPager");
+    pagerEl?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== adminAccountsPage) {
+          adminAccountsPage = p;
+          paintAccountsList();
+        }
+      }
+    });
   }
   async function renderAccounts(q = "") {
     const host = document.querySelector("#accountsList");
     if (!host) return;
     try {
       const d = await api(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`);
-      if (!d.accounts.length) {
-        host.innerHTML = `<div class="empty"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"></use></svg></span><b>No matching accounts.</b></div>`;
-        return;
-      }
-      host.innerHTML = d.accounts.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
-      <span class="tile sm ${x.status === "LOCKED" ? "bad" : x.status === "FLAGGED_FRAUD" ? "warn" : ""}">${hero("users")}</span>
-      <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} \xB7 ${esc(x.owner_email)}</small></span>
-      <span class="faint hide-n">${Number(x.member_count)} members \xB7 ${Number(x.service_count)} services \xB7 ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
-    </button>`).join("");
+      cachedAccounts = d.accounts || [];
+      adminAccountsPage = 1;
+      paintAccountsList();
+      bindAdminAccountsListeners();
     } catch (e) {
       host.innerHTML = `<div class="empty"><b>${esc(e.message)}</b></div>`;
     }
@@ -1158,23 +1227,59 @@
 
   // src/frontend/admin/pages/services/index.ts
   var activeServiceId = null;
+  var cachedAdminServices = [];
+  var adminServicesPage = 1;
+  var adminServicesPageSize = 10;
+  var adminServicesListenersBound = false;
+  function paintAdminServicesList() {
+    const host = document.querySelector("#servicesList");
+    const paginationRow = document.getElementById("adminServicesPaginationRow");
+    const infoEl = document.getElementById("adminServicesPageInfo");
+    const pagerEl = document.getElementById("adminServicesPager");
+    if (!host) return;
+    if (!cachedAdminServices.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching services.</b></div></td></tr>`;
+      return;
+    }
+    const pagination = paginateItems(cachedAdminServices, adminServicesPage, adminServicesPageSize);
+    adminServicesPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedAdminServices.length > adminServicesPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === "RUNNING" ? "RUNNING" : "OTHER"}" data-service-id="${esc(x.id)}" style="cursor:pointer">
+    <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
+    <td data-l="Account">${esc(x.account_name)}</td>
+    <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
+    <td data-l="Contract">${badge(x.contract_status)}</td>
+    <td data-l="Runtime">${badge(x.runtime_state || "UNKNOWN")}</td>
+    <td class="r" data-l="Manage"><button type="button" class="btn xs pri" data-service-id="${esc(x.id)}">Manage</button></td>
+  </tr>`).join("");
+  }
+  function bindAdminServicesListeners() {
+    if (adminServicesListenersBound) return;
+    adminServicesListenersBound = true;
+    const pagerEl = document.getElementById("adminServicesPager");
+    pagerEl?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== adminServicesPage) {
+          adminServicesPage = p;
+          paintAdminServicesList();
+        }
+      }
+    });
+  }
   async function renderServices(q = "") {
     const host = document.querySelector("#servicesList");
     if (!host) return;
     try {
       const d = await api(`/api/v1/admin/services?q=${encodeURIComponent(q)}`);
-      if (!d.services.length) {
-        host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching services.</b></div></td></tr>`;
-        return;
-      }
-      host.innerHTML = d.services.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === "RUNNING" ? "RUNNING" : "OTHER"}" data-service-id="${esc(x.id)}" style="cursor:pointer">
-      <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
-      <td data-l="Account">${esc(x.account_name)}</td>
-      <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
-      <td data-l="Contract">${badge(x.contract_status)}</td>
-      <td data-l="Runtime">${badge(x.runtime_state || "UNKNOWN")}</td>
-      <td class="r" data-l="Manage"><button type="button" class="btn xs pri" data-service-id="${esc(x.id)}">Manage</button></td>
-    </tr>`).join("");
+      cachedAdminServices = d.services || [];
+      adminServicesPage = 1;
+      paintAdminServicesList();
+      bindAdminServicesListeners();
     } catch (e) {
       host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
@@ -1923,19 +2028,55 @@
 
   // src/frontend/admin/pages/tickets/index.ts
   var activeTicketId = null;
+  var cachedTickets = [];
+  var adminTicketsPage = 1;
+  var adminTicketsPageSize = 10;
+  var adminTicketsListenersBound = false;
   function getActiveTicketId() {
     return activeTicketId;
+  }
+  function paintTicketsList() {
+    const host = document.querySelector("#ticketsList");
+    const paginationRow = document.getElementById("adminTicketsPaginationRow");
+    const infoEl = document.getElementById("adminTicketsPageInfo");
+    const pagerEl = document.getElementById("adminTicketsPager");
+    if (!host) return;
+    if (!cachedTickets.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
+      return;
+    }
+    const pagination = paginateItems(cachedTickets, adminTicketsPage, adminTicketsPageSize);
+    adminTicketsPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedTickets.length > adminTicketsPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${esc(x.status === "WAITING_STAFF" ? "WAITING_STAFF" : "OPEN")}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
+  }
+  function bindAdminTicketsListeners() {
+    if (adminTicketsListenersBound) return;
+    adminTicketsListenersBound = true;
+    const pagerEl = document.getElementById("adminTicketsPager");
+    pagerEl?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== adminTicketsPage) {
+          adminTicketsPage = p;
+          paintTicketsList();
+        }
+      }
+    });
   }
   async function renderTickets(q = "") {
     const host = document.querySelector("#ticketsList");
     if (!host) return;
     try {
       const d = await api(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}`);
-      if (!d.tickets.length) {
-        host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
-        return;
-      }
-      host.innerHTML = d.tickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === "WAITING_STAFF" ? "WAITING_STAFF" : "OPEN")}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
+      cachedTickets = d.tickets || [];
+      adminTicketsPage = 1;
+      paintTicketsList();
+      bindAdminTicketsListeners();
     } catch (e) {
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
@@ -1991,16 +2132,52 @@
   }
 
   // src/frontend/admin/pages/audit/index.ts
+  var cachedLogs = [];
+  var adminAuditPage = 1;
+  var adminAuditPageSize = 10;
+  var adminAuditListenersBound = false;
+  function paintAuditList() {
+    const host = document.querySelector("#auditList");
+    const paginationRow = document.getElementById("adminAuditPaginationRow");
+    const infoEl = document.getElementById("adminAuditPageInfo");
+    const pagerEl = document.getElementById("adminAuditPager");
+    if (!host) return;
+    if (!cachedLogs.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching audit events.</b></div></td></tr>`;
+      return;
+    }
+    const pagination = paginateItems(cachedLogs, adminAuditPage, adminAuditPageSize);
+    adminAuditPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedLogs.length > adminAuditPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.innerHTML = pagination.items.map((x) => `<tr class="h"><td data-l="Time" class="muted mono">${formatDate(x.created_at)}</td><td data-l="Actor"><b>${esc(x.actor_name || x.actor_type)}</b><small>${esc(x.actor_email || x.account_name || "Platform")}</small></td><td data-l="Action">${badge(x.action)}</td><td data-l="Target" class="mono">${esc(x.resource_type)} ${esc(x.resource_id)}</td><td data-l="IP" class="mono muted">${esc(x.ip_address || "\u2014")}</td></tr>`).join("");
+  }
+  function bindAdminAuditListeners() {
+    if (adminAuditListenersBound) return;
+    adminAuditListenersBound = true;
+    const pagerEl = document.getElementById("adminAuditPager");
+    pagerEl?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== adminAuditPage) {
+          adminAuditPage = p;
+          paintAuditList();
+        }
+      }
+    });
+  }
   async function renderAudit(q = "") {
     const host = document.querySelector("#auditList");
     if (!host) return;
     try {
       const d = await api(`/api/v1/admin/audit?q=${encodeURIComponent(q)}`);
-      if (!d.logs.length) {
-        host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching audit events.</b></div></td></tr>`;
-        return;
-      }
-      host.innerHTML = d.logs.map((x) => `<tr class="h"><td data-l="Time" class="muted mono">${formatDate(x.created_at)}</td><td data-l="Actor"><b>${esc(x.actor_name || x.actor_type)}</b><small>${esc(x.actor_email || x.account_name || "Platform")}</small></td><td data-l="Action">${badge(x.action)}</td><td data-l="Target" class="mono">${esc(x.resource_type)} ${esc(x.resource_id)}</td><td data-l="IP" class="mono muted">${esc(x.ip_address || "\u2014")}</td></tr>`).join("");
+      cachedLogs = d.logs || [];
+      adminAuditPage = 1;
+      paintAuditList();
+      bindAdminAuditListeners();
     } catch (e) {
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
     }
@@ -2048,6 +2225,47 @@
   function metric(label, value, icon, tone = "", detail = "") {
     return `<article class="card mt"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b>${detail ? `<small>${esc(detail)}</small>` : ""}</div><span class="tile ${tone}">${hero(icon)}</span></article>`;
   }
+  var cachedOrders = [];
+  var ordersPage = 1;
+  var ordersPageSize = 10;
+  var ordersListenersBound = false;
+  function paintOrdersList() {
+    const host = document.querySelector("#ordersList");
+    const paginationRow = document.getElementById("adminOrdersPaginationRow");
+    const infoEl = document.getElementById("adminOrdersPageInfo");
+    const pagerEl = document.getElementById("adminOrdersPager");
+    if (!host) return;
+    if (!cachedOrders.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      host.innerHTML = `<tr><td colspan="5">${empty("No orders")}</td></tr>`;
+      return;
+    }
+    const pagination = paginateItems(cachedOrders, ordersPage, ordersPageSize);
+    ordersPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedOrders.length > ordersPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.innerHTML = pagination.items.map((x) => `<tr>
+    <td data-l="Order"><b>${esc(x.id)}</b><small>${formatDate(x.created_at)}</small></td>
+    <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
+    <td data-l="Items">${Number(x.item_count)}</td><td data-l="Total"><b>${money2(x.total_minor_units, x.currency)}</b></td>
+    <td data-l="Status">${badge(x.status)}</td></tr>`).join("");
+  }
+  function bindOrdersListeners() {
+    if (ordersListenersBound) return;
+    ordersListenersBound = true;
+    const pagerEl = document.getElementById("adminOrdersPager");
+    pagerEl?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== ordersPage) {
+          ordersPage = p;
+          paintOrdersList();
+        }
+      }
+    });
+  }
   async function renderOrders(q = "") {
     const host = document.querySelector("#ordersList");
     if (!host) return;
@@ -2060,14 +2278,89 @@
         const attention = orders.filter((x) => /FAILED|ANOMALY|CANCELLED/.test(String(x.status))).length;
         metrics.innerHTML = metric("Loaded orders", orders.length, "cube") + metric("Settled", settled, "check", "good") + metric("In progress", pending, "refresh", pending ? "warn" : "good") + metric("Needs attention", attention, "warning", attention ? "bad" : "good");
       }
-      host.innerHTML = orders.length ? orders.map((x) => `<tr>
-      <td data-l="Order"><b>${esc(x.id)}</b><small>${formatDate(x.created_at)}</small></td>
-      <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
-      <td data-l="Items">${Number(x.item_count)}</td><td data-l="Total"><b>${money2(x.total_minor_units, x.currency)}</b></td>
-      <td data-l="Status">${badge(x.status)}</td></tr>`).join("") : `<tr><td colspan="5">${empty("No orders")}</td></tr>`;
+      cachedOrders = orders || [];
+      ordersPage = 1;
+      paintOrdersList();
+      bindOrdersListeners();
     } catch (error) {
       host.innerHTML = `<tr><td colspan="5">${empty(error.message)}</td></tr>`;
     }
+  }
+  var cachedInvoices = [];
+  var cachedCreditNotes = [];
+  var invoicesPage = 1;
+  var creditsPage = 1;
+  var adminBillingPageSize = 10;
+  var billingOpsListenersBound = false;
+  function paintAdminInvoicesList() {
+    const invoiceHost = document.querySelector("#invoicesList");
+    const paginationRow = document.getElementById("adminInvoicesPaginationRow");
+    const infoEl = document.getElementById("adminInvoicesPageInfo");
+    const pagerEl = document.getElementById("adminInvoicesPager");
+    if (!invoiceHost) return;
+    if (!cachedInvoices.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      invoiceHost.innerHTML = `<tr><td colspan="6">${empty("No invoices")}</td></tr>`;
+      return;
+    }
+    const pagination = paginateItems(cachedInvoices, invoicesPage, adminBillingPageSize);
+    invoicesPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedInvoices.length > adminBillingPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    invoiceHost.innerHTML = pagination.items.map((x) => `<tr>
+    <td data-l="Invoice"><b>${esc(x.invoice_number || x.id)}</b><small>${esc(x.id)}</small></td>
+    <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
+    <td data-l="Due">${x.due_date ? formatDate(x.due_date) : "\u2014"}</td>
+    <td data-l="Paid">${money2(x.amount_paid_minor_units, x.currency)} / <b>${money2(x.total_minor_units, x.currency)}</b></td>
+    <td data-l="Status">${badge(x.status)}</td>
+    <td data-l="Action">${x.status === "PAID" ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}">Refund</button>` : ""}</td></tr>`).join("");
+  }
+  function paintAdminCreditsList() {
+    const creditHost = document.querySelector("#creditNotesList");
+    const paginationRow = document.getElementById("adminCreditsPaginationRow");
+    const infoEl = document.getElementById("adminCreditsPageInfo");
+    const pagerEl = document.getElementById("adminCreditsPager");
+    if (!creditHost) return;
+    if (!cachedCreditNotes.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      creditHost.innerHTML = `<tr><td colspan="6">${empty("No credit notes")}</td></tr>`;
+      return;
+    }
+    const pagination = paginateItems(cachedCreditNotes, creditsPage, adminBillingPageSize);
+    creditsPage = pagination.page;
+    if (paginationRow) paginationRow.style.display = cachedCreditNotes.length > adminBillingPageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    creditHost.innerHTML = pagination.items.map((x) => `<tr>
+    <td data-l="Credit note"><b>${esc(x.credit_note_number)}</b><small>${esc(x.id)}</small></td>
+    <td data-l="Invoice">${esc(x.invoice_number)}</td><td data-l="Account">${esc(x.account_name)}</td>
+    <td data-l="Amount"><b>${money2(x.amount_minor_units, x.currency)}</b></td><td data-l="Reason">${esc(x.reason)}</td>
+    <td data-l="Created">${formatDate(x.created_at)}</td></tr>`).join("");
+  }
+  function bindBillingOpsListeners() {
+    if (billingOpsListenersBound) return;
+    billingOpsListenersBound = true;
+    document.getElementById("adminInvoicesPager")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== invoicesPage) {
+          invoicesPage = p;
+          paintAdminInvoicesList();
+        }
+      }
+    });
+    document.getElementById("adminCreditsPager")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-pg]");
+      if (btn && !btn.disabled) {
+        const p = Number(btn.dataset.pg);
+        if (p && p !== creditsPage) {
+          creditsPage = p;
+          paintAdminCreditsList();
+        }
+      }
+    });
   }
   async function renderBilling(q = "") {
     const invoiceHost = document.querySelector("#invoicesList");
@@ -2086,18 +2379,13 @@
         const currency = invoiceData.invoices[0]?.currency || creditData.creditNotes[0]?.currency || "EUR";
         metrics.innerHTML = metric("Loaded invoices", invoiceData.invoices.length, "document") + metric("Paid", money2(paid, currency), "check", "good") + metric("Outstanding", money2(outstanding, currency), "warning", outstanding ? "warn" : "good") + metric("Credits issued", money2(credited, currency), "credit", credited ? "info" : "");
       }
-      invoiceHost.innerHTML = invoiceData.invoices.length ? invoiceData.invoices.map((x) => `<tr>
-      <td data-l="Invoice"><b>${esc(x.invoice_number || x.id)}</b><small>${esc(x.id)}</small></td>
-      <td data-l="Account">${esc(x.account_name)}<small>${esc(x.customer_email)}</small></td>
-      <td data-l="Due">${x.due_date ? formatDate(x.due_date) : "\u2014"}</td>
-      <td data-l="Paid">${money2(x.amount_paid_minor_units, x.currency)} / <b>${money2(x.total_minor_units, x.currency)}</b></td>
-      <td data-l="Status">${badge(x.status)}</td>
-      <td data-l="Action">${x.status === "PAID" ? `<button class="btn xs" data-refund-invoice="${esc(x.id)}" data-refund-max="${Number(x.amount_paid_minor_units)}" data-refund-currency="${esc(x.currency)}">Refund</button>` : ""}</td></tr>`).join("") : `<tr><td colspan="6">${empty("No invoices")}</td></tr>`;
-      creditHost.innerHTML = creditData.creditNotes.length ? creditData.creditNotes.map((x) => `<tr>
-      <td data-l="Credit note"><b>${esc(x.credit_note_number)}</b><small>${esc(x.id)}</small></td>
-      <td data-l="Invoice">${esc(x.invoice_number)}</td><td data-l="Account">${esc(x.account_name)}</td>
-      <td data-l="Amount"><b>${money2(x.amount_minor_units, x.currency)}</b></td><td data-l="Reason">${esc(x.reason)}</td>
-      <td data-l="Created">${formatDate(x.created_at)}</td></tr>`).join("") : `<tr><td colspan="6">${empty("No credit notes")}</td></tr>`;
+      cachedInvoices = invoiceData.invoices || [];
+      cachedCreditNotes = creditData.creditNotes || [];
+      invoicesPage = 1;
+      creditsPage = 1;
+      paintAdminInvoicesList();
+      paintAdminCreditsList();
+      bindBillingOpsListeners();
     } catch (error) {
       invoiceHost.innerHTML = `<tr><td colspan="6">${empty(error.message)}</td></tr>`;
     }

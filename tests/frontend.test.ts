@@ -8,6 +8,7 @@ import { esc } from '../src/frontend/core/utils/dom.js';
 import { renderMarkdown } from '../src/frontend/core/utils/markdown.js';
 import { spark, smooth } from '../src/frontend/petal/components/sparklines.js';
 import { renderSkeleton } from '../src/frontend/petal/components/skeleton.js';
+import { paginateItems, renderPager, renderPaginationFooter } from '../src/frontend/petal/components/pagination.js';
 import { ApiError, SessionExpiredError, StepUpRequiredError } from '../src/frontend/core/api/errors.js';
 
 describe('Category N: Modular Frontend Architecture & Petal Integration', () => {
@@ -288,4 +289,72 @@ describe('Category N: Modular Frontend Architecture & Petal Integration', () => 
       expect(err.name).toBe('StepUpRequiredError');
     });
   });
+
+  describe('Petal Canonical Pagination Component', () => {
+    it('slices items correctly and formats summary info for various page sizes', () => {
+      const items = Array.from({ length: 25 }, (_, i) => `item_${i + 1}`);
+
+      // Page 1 of 3 (10 per page)
+      const p1 = paginateItems(items, 1, 10);
+      expect(p1.page).toBe(1);
+      expect(p1.pages).toBe(3);
+      expect(p1.total).toBe(25);
+      expect(p1.items).toEqual(items.slice(0, 10));
+      expect(p1.info).toBe('Showing 1–10 of 25');
+
+      // Page 3 of 3 (last page with 5 items)
+      const p3 = paginateItems(items, 3, 10);
+      expect(p3.page).toBe(3);
+      expect(p3.items).toEqual(items.slice(20, 25));
+      expect(p3.info).toBe('Showing 21–25 of 25');
+
+      // Clamps out-of-range requested pages
+      const pClampHigh = paginateItems(items, 999, 10);
+      expect(pClampHigh.page).toBe(3);
+      const pClampLow = paginateItems(items, -5, 10);
+      expect(pClampLow.page).toBe(1);
+
+      // Empty list
+      const empty = paginateItems([], 1, 10);
+      expect(empty.total).toBe(0);
+      expect(empty.pages).toBe(1);
+      expect(empty.page).toBe(1);
+      expect(empty.items).toEqual([]);
+      expect(empty.info).toBe('0 items');
+    });
+
+    it('renders canonical Petal pager buttons with accessible attributes', () => {
+      // 1 page returns empty pager
+      expect(renderPager(1, 1)).toBe('');
+
+      // 3 pages, on page 2
+      const pagerHtml = renderPager(2, 3);
+      expect(pagerHtml).toContain('data-pg="1"');
+      expect(pagerHtml).toContain('data-pg="2" aria-current="true"');
+      expect(pagerHtml).toContain('data-pg="3"');
+      expect(pagerHtml).toContain('aria-label="Previous page"');
+      expect(pagerHtml).toContain('aria-label="Next page"');
+
+      // First page has disabled previous button
+      const p1Html = renderPager(1, 3);
+      expect(p1Html).toContain('disabled aria-label="Previous page"');
+
+      // Last page has disabled next button
+      const p3Html = renderPager(3, 3);
+      expect(p3Html).toContain('disabled aria-label="Next page"');
+
+      // Large page count has ellipsis
+      const p10Html = renderPager(5, 10);
+      expect(p10Html).toContain('aria-hidden="true">…<');
+    });
+
+    it('renders a full pagination footer with ids and data-c', () => {
+      const footer = renderPaginationFooter(1, 4, 35, 10, { infoId: 'auditInfo', pagerId: 'auditPager' });
+      expect(footer).toContain('id="auditInfo"');
+      expect(footer).toContain('id="auditPager"');
+      expect(footer).toContain('Showing 1–10 of 35');
+      expect(footer).toContain('data-c="Pagination"');
+    });
+  });
 });
+

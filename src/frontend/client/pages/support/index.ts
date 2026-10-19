@@ -5,13 +5,16 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { formatBytes } from '../../../core/utils/formatting.js';
 import { renderMarkdown } from '../../../core/utils/markdown.js';
-import { editorMarkdown, petalRichTextEditor, renderEmptyState, renderSkeleton, resetEditor, toast } from '../../../petal/index.js';
+import { editorMarkdown, petalRichTextEditor, renderEmptyState, renderSkeleton, resetEditor, toast, paginateItems, renderPager } from '../../../petal/index.js';
 
 type Navigate = (path: string) => void;
 type Ticket = { id: string; subject: string; priority: string; status: string; created_at: string; updated_at: string; message_count?: number };
 type Attachment = { id: string; filename: string; byte_size: number; message_id?: string | null; created_at?: string };
 
 let ticketCache: Ticket[] = [];
+let ticketPage = 1;
+const ticketPageSize = 10;
+let supportListenersBound = false;
 
 function priorityTone(value: string): string {
   return value === 'URGENT' ? 'bad' : value === 'HIGH' ? 'warn' : value === 'LOW' ? '' : 'info';
@@ -26,11 +29,11 @@ function ticketRow(ticket: Ticket): string {
   const tone = priorityTone(ticket.priority) || 'info';
   const msgs = Number(ticket.message_count || 0);
   return `<a class="li support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}" style="padding:14px 16px">
-    <span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-message-01"/></svg></span>
+    <span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="/assets/petal-icons.svg#i-message-01"/></svg></span>
     <span class="tx"><b>${esc(ticket.subject)}</b><small>${esc(ticket.id)} · updated ${esc(formatDate(ticket.updated_at || ticket.created_at))} · ${msgs} message${msgs === 1 ? '' : 's'}</small></span>
     <span class="pill ${tone}">${esc(ticket.priority)}</span>
     <span class="pill ${statusTone(ticket.status)}">${esc(ticket.status.replace('_', ' '))}</span>
-    <svg class="ic s hide-n" width="16" height="16"><use href="#i-arrow-right-01"/></svg>
+    <svg class="ic s hide-n" width="16" height="16"><use href="/assets/petal-icons.svg#i-arrow-right-01"/></svg>
   </a>`;
 }
 
@@ -41,15 +44,10 @@ export async function renderTickets(): Promise<void> {
   host.innerHTML = renderSkeleton('list', 'Loading support conversations');
   try {
     const { tickets } = await api<{ tickets: Ticket[] }>('/api/v1/tickets');
-    ticketCache = tickets;
-    if (!tickets.length) {
-      host.className = 'support-empty';
-      host.innerHTML = renderEmptyState({ icon: 'message-01', title: 'No support conversations', message: 'Open a ticket when you need help with an account or service.', actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" width="14" height="14"><use href="#i-add-01"/></svg>Open ticket</a>` });
-      return;
-    }
-    host.className = 'col';
-    host.innerHTML = tickets.map(ticketRow).join('');
+    ticketCache = tickets || [];
+    ticketPage = 1;
     filterTickets();
+    bindSupportListeners();
   } catch (error: any) {
     host.className = 'col';
     host.innerHTML = `<div class="alert bad"><div><b>Failed to load tickets</b><span>${esc(error.message)}</span></div></div>`;
@@ -57,18 +55,84 @@ export async function renderTickets(): Promise<void> {
 }
 
 export function filterTickets(): void {
+  const host = document.getElementById('ticketsList');
+  if (!host) return;
+
   const query = (document.getElementById('ticketSearch') as HTMLInputElement | null)?.value.trim().toLowerCase() || '';
   const status = (document.querySelector<HTMLInputElement>('input[name="ticketStatus"]:checked')?.value || 'ALL').toUpperCase();
-  let visible = 0;
-  document.querySelectorAll<HTMLElement>('.support-ticket-row').forEach((row) => {
-    const rowStatus = row.dataset.ticketStatus || '';
-    const matches = (!query || (row.dataset.ticketSearch || '').includes(query)) && (status === 'ALL' || (status === 'OPEN' ? ['OPEN', 'WAITING_STAFF', 'WAITING_CUSTOMER'].includes(rowStatus) : rowStatus === status));
-    row.hidden = !matches;
-    if (matches) visible++;
+
+  const filtered = ticketCache.filter((ticket) => {
+    const search = `${ticket.subject} ${ticket.id} ${ticket.status} ${ticket.priority}`.toLowerCase();
+    const matchesQuery = !query || search.includes(query);
+    const matchesStatus = status === 'ALL' || (status === 'OPEN' ? ['OPEN', 'WAITING_STAFF', 'WAITING_CUSTOMER'].includes(ticket.status) : ticket.status === status);
+    return matchesQuery && matchesStatus;
   });
+
   const count = document.getElementById('ticketResultCount');
-  if (count) count.textContent = ticketCache.length ? `${visible} of ${ticketCache.length} conversations` : '';
+  if (count) count.textContent = ticketCache.length ? `${filtered.length} of ${ticketCache.length} conversations` : '';
+
+  const infoEl = document.getElementById('ticketPageInfo');
+  const pagerEl = document.getElementById('ticketPager');
+
+  if (!filtered.length) {
+    host.className = 'support-empty';
+    host.innerHTML = renderEmptyState({
+      icon: 'message-01',
+      title: 'No support conversations',
+      message: ticketCache.length ? 'No tickets matched your search or status filter.' : 'Open a ticket when you need help with an account or service.',
+      actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" width="14" height="14"><use href="/assets/petal-icons.svg#i-add-01"/></svg>Open ticket</a>`,
+    });
+    if (infoEl) infoEl.textContent = '0 tickets';
+    if (pagerEl) pagerEl.innerHTML = '';
+    return;
+  }
+
+  const pagination = paginateItems(filtered, ticketPage, ticketPageSize);
+  ticketPage = pagination.page;
+
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
+  host.className = 'col';
+  host.innerHTML = pagination.items.map(ticketRow).join('');
 }
+
+function bindSupportListeners(): void {
+  if (supportListenersBound) return;
+  supportListenersBound = true;
+
+  const section = document.getElementById('section-tickets');
+  if (!section) return;
+
+  section.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const pagerBtn = target.closest<HTMLButtonElement>('#ticketPager button[data-pg]');
+    if (pagerBtn && !pagerBtn.disabled) {
+      const p = Number(pagerBtn.dataset.pg);
+      if (p && p !== ticketPage) {
+        ticketPage = p;
+        filterTickets();
+      }
+    }
+  });
+
+  const search = document.getElementById('ticketSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      ticketPage = 1;
+      filterTickets();
+    });
+  }
+
+  section.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.name === 'ticketStatus') {
+      ticketPage = 1;
+      filterTickets();
+    }
+  });
+}
+
 
 function fileDrop(inputId: string, labelId: string): string {
   return `<div class="fld">

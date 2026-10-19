@@ -267,7 +267,7 @@ function bindDelegatedEvents() {
         if (segGroup.getAttribute('aria-label')?.includes('service state')) filterServices();
         if (segGroup.getAttribute('aria-label')?.includes('invoice status')) filterBilling();
         if (segGroup.getAttribute('aria-label')?.includes('ticket status')) filterTickets();
-        if (segGroup.getAttribute('aria-label')?.includes('activity type')) filterActivity();
+        if (segGroup.getAttribute('aria-label')?.includes('activity')) filterActivity();
       }
       return;
     }
@@ -744,7 +744,7 @@ function bindDelegatedEvents() {
     if (target.id === 'newTicketFileInput' || target.id === 'ticketReplyFileInput') updateFileLabel(target);
     if (target.name === 'ticketStatus') filterTickets();
     if (target.name === 'invoiceStatus') filterBilling();
-    if (target.name === 'auditType') filterActivity();
+    if (target.name === 'auditType' || target.name === 'auditRange') filterActivity();
     if (target.name === 'serviceState' || target.id === 'serviceTypeFilter') filterServices();
   });
 }

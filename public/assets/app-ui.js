@@ -1089,6 +1089,39 @@ ${selectedOr("code")}
     };
   }
 
+  // src/frontend/petal/components/pagination.ts
+  function paginateItems(items, page, pageSize) {
+    const total = items.length;
+    const pages = Math.max(1, Math.ceil(total / pageSize));
+    const currentPage = Math.max(1, Math.min(page, pages));
+    const start = (currentPage - 1) * pageSize;
+    const sliced = items.slice(start, start + pageSize);
+    const info = total === 0 ? "0 items" : `Showing ${start + 1}\u2013${start + sliced.length} of ${total}`;
+    return {
+      items: sliced,
+      total,
+      page: currentPage,
+      pages,
+      pageSize,
+      info
+    };
+  }
+  function renderPager(page, pages) {
+    if (pages <= 1) return "";
+    const nums = /* @__PURE__ */ new Set([1, pages, page - 1, page, page + 1]);
+    const seq = [...nums].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
+    const btn = (label, p, extra = "") => `<button type="button" data-pg="${p}" ${extra}>${label}</button>`;
+    let html = btn(hero("arrow-left-01", "s"), page - 1, page === 1 ? 'disabled aria-label="Previous page"' : 'aria-label="Previous page"');
+    let prev = 0;
+    for (const n of seq) {
+      if (n - prev > 1) html += '<button type="button" disabled aria-hidden="true">\u2026</button>';
+      html += btn(String(n), n, n === page ? 'aria-current="true" aria-label="Page ' + n + '"' : 'aria-label="Page ' + n + '"');
+      prev = n;
+    }
+    html += btn(hero("arrow-right-01", "s"), page + 1, page === pages ? 'disabled aria-label="Next page"' : 'aria-label="Next page"');
+    return html;
+  }
+
   // src/frontend/core/utils/dates.ts
   function formatDate(value) {
     if (!value) return "\u2014";
@@ -1562,6 +1595,8 @@ ${selectedOr("code")}
 
   // src/frontend/client/pages/dashboard/index.ts
   var serviceInventory = [];
+  var servicePage = 1;
+  var servicePageSize = 8;
   function metricCard2(label, value, icon, tone = "", sub = "") {
     return `<div class="card mt" data-c="Metric tile"><div><span class="l">${esc(label)}</span><b class="v">${esc(String(value))}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div><span class="tile ${tone}"><svg class="ic" aria-hidden="true"><use href="#i-${icon}"/></svg></span></div>`;
   }
@@ -1583,12 +1618,23 @@ ${selectedOr("code")}
     });
     const count = document.getElementById("serviceResultCount");
     if (count) count.textContent = `${filtered.length} of ${serviceInventory.length} services`;
+    const infoEl = document.getElementById("servicePageInfo");
+    const pagerEl = document.getElementById("servicePager");
+    const paginationRow = document.getElementById("servicePaginationRow");
     if (!filtered.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      if (infoEl) infoEl.textContent = "0 services";
+      if (pagerEl) pagerEl.innerHTML = "";
       host.innerHTML = serviceInventory.length ? `<div class="es" data-c="Empty state"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-search-01"/></svg></span><h4>No matching services</h4><p>Try a different name, product or runtime filter.</p></div>` : `<div class="es" data-c="Empty state"><span class="tile neu lg"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span><h4>No services yet</h4><p>Ordering stays unavailable until payment and infrastructure providers are configured and verified.</p><a class="btn s tint" href="/app/deploy" data-app-route="deploy"><svg class="ic s" aria-hidden="true"><use href="#i-add-01"/></svg>View catalog</a></div>`;
       return;
     }
+    const pagination = paginateItems(filtered, servicePage, servicePageSize);
+    servicePage = pagination.page;
+    if (paginationRow) paginationRow.style.display = filtered.length > servicePageSize ? "flex" : "none";
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
     const providerReady = Boolean(capabilitiesStore.get()?.provisioning.enabled);
-    host.innerHTML = filtered.map((svc) => {
+    host.innerHTML = pagination.items.map((svc) => {
       const st = serviceState(svc);
       const rt = st.label;
       const tone = st.tone;
@@ -1651,23 +1697,46 @@ ${selectedOr("code")}
         <span class="faint" style="font-weight:650;font-size:13px" id="serviceResultCount"></span>
       </div>
 
-      <div id="serversContainer" class="col" style="gap:8px" data-flt></div>`;
+      <div id="serversContainer" class="col" style="gap:8px" data-flt></div>
+      <div class="row wrap" id="servicePaginationRow" style="justify-content:space-between;align-items:center;padding:12px 4px 4px;margin-top:8px;display:none">
+        <span class="muted" id="servicePageInfo" style="font-size:12.5px"></span>
+        <div class="pager" id="servicePager" data-c="Pagination"></div>
+      </div>`;
       const typeSelect = document.getElementById("serviceTypeFilter");
       if (typeSelect && [...typeSelect.options].some((o) => o.value === saved.type)) typeSelect.value = saved.type;
+      servicePage = 1;
       renderServiceInventory();
       document.getElementById("serviceShowTerminated")?.addEventListener("click", (e) => {
         const sw = e.currentTarget;
         sw.setAttribute("aria-checked", String(sw.getAttribute("aria-checked") !== "true"));
+        servicePage = 1;
         renderServiceInventory();
       });
-      document.getElementById("serviceSearch")?.addEventListener("input", () => renderServiceInventory());
-      document.getElementById("serviceTypeFilter")?.addEventListener("change", () => renderServiceInventory());
+      document.getElementById("serviceSearch")?.addEventListener("input", () => {
+        servicePage = 1;
+        renderServiceInventory();
+      });
+      document.getElementById("serviceTypeFilter")?.addEventListener("change", () => {
+        servicePage = 1;
+        renderServiceInventory();
+      });
       document.getElementById("serviceStateSeg")?.addEventListener("click", (e) => {
         const btn = e.target.closest("button[data-v]");
         if (!btn) return;
         document.querySelectorAll("#serviceStateSeg button").forEach((b) => b.setAttribute("aria-selected", "false"));
         btn.setAttribute("aria-selected", "true");
+        servicePage = 1;
         renderServiceInventory();
+      });
+      document.getElementById("servicePager")?.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-pg]");
+        if (btn && !btn.disabled) {
+          const p = Number(btn.dataset.pg);
+          if (p && p !== servicePage) {
+            servicePage = p;
+            renderServiceInventory();
+          }
+        }
       });
       document.getElementById("refreshServicesBtn")?.addEventListener("click", async (e) => {
         const btn = e.currentTarget;
@@ -2764,7 +2833,7 @@ ${selectedOr("code")}
     const list = document.getElementById("actList");
     const info = document.getElementById("actInfo");
     const pager = document.getElementById("actPager");
-    function renderPager(page, pages) {
+    function renderPager2(page, pages) {
       const nums = /* @__PURE__ */ new Set([1, pages, page - 1, page, page + 1]);
       const seq = [...nums].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
       const btn = (label, p, extra = "") => `<button type="button" data-pg="${p}" ${extra}>${label}</button>`;
@@ -2785,7 +2854,7 @@ ${selectedOr("code")}
         state.page = res.page;
         list.innerHTML = res.events.length ? `<div class="tl2">${res.events.map((e) => `<div class="ev"><span class="tile neu">${hero("shield")}</span><div style="min-width:0"><b>${esc(humanize(e.event))}</b><small style="display:block">${esc(e.actor ?? "System")}${e.api ? " \xB7 API" : ""}</small></div><small>${esc(formatDate(e.timestamp))}</small></div>`).join("")}</div>` : `<div class="es"><span class="tile neu lg">${hero("shield")}</span><h4>No panel activity</h4></div>`;
         info.textContent = res.total ? `${res.total} events` : "";
-        renderPager(res.page, res.pages);
+        renderPager2(res.page, res.pages);
       } catch (e) {
         list.innerHTML = `<div class="alert bad"><div><b>Could not load panel activity</b><span>${esc(e?.message || "")}</span></div></div>`;
       }
@@ -2802,7 +2871,7 @@ ${selectedOr("code")}
           return `<div class="ev"><span class="tile ${d.tone}">${hero(d.icon)}</span><div style="min-width:0"><b>${esc(d.label)}</b><small style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(actor(ev.actorType))}${d.detail ? " \xB7 " + esc(d.detail) : ""}</small></div><small>${esc(formatDate(ev.createdAt))}</small></div>`;
         }).join("")}</div>` : `<div class="es"><span class="tile neu lg">${hero("shield")}</span><h4>No activity</h4></div>`;
         info.textContent = res.total ? `${(res.page - 1) * res.pageSize + 1}-${(res.page - 1) * res.pageSize + res.events.length} of ${res.total}` : "";
-        renderPager(res.page, pages);
+        renderPager2(res.page, pages);
       } catch (e) {
         list.innerHTML = `<div class="alert bad"><div><b>Could not load activity</b><span>${esc(e?.message || "")}</span></div></div>`;
       }
@@ -4362,6 +4431,12 @@ ${selectedOr("code")}
 
   // src/frontend/client/pages/billing/index.ts
   var invoiceCache = [];
+  var subscriptionCache = [];
+  var invoicePage = 1;
+  var invoicePageSize = 10;
+  var subPage = 1;
+  var subPageSize = 5;
+  var billingListenersBound = false;
   function invoiceRow(invoice) {
     const badgeClass = invoice.status === "PAID" ? "good" : invoice.status === "DRAFT" ? "" : "info";
     return `<tr class="h" data-s="${esc(invoice.status)}">
@@ -4370,7 +4445,7 @@ ${selectedOr("code")}
     <td data-l="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
     <td data-l="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
     <td data-l="Status"><span class="pill ${badgeClass}">${esc(invoice.status)}</span></td>
-    <td class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn xs" download><svg class="ic xs" aria-hidden="true"><use href="#i-download-01"/></svg>Receipt</a></td>
+    <td class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn xs" download><svg class="ic xs" aria-hidden="true"><use href="/assets/petal-icons.svg#i-download-01"/></svg>Receipt</a></td>
   </tr>`;
   }
   function filterBilling() {
@@ -4385,7 +4460,19 @@ ${selectedOr("code")}
     });
     const count = document.getElementById("invoiceResultCount");
     if (count) count.textContent = `${records.length} of ${invoiceCache.length} records`;
-    host.innerHTML = records.length ? records.map(invoiceRow).join("") : `<tr><td colspan="6">${renderEmptyState({ icon: "document", title: invoiceCache.length ? "No matching invoices" : "No invoices", message: invoiceCache.length ? "Try another number or status." : "Issued billing records will appear here." })}</td></tr>`;
+    const infoEl = document.getElementById("invoicePageInfo");
+    const pagerEl = document.getElementById("invoicePager");
+    if (!records.length) {
+      host.innerHTML = `<tr><td colspan="6">${renderEmptyState({ icon: "document", title: invoiceCache.length ? "No matching invoices" : "No invoices", message: invoiceCache.length ? "Try another number or status." : "Issued billing records will appear here." })}</td></tr>`;
+      if (infoEl) infoEl.textContent = "0 invoices";
+      if (pagerEl) pagerEl.innerHTML = "";
+      return;
+    }
+    const pagination = paginateItems(records, invoicePage, invoicePageSize);
+    invoicePage = pagination.page;
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.innerHTML = pagination.items.map(invoiceRow).join("");
   }
   var billingRole = "";
   function paintBillingProfile(profile, fallbackName, email) {
@@ -4587,38 +4674,93 @@ ${selectedOr("code")}
       `;
       }
       filterBilling();
-      const subHost = document.getElementById("subscriptionsContainer");
-      if (subHost) {
-        if (!subscriptions.length) {
-          subHost.innerHTML = renderEmptyState({
-            icon: "wallet-01",
-            title: "No subscriptions",
-            message: "Subscriptions appear after your first order."
-          });
-        } else {
-          subHost.innerHTML = subscriptions.map((sub) => {
-            const isCancelScheduled = sub.status === "CANCEL_SCHEDULED";
-            const isCanceled = sub.status === "CANCELED" || sub.status === "TERMINATED";
-            const tone = sub.status === "ACTIVE" ? "good" : isCancelScheduled ? "warn" : "bad";
-            const statusLabel = isCancelScheduled ? "CANCELLATION SCHEDULED" : sub.status;
-            return `<div class="li">
-              <span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="#i-wallet-01"/></svg></span>
-              <span class="tx">
-                <b>${esc(sub.serviceName)}</b>
-                <small>${isCancelScheduled ? "Cancels " + formatDate(sub.nextRenewalDate) : isCanceled ? "Canceled \xB7 " + esc(sub.billingInterval.toLowerCase()) : "Renews " + formatDate(sub.nextRenewalDate) + " \xB7 " + esc(sub.billingInterval.toLowerCase())}</small>
-              </span>
-              <span class="pill ${tone}">${esc(statusLabel)}</span>
-              <div class="row" style="gap:6px">
-                ${isCancelScheduled || isCanceled ? `<button type="button" class="btn xs good" data-reactivate-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}">Reactivate</button>` : ""}
-                <button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}" data-sub-status="${esc(sub.status)}">Manage</button>
-              </div>
-            </div>`;
-          }).join("");
-        }
-      }
+      paintSubscriptions();
+      bindBillingListeners();
     } catch (error) {
       host.innerHTML = `<tr><td colspan="6"><div class="alert bad"><div><b>Failed to load billing records</b><span>${esc(error.message)}</span></div></div></td></tr>`;
     }
+  }
+  function paintSubscriptions() {
+    const subHost = document.getElementById("subscriptionsContainer");
+    const paginationRow = document.getElementById("subPaginationRow");
+    const infoEl = document.getElementById("subPageInfo");
+    const pagerEl = document.getElementById("subPager");
+    if (!subHost) return;
+    if (!subscriptionCache.length) {
+      if (paginationRow) paginationRow.style.display = "none";
+      subHost.innerHTML = renderEmptyState({
+        icon: "wallet-01",
+        title: "No subscriptions",
+        message: "Subscriptions appear after your first order."
+      });
+      return;
+    }
+    const pagination = paginateItems(subscriptionCache, subPage, subPageSize);
+    subPage = pagination.page;
+    if (paginationRow) {
+      paginationRow.style.display = subscriptionCache.length > subPageSize ? "flex" : "none";
+    }
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    subHost.innerHTML = pagination.items.map((sub) => {
+      const isCancelScheduled = sub.status === "CANCEL_SCHEDULED";
+      const isCanceled = sub.status === "CANCELED" || sub.status === "TERMINATED";
+      const tone = sub.status === "ACTIVE" ? "good" : isCancelScheduled ? "warn" : "bad";
+      const statusLabel = isCancelScheduled ? "CANCELLATION SCHEDULED" : sub.status;
+      return `<div class="li">
+        <span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-wallet-01"/></svg></span>
+        <span class="tx">
+          <b>${esc(sub.serviceName)}</b>
+          <small>${isCancelScheduled ? "Cancels " + formatDate(sub.nextRenewalDate) : isCanceled ? "Canceled \xB7 " + esc(sub.billingInterval.toLowerCase()) : "Renews " + formatDate(sub.nextRenewalDate) + " \xB7 " + esc(sub.billingInterval.toLowerCase())}</small>
+        </span>
+        <span class="pill ${tone}">${esc(statusLabel)}</span>
+        <div class="row" style="gap:6px">
+          ${isCancelScheduled || isCanceled ? `<button type="button" class="btn xs good" data-reactivate-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}">Reactivate</button>` : ""}
+          <button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}" data-sub-status="${esc(sub.status)}">Manage</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  function bindBillingListeners() {
+    if (billingListenersBound) return;
+    billingListenersBound = true;
+    const section = document.getElementById("section-billing");
+    if (!section) return;
+    section.addEventListener("click", (e) => {
+      const target = e.target;
+      const invPagerBtn = target.closest("#invoicePager button[data-pg]");
+      if (invPagerBtn && !invPagerBtn.disabled) {
+        const p = Number(invPagerBtn.dataset.pg);
+        if (p && p !== invoicePage) {
+          invoicePage = p;
+          filterBilling();
+        }
+        return;
+      }
+      const subPagerBtn = target.closest("#subPager button[data-pg]");
+      if (subPagerBtn && !subPagerBtn.disabled) {
+        const p = Number(subPagerBtn.dataset.pg);
+        if (p && p !== subPage) {
+          subPage = p;
+          paintSubscriptions();
+        }
+        return;
+      }
+    });
+    const search = document.getElementById("invoiceSearch");
+    if (search) {
+      search.addEventListener("input", () => {
+        invoicePage = 1;
+        filterBilling();
+      });
+    }
+    section.addEventListener("change", (e) => {
+      const target = e.target;
+      if (target.name === "invoiceStatus") {
+        invoicePage = 1;
+        filterBilling();
+      }
+    });
   }
 
   // src/frontend/core/utils/markdown.ts
@@ -4639,6 +4781,9 @@ ${selectedOr("code")}
 
   // src/frontend/client/pages/support/index.ts
   var ticketCache = [];
+  var ticketPage = 1;
+  var ticketPageSize = 10;
+  var supportListenersBound = false;
   function priorityTone(value) {
     return value === "URGENT" ? "bad" : value === "HIGH" ? "warn" : value === "LOW" ? "" : "info";
   }
@@ -4650,11 +4795,11 @@ ${selectedOr("code")}
     const tone = priorityTone(ticket.priority) || "info";
     const msgs = Number(ticket.message_count || 0);
     return `<a class="li support-ticket-row" href="/app/support/${esc(ticket.id)}" data-app-route="ticket-detail" data-ticket-search="${esc(search)}" data-ticket-status="${esc(ticket.status)}" style="padding:14px 16px">
-    <span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="#i-message-01"/></svg></span>
+    <span class="tile ${tone} sm"><svg class="ic" width="16" height="16"><use href="/assets/petal-icons.svg#i-message-01"/></svg></span>
     <span class="tx"><b>${esc(ticket.subject)}</b><small>${esc(ticket.id)} \xB7 updated ${esc(formatDate(ticket.updated_at || ticket.created_at))} \xB7 ${msgs} message${msgs === 1 ? "" : "s"}</small></span>
     <span class="pill ${tone}">${esc(ticket.priority)}</span>
     <span class="pill ${statusTone(ticket.status)}">${esc(ticket.status.replace("_", " "))}</span>
-    <svg class="ic s hide-n" width="16" height="16"><use href="#i-arrow-right-01"/></svg>
+    <svg class="ic s hide-n" width="16" height="16"><use href="/assets/petal-icons.svg#i-arrow-right-01"/></svg>
   </a>`;
   }
   async function renderTickets() {
@@ -4664,32 +4809,79 @@ ${selectedOr("code")}
     host.innerHTML = renderSkeleton("list", "Loading support conversations");
     try {
       const { tickets } = await api("/api/v1/tickets");
-      ticketCache = tickets;
-      if (!tickets.length) {
-        host.className = "support-empty";
-        host.innerHTML = renderEmptyState({ icon: "message-01", title: "No support conversations", message: "Open a ticket when you need help with an account or service.", actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" width="14" height="14"><use href="#i-add-01"/></svg>Open ticket</a>` });
-        return;
-      }
-      host.className = "col";
-      host.innerHTML = tickets.map(ticketRow).join("");
+      ticketCache = tickets || [];
+      ticketPage = 1;
       filterTickets();
+      bindSupportListeners();
     } catch (error) {
       host.className = "col";
       host.innerHTML = `<div class="alert bad"><div><b>Failed to load tickets</b><span>${esc(error.message)}</span></div></div>`;
     }
   }
   function filterTickets() {
+    const host = document.getElementById("ticketsList");
+    if (!host) return;
     const query = document.getElementById("ticketSearch")?.value.trim().toLowerCase() || "";
     const status = (document.querySelector('input[name="ticketStatus"]:checked')?.value || "ALL").toUpperCase();
-    let visible = 0;
-    document.querySelectorAll(".support-ticket-row").forEach((row) => {
-      const rowStatus = row.dataset.ticketStatus || "";
-      const matches = (!query || (row.dataset.ticketSearch || "").includes(query)) && (status === "ALL" || (status === "OPEN" ? ["OPEN", "WAITING_STAFF", "WAITING_CUSTOMER"].includes(rowStatus) : rowStatus === status));
-      row.hidden = !matches;
-      if (matches) visible++;
+    const filtered = ticketCache.filter((ticket) => {
+      const search = `${ticket.subject} ${ticket.id} ${ticket.status} ${ticket.priority}`.toLowerCase();
+      const matchesQuery = !query || search.includes(query);
+      const matchesStatus = status === "ALL" || (status === "OPEN" ? ["OPEN", "WAITING_STAFF", "WAITING_CUSTOMER"].includes(ticket.status) : ticket.status === status);
+      return matchesQuery && matchesStatus;
     });
     const count = document.getElementById("ticketResultCount");
-    if (count) count.textContent = ticketCache.length ? `${visible} of ${ticketCache.length} conversations` : "";
+    if (count) count.textContent = ticketCache.length ? `${filtered.length} of ${ticketCache.length} conversations` : "";
+    const infoEl = document.getElementById("ticketPageInfo");
+    const pagerEl = document.getElementById("ticketPager");
+    if (!filtered.length) {
+      host.className = "support-empty";
+      host.innerHTML = renderEmptyState({
+        icon: "message-01",
+        title: "No support conversations",
+        message: ticketCache.length ? "No tickets matched your search or status filter." : "Open a ticket when you need help with an account or service.",
+        actionHtml: `<a class="btn s tint" href="/app/support/new" data-app-route="ticket-new"><svg class="ic s" width="14" height="14"><use href="/assets/petal-icons.svg#i-add-01"/></svg>Open ticket</a>`
+      });
+      if (infoEl) infoEl.textContent = "0 tickets";
+      if (pagerEl) pagerEl.innerHTML = "";
+      return;
+    }
+    const pagination = paginateItems(filtered, ticketPage, ticketPageSize);
+    ticketPage = pagination.page;
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    host.className = "col";
+    host.innerHTML = pagination.items.map(ticketRow).join("");
+  }
+  function bindSupportListeners() {
+    if (supportListenersBound) return;
+    supportListenersBound = true;
+    const section = document.getElementById("section-tickets");
+    if (!section) return;
+    section.addEventListener("click", (e) => {
+      const target = e.target;
+      const pagerBtn = target.closest("#ticketPager button[data-pg]");
+      if (pagerBtn && !pagerBtn.disabled) {
+        const p = Number(pagerBtn.dataset.pg);
+        if (p && p !== ticketPage) {
+          ticketPage = p;
+          filterTickets();
+        }
+      }
+    });
+    const search = document.getElementById("ticketSearch");
+    if (search) {
+      search.addEventListener("input", () => {
+        ticketPage = 1;
+        filterTickets();
+      });
+    }
+    section.addEventListener("change", (e) => {
+      const target = e.target;
+      if (target.name === "ticketStatus") {
+        ticketPage = 1;
+        filterTickets();
+      }
+    });
   }
   function fileDrop(inputId, labelId) {
     return `<div class="fld">
@@ -5164,35 +5356,54 @@ ${selectedOr("code")}
     if (dStr === yesterday.toDateString()) return "Yesterday";
     return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   }
-  function groupByDay(logs) {
-    const groups = /* @__PURE__ */ new Map();
-    for (const item of logs) {
-      const label = item.created_at ? dayLabel(item.created_at) : "Unknown";
-      if (!groups.has(label)) groups.set(label, []);
-      groups.get(label).push(item);
-    }
-    return groups;
-  }
-  function renderTimeline(items) {
-    return '<div class="tl2">' + items.map((item) => {
-      const [icon, tone] = actionIcon(item.action);
-      const friendly = friendlyAction(item);
-      const time = item.created_at ? new Date(item.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
-      const actor2 = item.actor_name || (item.actor_type === "SYSTEM" ? "Fortless" : "You");
-      const context = resourceContext(item);
-      const contextHtml = context ? ` \xB7 ${context.href ? `<a class="lk" href="${esc(context.href)}" data-app-route>${esc(context.label)}</a>` : `<span>${esc(context.label)}</span>`}` : "";
-      return `<div class="ev"><span class="tile ${tone} sm"><svg class="ic s" width="16" height="16"><use href="#i-${icon}"/></svg></span><div><b>${esc(friendly.title)}</b><small>${esc(friendly.detail)}${contextHtml} \xB7 ${esc(actor2)}</small></div><small class="muted mono" style="font-size:12px">${esc(time)}</small></div>`;
-    }).join("") + "</div>";
+  function renderEventRow(item) {
+    const [icon, tone] = actionIcon(item.action);
+    const friendly = friendlyAction(item);
+    const time = item.created_at ? new Date(item.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+    const actor2 = item.actor_name || (item.actor_type === "SYSTEM" ? "Fortless" : "You");
+    const context = resourceContext(item);
+    const contextHtml = context ? ` \xB7 ${context.href ? `<a class="lk" href="${esc(context.href)}" data-app-route>${esc(context.label)}</a>` : `<span>${esc(context.label)}</span>`}` : "";
+    const meta = metadata(item);
+    const codePayload = {
+      action: item.action,
+      actor: actor2,
+      actor_id: item.actor_user_id || item.actor_type,
+      ip_address: item.ip_address || "\u2014",
+      correlation_id: item.correlation_id || "\u2014",
+      resource_type: item.resource_type || null,
+      resource_id: item.resource_id || null,
+      timestamp: item.created_at,
+      ...meta
+    };
+    return `<div class="z-aur" data-event-id="${esc(item.id || "")}">
+    <button type="button" class="z-aut" aria-expanded="false">
+      <span class="tile ${tone} sm"><svg class="ic s" aria-hidden="true"><use href="/assets/petal-icons.svg#i-${icon}"/></svg></span>
+      <span class="tx">
+        <b>${esc(friendly.title)}</b>
+        <small>${esc(friendly.detail)}${contextHtml} \xB7 ${esc(actor2)}</small>
+      </span>
+      <span class="t">${esc(time)}</span>
+      <svg class="ic s chv" aria-hidden="true"><use href="/assets/petal-icons.svg#i-arrow-right-01"/></svg>
+    </button>
+    <div class="z-aud">
+      <code class="code">${esc(JSON.stringify(codePayload, null, 2))}</code>
+    </div>
+  </div>`;
   }
   var auditLogs = [];
+  var auditPage = 1;
+  var auditPageSize = 10;
+  var listenersBound = false;
   async function renderActivity() {
     const host = document.getElementById("auditList");
     if (!host) return;
     host.innerHTML = renderSkeleton("list", "Loading audit events");
     try {
       const { logs } = await api("/api/v1/audit");
-      auditLogs = logs;
+      auditLogs = logs || [];
+      auditPage = 1;
       filterActivity();
+      bindActivityListeners();
     } catch (error) {
       host.innerHTML = `<div class="alert bad"><div><b>Failed to load activity</b><span>${esc(error.message)}</span></div></div>`;
     }
@@ -5203,27 +5414,94 @@ ${selectedOr("code")}
     const searchInput = document.getElementById("auditSearch");
     const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
     const type = document.querySelector('input[name="auditType"]:checked')?.value || "ALL";
+    const range = document.querySelector('input[name="auditRange"]:checked')?.value || "ALL";
+    const now = Date.now();
+    const maxAgeMs = range === "1" ? 24 * 3600 * 1e3 : range === "7" ? 7 * 24 * 3600 * 1e3 : range === "30" ? 30 * 24 * 3600 * 1e3 : Infinity;
     const logs = auditLogs.filter((item) => {
+      if (maxAgeMs !== Infinity && item.created_at) {
+        const age = now - new Date(item.created_at).getTime();
+        if (age > maxAgeMs) return false;
+      }
       const action = String(item.action || "").toUpperCase();
       const matchesType = type === "ALL" || (type === "AUTH" ? /LOGIN|LOGOUT|SESSION|PASSWORD|MFA|EMAIL|OIDC|PASSKEY|STEP_UP/.test(action) : type === "SUPPORT" ? /TICKET|SUPPORT/.test(action) : /BILL|INVOICE|PAYMENT|SUBSCRIPTION|ORDER|QUOTE/.test(action));
+      if (!matchesType) return false;
       const friendly = friendlyAction(item);
       const context = resourceContext(item);
-      return matchesType && (!query || [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id, item.service_name, item.service_plan, item.ticket_subject, context?.label, friendly.title, friendly.detail].some(
+      return !query || [item.actor_name, item.actor_type, item.action, item.resource_type, item.resource_id, item.correlation_id, item.service_name, item.service_plan, item.ticket_subject, context?.label, friendly.title, friendly.detail].some(
         (value) => String(value || "").toLowerCase().includes(query)
-      ));
+      );
     });
     const count = document.getElementById("auditResultCount");
     if (count) count.textContent = `${logs.length} of ${auditLogs.length} events`;
+    const infoEl = document.getElementById("auditPageInfo");
+    const pagerEl = document.getElementById("auditPager");
     if (!logs.length) {
       host.innerHTML = renderEmptyState({
         icon: "history",
         title: "No recent activity",
-        message: "Events appear as you use the account."
+        message: auditLogs.length ? "No events matched your search or filters." : "Events appear as you use the account."
       });
+      if (infoEl) infoEl.textContent = "0 events";
+      if (pagerEl) pagerEl.innerHTML = "";
       return;
     }
-    const groups = groupByDay(logs);
-    host.innerHTML = Array.from(groups.entries()).map(([day, items]) => `<div class="dh">${esc(day)}</div>${renderTimeline(items)}`).join("");
+    const pagination = paginateItems(logs, auditPage, auditPageSize);
+    auditPage = pagination.page;
+    if (infoEl) infoEl.textContent = pagination.info;
+    if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+    const groups = /* @__PURE__ */ new Map();
+    for (const item of pagination.items) {
+      const label = item.created_at ? dayLabel(item.created_at) : "Unknown";
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(item);
+    }
+    host.innerHTML = Array.from(groups.entries()).map(([day, items]) => `<div class="dh" style="font-size:12px;font-weight:700;color:var(--ink3);text-transform:uppercase;letter-spacing:0.04em;padding:10px 4px 6px">${esc(day)}</div>${items.map(renderEventRow).join("")}`).join("");
+  }
+  function bindActivityListeners() {
+    if (listenersBound) return;
+    listenersBound = true;
+    const section = document.getElementById("section-audit");
+    if (!section) return;
+    section.addEventListener("click", (e) => {
+      const target = e.target;
+      const toggleBtn = target.closest(".z-aut");
+      if (toggleBtn) {
+        const row = toggleBtn.closest(".z-aur");
+        if (row) {
+          row.classList.toggle("open");
+          toggleBtn.setAttribute("aria-expanded", String(row.classList.contains("open")));
+        }
+        return;
+      }
+      const pageBtn = target.closest("#auditPager button[data-pg]");
+      if (pageBtn && !pageBtn.disabled) {
+        const newPage = Number(pageBtn.dataset.pg);
+        if (newPage && newPage !== auditPage) {
+          auditPage = newPage;
+          filterActivity();
+          const card = section.querySelector(".card");
+          if (card) card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        return;
+      }
+      if (target.closest("#refreshAuditBtn")) {
+        void renderActivity();
+      }
+    });
+    const search = document.getElementById("auditSearch");
+    if (search) {
+      search.addEventListener("input", () => {
+        auditPage = 1;
+        filterActivity();
+      });
+    }
+    section.addEventListener("change", (e) => {
+      const target = e.target;
+      if (target.name === "auditType" || target.name === "auditRange") {
+        auditPage = 1;
+        filterActivity();
+      }
+    });
   }
 
   // src/frontend/client/pages/settings/index.ts
@@ -5966,7 +6244,7 @@ ${selectedOr("code")}
           if (segGroup.getAttribute("aria-label")?.includes("service state")) filterServices();
           if (segGroup.getAttribute("aria-label")?.includes("invoice status")) filterBilling();
           if (segGroup.getAttribute("aria-label")?.includes("ticket status")) filterTickets();
-          if (segGroup.getAttribute("aria-label")?.includes("activity type")) filterActivity();
+          if (segGroup.getAttribute("aria-label")?.includes("activity")) filterActivity();
         }
         return;
       }
@@ -6377,7 +6655,7 @@ ${selectedOr("code")}
       if (target.id === "newTicketFileInput" || target.id === "ticketReplyFileInput") updateFileLabel(target);
       if (target.name === "ticketStatus") filterTickets();
       if (target.name === "invoiceStatus") filterBilling();
-      if (target.name === "auditType") filterActivity();
+      if (target.name === "auditType" || target.name === "auditRange") filterActivity();
       if (target.name === "serviceState" || target.id === "serviceTypeFilter") filterServices();
     });
   }

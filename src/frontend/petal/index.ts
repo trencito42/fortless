@@ -12,3 +12,4 @@ export * from './components/alert.js';
 export * from './components/tabs.js';
 export * from './components/otp.js';
 export * from './components/stepper.js';
+export * from './components/pagination.js';

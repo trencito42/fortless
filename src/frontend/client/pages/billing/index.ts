@@ -8,9 +8,15 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { money } from '../../../core/utils/formatting.js';
 import { formatDate } from '../../../core/utils/dates.js';
-import { renderEmptyState, renderSkeleton, toast } from '../../../petal/index.js';
+import { renderEmptyState, renderSkeleton, toast, paginateItems, renderPager } from '../../../petal/index.js';
 
 let invoiceCache: any[] = [];
+let subscriptionCache: any[] = [];
+let invoicePage = 1;
+const invoicePageSize = 10;
+let subPage = 1;
+const subPageSize = 5;
+let billingListenersBound = false;
 
 function invoiceRow(invoice: any): string {
   const badgeClass = invoice.status === 'PAID' ? 'good' : invoice.status === 'DRAFT' ? '' : 'info';
@@ -20,7 +26,7 @@ function invoiceRow(invoice: any): string {
     <td data-l="Tax">${money(invoice.tax_minor_units, invoice.currency)}</td>
     <td data-l="Total" class="r num"><b>${money(invoice.total_minor_units, invoice.currency)}</b></td>
     <td data-l="Status"><span class="pill ${badgeClass}">${esc(invoice.status)}</span></td>
-    <td class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn xs" download><svg class="ic xs" aria-hidden="true"><use href="#i-download-01"/></svg>Receipt</a></td>
+    <td class="r"><a href="/api/v1/invoices/${encodeURIComponent(invoice.id)}/download" class="btn xs" download><svg class="ic xs" aria-hidden="true"><use href="/assets/petal-icons.svg#i-download-01"/></svg>Receipt</a></td>
   </tr>`;
 }
 
@@ -36,7 +42,24 @@ export function filterBilling(): void {
   });
   const count = document.getElementById('invoiceResultCount');
   if (count) count.textContent = `${records.length} of ${invoiceCache.length} records`;
-  host.innerHTML = records.length ? records.map(invoiceRow).join('') : `<tr><td colspan="6">${renderEmptyState({ icon: 'document', title: invoiceCache.length ? 'No matching invoices' : 'No invoices', message: invoiceCache.length ? 'Try another number or status.' : 'Issued billing records will appear here.' })}</td></tr>`;
+
+  const infoEl = document.getElementById('invoicePageInfo');
+  const pagerEl = document.getElementById('invoicePager');
+
+  if (!records.length) {
+    host.innerHTML = `<tr><td colspan="6">${renderEmptyState({ icon: 'document', title: invoiceCache.length ? 'No matching invoices' : 'No invoices', message: invoiceCache.length ? 'Try another number or status.' : 'Issued billing records will appear here.' })}</td></tr>`;
+    if (infoEl) infoEl.textContent = '0 invoices';
+    if (pagerEl) pagerEl.innerHTML = '';
+    return;
+  }
+
+  const pagination = paginateItems(records, invoicePage, invoicePageSize);
+  invoicePage = pagination.page;
+
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
+  host.innerHTML = pagination.items.map(invoiceRow).join('');
 }
 
 interface BillingProfile { companyName: string | null; taxId: string | null; addressLine1: string; addressLine2: string | null; city: string; postalCode: string; country: string }
@@ -268,45 +291,113 @@ export async function renderBilling(): Promise<void> {
     }
 
     filterBilling();
-
-    // Load Subscriptions container
-    const subHost = document.getElementById('subscriptionsContainer');
-    if (subHost) {
-      if (!subscriptions.length) {
-        subHost.innerHTML = renderEmptyState({
-          icon: 'wallet-01',
-          title: 'No subscriptions',
-          message: 'Subscriptions appear after your first order.',
-        });
-      } else {
-        subHost.innerHTML = subscriptions
-          .map((sub) => {
-            const isCancelScheduled = sub.status === 'CANCEL_SCHEDULED';
-            const isCanceled = sub.status === 'CANCELED' || sub.status === 'TERMINATED';
-            const tone = sub.status === 'ACTIVE' ? 'good' : isCancelScheduled ? 'warn' : 'bad';
-            const statusLabel = isCancelScheduled ? 'CANCELLATION SCHEDULED' : sub.status;
-
-            return `<div class="li">
-              <span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="#i-wallet-01"/></svg></span>
-              <span class="tx">
-                <b>${esc(sub.serviceName)}</b>
-                <small>${isCancelScheduled ? 'Cancels ' + formatDate(sub.nextRenewalDate) : isCanceled ? 'Canceled · ' + esc(sub.billingInterval.toLowerCase()) : 'Renews ' + formatDate(sub.nextRenewalDate) + ' · ' + esc(sub.billingInterval.toLowerCase())}</small>
-              </span>
-              <span class="pill ${tone}">${esc(statusLabel)}</span>
-              <div class="row" style="gap:6px">
-                ${
-                  isCancelScheduled || isCanceled
-                    ? `<button type="button" class="btn xs good" data-reactivate-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}">Reactivate</button>`
-                    : ''
-                }
-                <button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}" data-sub-status="${esc(sub.status)}">Manage</button>
-              </div>
-            </div>`;
-          })
-          .join('');
-      }
-    }
+    paintSubscriptions();
+    bindBillingListeners();
   } catch (error: any) {
     host.innerHTML = `<tr><td colspan="6"><div class="alert bad"><div><b>Failed to load billing records</b><span>${esc(error.message)}</span></div></div></td></tr>`;
   }
 }
+
+function paintSubscriptions(): void {
+  const subHost = document.getElementById('subscriptionsContainer');
+  const paginationRow = document.getElementById('subPaginationRow');
+  const infoEl = document.getElementById('subPageInfo');
+  const pagerEl = document.getElementById('subPager');
+  if (!subHost) return;
+
+  if (!subscriptionCache.length) {
+    if (paginationRow) paginationRow.style.display = 'none';
+    subHost.innerHTML = renderEmptyState({
+      icon: 'wallet-01',
+      title: 'No subscriptions',
+      message: 'Subscriptions appear after your first order.',
+    });
+    return;
+  }
+
+  const pagination = paginateItems(subscriptionCache, subPage, subPageSize);
+  subPage = pagination.page;
+
+  if (paginationRow) {
+    paginationRow.style.display = subscriptionCache.length > subPageSize ? 'flex' : 'none';
+  }
+  if (infoEl) infoEl.textContent = pagination.info;
+  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
+
+  subHost.innerHTML = pagination.items
+    .map((sub) => {
+      const isCancelScheduled = sub.status === 'CANCEL_SCHEDULED';
+      const isCanceled = sub.status === 'CANCELED' || sub.status === 'TERMINATED';
+      const tone = sub.status === 'ACTIVE' ? 'good' : isCancelScheduled ? 'warn' : 'bad';
+      const statusLabel = isCancelScheduled ? 'CANCELLATION SCHEDULED' : sub.status;
+
+      return `<div class="li">
+        <span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="/assets/petal-icons.svg#i-wallet-01"/></svg></span>
+        <span class="tx">
+          <b>${esc(sub.serviceName)}</b>
+          <small>${isCancelScheduled ? 'Cancels ' + formatDate(sub.nextRenewalDate) : isCanceled ? 'Canceled · ' + esc(sub.billingInterval.toLowerCase()) : 'Renews ' + formatDate(sub.nextRenewalDate) + ' · ' + esc(sub.billingInterval.toLowerCase())}</small>
+        </span>
+        <span class="pill ${tone}">${esc(statusLabel)}</span>
+        <div class="row" style="gap:6px">
+          ${
+            isCancelScheduled || isCanceled
+              ? `<button type="button" class="btn xs good" data-reactivate-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}">Reactivate</button>`
+              : ''
+          }
+          <button type="button" class="btn xs" data-cancel-sub="${esc(sub.id)}" data-sub-name="${esc(sub.serviceName)}" data-renewal-date="${formatDate(sub.nextRenewalDate)}" data-sub-status="${esc(sub.status)}">Manage</button>
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
+function bindBillingListeners(): void {
+  if (billingListenersBound) return;
+  billingListenersBound = true;
+
+  const section = document.getElementById('section-billing');
+  if (!section) return;
+
+  section.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+
+    // Invoices pager
+    const invPagerBtn = target.closest<HTMLButtonElement>('#invoicePager button[data-pg]');
+    if (invPagerBtn && !invPagerBtn.disabled) {
+      const p = Number(invPagerBtn.dataset.pg);
+      if (p && p !== invoicePage) {
+        invoicePage = p;
+        filterBilling();
+      }
+      return;
+    }
+
+    // Subscriptions pager
+    const subPagerBtn = target.closest<HTMLButtonElement>('#subPager button[data-pg]');
+    if (subPagerBtn && !subPagerBtn.disabled) {
+      const p = Number(subPagerBtn.dataset.pg);
+      if (p && p !== subPage) {
+        subPage = p;
+        paintSubscriptions();
+      }
+      return;
+    }
+  });
+
+  const search = document.getElementById('invoiceSearch');
+  if (search) {
+    search.addEventListener('input', () => {
+      invoicePage = 1;
+      filterBilling();
+    });
+  }
+
+  section.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.name === 'invoiceStatus') {
+      invoicePage = 1;
+      filterBilling();
+    }
+  });
+}
+

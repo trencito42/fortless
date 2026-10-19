@@ -317,6 +317,10 @@
             <div class="card">
               <div class="ch"><div class="tx"><h3>Active subscriptions</h3><p>Recurring renewals and billing intervals.</p></div></div>
               <div id="subscriptionsContainer"><div class="sk" role="status" aria-label="Loading subscriptions"><i></i><i></i></div></div>
+              <div class="row wrap" id="subPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
+                <span class="muted" id="subPageInfo" style="font-size:12.5px"></span>
+                <div class="pager" id="subPager" data-c="Pagination"></div>
+              </div>
             </div>
 
             <div class="card" data-c="Invoice table">
@@ -347,6 +351,10 @@
                     <tr><td colspan="6"><div class="sk" role="status" aria-label="Loading invoices"><i></i><i></i><i></i></div></td></tr>
                   </tbody>
                 </table>
+              </div>
+              <div class="row wrap" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3)">
+                <span class="muted" id="invoicePageInfo" style="font-size:12.5px"></span>
+                <div class="pager" id="invoicePager" data-c="Pagination"></div>
               </div>
             </div>
           </div>
@@ -386,6 +394,10 @@
         <div id="ticketsList" class="col" style="gap:8px">
           <div class="sk" role="status" aria-label="Loading support conversations"><i></i><i></i><i></i></div>
         </div>
+        <div class="row wrap" style="justify-content:space-between;align-items:center;padding:12px 4px 4px;margin-top:8px">
+          <span class="muted" id="ticketPageInfo" style="font-size:12.5px"></span>
+          <div class="pager" id="ticketPager" data-c="Pagination"></div>
+        </div>
       </section>
 
       <!-- SECTION: NEW TICKET -->
@@ -406,20 +418,36 @@
             <p>A clear history of sign-ins, security changes, support and billing activity.</p>
           </div>
           <div class="row" style="gap:8px">
-            <a href="/api/v1/activity/export" class="btn" download><svg class="ic s" aria-hidden="true"><use href="#i-download-01"/></svg>Export CSV</a>
-            <button id="refreshAuditBtn" class="ib" aria-label="Refresh activity"><svg class="ic s" aria-hidden="true"><use href="#i-refresh"/></svg></button>
+            <a href="/api/v1/activity/export" class="btn" download><svg class="ic s" aria-hidden="true"><use href="/assets/petal-icons.svg#i-download-01"/></svg>Export CSV</a>
+            <button id="refreshAuditBtn" class="ib" aria-label="Refresh activity"><svg class="ic s" aria-hidden="true"><use href="/assets/petal-icons.svg#i-refresh"/></svg></button>
           </div>
         </div>
-        <div class="row" style="margin-bottom:12px">
-          <div class="seg" role="radiogroup" aria-label="Filter activity type">
-            <label><input type="radio" name="auditType" value="ALL" checked hidden><span class="seg-btn" role="radio" aria-checked="true" data-v="ALL">All</span></label>
-            <label><input type="radio" name="auditType" value="AUTH" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="AUTH">Sign-in</span></label>
-            <label><input type="radio" name="auditType" value="SUPPORT" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="SUPPORT">Support</span></label>
-            <label><input type="radio" name="auditType" value="BILLING" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="BILLING">Billing</span></label>
+        <div class="row wrap" style="margin-bottom:12px;gap:10px;align-items:center;justify-content:space-between">
+          <div class="inp s pill" style="flex:1;min-width:200px;max-width:340px">
+            <svg class="ic s" aria-hidden="true"><use href="/assets/petal-icons.svg#i-search-01"/></svg>
+            <input id="auditSearch" placeholder="Search events..." autocomplete="off">
+          </div>
+          <div class="row wrap" style="gap:8px">
+            <div class="seg" role="radiogroup" aria-label="Filter activity type">
+              <label><input type="radio" name="auditType" value="ALL" checked hidden><span class="seg-btn" role="radio" aria-checked="true" data-v="ALL">All</span></label>
+              <label><input type="radio" name="auditType" value="AUTH" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="AUTH">Sign-in</span></label>
+              <label><input type="radio" name="auditType" value="SUPPORT" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="SUPPORT">Support</span></label>
+              <label><input type="radio" name="auditType" value="BILLING" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="BILLING">Billing</span></label>
+            </div>
+            <div class="seg" role="radiogroup" aria-label="Filter activity time range">
+              <label><input type="radio" name="auditRange" value="1" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="1">24h</span></label>
+              <label><input type="radio" name="auditRange" value="7" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="7">7d</span></label>
+              <label><input type="radio" name="auditRange" value="30" hidden><span class="seg-btn" role="radio" aria-checked="false" data-v="30">30d</span></label>
+              <label><input type="radio" name="auditRange" value="ALL" checked hidden><span class="seg-btn" role="radio" aria-checked="true" data-v="ALL">All time</span></label>
+            </div>
           </div>
         </div>
         <div class="card" data-c="Timeline">
           <div id="auditList"><div class="sk" role="status" aria-label="Loading audit events"><i></i><i></i><i></i></div></div>
+          <div class="row wrap" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3)">
+            <span class="muted" id="auditPageInfo" style="font-size:12.5px"></span>
+            <div class="pager" id="auditPager" data-c="Pagination"></div>
+          </div>
         </div>
       </section>
 
