@@ -121,7 +121,9 @@ export function createFastDlService(deps: FastDlDeps = {}) {
 
       // Check if cvar is configured in server.cfg
       let cvarConfigured = Boolean(configRow?.cvar_configured_at);
-      try {
+      // While a sync runs the page polls this endpoint; skip the live panel read then so polling cannot use up the
+      // panel's per-key request budget that the sync needs.
+      if (!activeJob) try {
         const file = await filesApi.read(ctx, profile.configFile);
         cvarConfigured = isCvarConfigured(file.content, profile, publicDownloadUrl);
       } catch {

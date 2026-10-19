@@ -84,6 +84,14 @@ export class ProviderError extends Error {
   }
 }
 
+/** The panel answered 429 ("Too Many Attempts"). Not a failure of the request itself: wait and repeat. */
+export class ProviderRateLimitedError extends ProviderError {
+  constructor(public readonly retryAfterSeconds: number) {
+    super(`The panel is rate limiting requests; retry in ${retryAfterSeconds}s.`, 'RATE_LIMITED', 429);
+    this.name = 'ProviderRateLimitedError';
+  }
+}
+
 export class ProviderNetworkError extends ProviderError {
   constructor(message: string) {
     super(message, 'PROVIDER_NETWORK_TIMEOUT', 504);
@@ -192,6 +200,11 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
 
       if (response.status === 401 || response.status === 403) {
         throw new ProviderAuthenticationError(`Pterodactyl API rejected credentials (${response.status})`, response.status);
+      }
+
+      if (response.status === 429) {
+        const header = Number(response.headers.get('retry-after'));
+        throw new ProviderRateLimitedError(Number.isFinite(header) && header > 0 ? Math.min(Math.ceil(header), 120) : 30);
       }
 
       if (response.status === 422) {

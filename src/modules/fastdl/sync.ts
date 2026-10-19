@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { config } from '../../config/index.js';
 import { getDatabase } from '../../database/index.js';
 import { getProviderAdapter } from '../outbox/worker.js';
-import type { PanelFileEntry, PterodactylHttpAdapter, ProviderAdapter } from '../provisioning/adapter.js';
+import { ProviderRateLimitedError, type PanelFileEntry, type PterodactylHttpAdapter, type ProviderAdapter } from '../provisioning/adapter.js';
 import { resolveOwnedService, withAccountClientKey } from '../provisioning/console.js';
 import { compressBz2, sha256 } from './compression.js';
 import { listActiveManifestMap, markManifestDeleted, upsertManifestItem } from './manifest.js';
@@ -25,6 +25,33 @@ export interface SyncOptions {
     storage?: FastDlStorageBackend;
     secret?: string;
     fetchFn?: typeof fetch;
+    /** Minimum gap between panel API calls and the wait function; tests set both to 0. */
+    panelIntervalMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+  };
+}
+
+/**
+ * The panel limits each key to roughly 240 client API calls a minute and answers 429 "Too Many Attempts" beyond that.
+ * A large first sync would hit it (and starve the status page, which uses the same key), so panel calls are spaced
+ * out and a 429 is waited out and repeated instead of failing the file.
+ */
+export function createPanelThrottle(opts: { intervalMs: number; sleep: (ms: number) => Promise<void>; maxAttempts?: number; isCancelled?: () => boolean }) {
+  let last = 0;
+  return async function paced<T>(fn: () => Promise<T>): Promise<T> {
+    const attempts = opts.maxAttempts ?? 6;
+    for (let attempt = 1; ; attempt++) {
+      const wait = last + opts.intervalMs - Date.now();
+      if (wait > 0) await opts.sleep(wait);
+      last = Date.now();
+      try {
+        return await fn();
+      } catch (err) {
+        if (!(err instanceof ProviderRateLimitedError) || attempt >= attempts || opts.isCancelled?.()) throw err;
+        await opts.sleep(err.retryAfterSeconds * 1000);
+        last = Date.now();
+      }
+    }
   };
 }
 
@@ -81,7 +108,8 @@ export async function scanServerAssets(
   externalId: string,
   key: string,
   profile: FastDlProfile,
-  maxFiles = 2000
+  maxFiles = 2000,
+  paced: <T>(fn: () => Promise<T>) => Promise<T> = (fn) => fn()
 ): Promise<ScannedAsset[]> {
   const assets: ScannedAsset[] = [];
   const visitedDirs = new Set<string>();
@@ -92,7 +120,7 @@ export async function scanServerAssets(
 
     let entries: PanelFileEntry[];
     try {
-      entries = await adapter.listFiles(externalId, dirPath, key);
+      entries = await paced(() => adapter.listFiles(externalId, dirPath, key));
     } catch {
       return; // Directory does not exist or unreadable, continue
     }
@@ -180,8 +208,13 @@ export async function executeFastDlSync(options: SyncOptions): Promise<{
 
   try {
     return await withAccountClientKey(accountId, adapter, db, secret, async (key) => {
+      const paced = createPanelThrottle({
+        intervalMs: options.deps?.panelIntervalMs ?? 400,
+        sleep: options.deps?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
+        isCancelled: () => isJobCancelled(jobId),
+      });
       // 1. Scan server files
-      const scannedAssets = await scanServerAssets(adapter, service.external_id, key, profile);
+      const scannedAssets = await scanServerAssets(adapter, service.external_id, key, profile, 2000, paced);
 
       if (isJobCancelled(jobId)) {
         clearJobCancellation(jobId);
@@ -236,23 +269,16 @@ export async function executeFastDlSync(options: SyncOptions): Promise<{
         }
 
         try {
-          // Read/download file content from server
+          // One panel call per file (a signed download link); the bytes themselves come from the node.
+          // The text read endpoint is not used: it decodes the file as UTF-8 and would corrupt binary assets.
           let fileData: Buffer;
           try {
-            // First attempt reading via adapter content endpoint (fast for small/medium files)
-            const textContent = await adapter.readFile(service.external_id, asset.serverPath, key);
-            fileData = Buffer.from(textContent, 'utf8');
-          } catch (e: any) {
-            // If file is binary or too large for text endpoint, get signed download URL and fetch stream
-            try {
-              const downloadUrl = await adapter.signedFileUrl(service.external_id, 'download', asset.serverPath, key);
-              const res = await doFetch(downloadUrl);
-              if (!res.ok) throw new Error(`Download HTTP ${res.status}`);
-              const arrBuf = await res.arrayBuffer();
-              fileData = Buffer.from(arrBuf);
-            } catch (dlErr: any) {
-              throw new Error(`Failed to download asset: ${dlErr.message}`);
-            }
+            const downloadUrl = await paced(() => adapter.signedFileUrl(service.external_id, 'download', asset.serverPath, key));
+            const res = await doFetch(downloadUrl);
+            if (!res.ok) throw new Error(`Download HTTP ${res.status}`);
+            fileData = Buffer.from(await res.arrayBuffer());
+          } catch (dlErr: any) {
+            throw new Error(`Failed to download asset: ${dlErr.message}`);
           }
 
           const fileHash = sha256(fileData);

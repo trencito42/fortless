@@ -85,6 +85,13 @@ class MockFastDlPterodactylAdapter extends PterodactylHttpAdapter {
   override async signedFileUrl(_id: string, _kind: string, p: string) {
     return `https://node.example.test/download?file=${encodeURIComponent(p)}`;
   }
+
+  /** Stands in for the node: serves the bytes of whatever file the signed link names. */
+  fetchFn = (async (url: string) => {
+    const p = new URL(url).searchParams.get('file') ?? '';
+    const c = this.files.get(p);
+    return c === undefined ? new Response('missing', { status: 404 }) : new Response(Buffer.from(c, 'utf8'));
+  }) as unknown as typeof fetch;
 }
 
 function seedAccountAndService(db: Database.Database, serviceId: string, accountId: string, _egg?: string) {
@@ -332,6 +339,9 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
         adapter,
         storage,
         secret: SECRET,
+        fetchFn: adapter.fetchFn,
+        panelIntervalMs: 0,
+        sleep: async () => undefined,
       },
     });
 
@@ -456,5 +466,47 @@ describe('Fortless Auto FastDL: Full Sync, Incremental Resync, and Deletions', (
       accountId,
       userId: 'usr_1',
     })).rejects.toThrow();
+  });
+});
+
+describe('FastDL sync respects the panel rate limit', () => {
+  it('spaces panel calls, waits out a 429 using Retry-After and repeats the call instead of failing the file', async () => {
+    const { createPanelThrottle } = await import('../src/modules/fastdl/sync.js');
+    const { ProviderRateLimitedError } = await import('../src/modules/provisioning/adapter.js');
+    const sleeps: number[] = [];
+    const paced = createPanelThrottle({ intervalMs: 0, sleep: async (ms) => { sleeps.push(ms); } });
+    let calls = 0;
+    const out = await paced(async () => {
+      calls++;
+      if (calls < 3) throw new ProviderRateLimitedError(7);
+      return 'ok';
+    });
+    expect(out).toBe('ok');
+    expect(calls).toBe(3);
+    expect(sleeps).toEqual([7000, 7000]);
+  });
+
+  it('gives up after the attempt budget and rethrows other errors immediately', async () => {
+    const { createPanelThrottle } = await import('../src/modules/fastdl/sync.js');
+    const { ProviderRateLimitedError } = await import('../src/modules/provisioning/adapter.js');
+    const paced = createPanelThrottle({ intervalMs: 0, sleep: async () => undefined, maxAttempts: 3 });
+    let n = 0;
+    await expect(paced(async () => { n++; throw new ProviderRateLimitedError(1); })).rejects.toBeInstanceOf(ProviderRateLimitedError);
+    expect(n).toBe(3);
+    let m = 0;
+    await expect(paced(async () => { m++; throw new Error('boom'); })).rejects.toThrow('boom');
+    expect(m).toBe(1);
+  });
+
+  it('a 429 from the panel becomes a typed rate-limit error carrying Retry-After', async () => {
+    const { PterodactylHttpAdapter, ProviderRateLimitedError } = await import('../src/modules/provisioning/adapter.js');
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('Too Many Attempts.', { status: 429, headers: { 'retry-after': '12' } })) as typeof fetch;
+    try {
+      const a = new PterodactylHttpAdapter({ panelUrl: 'https://panel.example.test', apiKey: 'k' });
+      const err = await a.listFiles('1', '/', 'ptlc_' + 'x'.repeat(40)).catch((e) => e);
+      expect(err).toBeInstanceOf(ProviderRateLimitedError);
+      expect((err as InstanceType<typeof ProviderRateLimitedError>).retryAfterSeconds).toBe(12);
+    } finally { globalThis.fetch = realFetch; }
   });
 });
