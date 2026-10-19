@@ -1,0 +1,17 @@
+# Claude source audit protocol — Fortless
+
+Source of truth: `audits/FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx` on the latest `main` commit.
+
+**FIRST** merge `audits/STATUS_REOPEN_PATCH_32afdbb.csv` into current workbook by stable finding IDs. This is a status delta, not an alternative workbook. The agent updated the workbook in commit `32afdbb`, so NEVER replace it with an older local copy. Retain all sheets, notes, formulas, styling, status history, and unknown rows. For NEW-339..343 add exactly one full row per new ID using `audits/AUDIT_DELTA_32afdbb_2026-10-19.md`. Existing finding IDs should be updated not duplicated. Keep `FIXED_IN_CODE` distinct from `TESTED/CLOSED`.
+
+Independent audit thereafter: reason from source and tests, not commit messages. Search all previously tracked findings and prior audit markdown documents before allocating new IDs. Use `git grep` for related code paths, investigate end-to-end: Identity/RBAC/IDOR, MFA/step-up, Stripe/ledger/refunds/subscriptions, quote/coupon/tax math, Pterodactyl/WHM/Proxmox adapters, outbox job dispatch, lifecycle/capacity, domains/DNS, support attachments, background workers, retries, backup/restore, router and Petal state/permission UX. Audit overlapping chains before filing isolated symptoms.
+
+Record only actionable findings with file+line, evidence, realistic impact, reproduction/test scenario, fix direction, acceptance criterion and commit SHA. Categorize `CONFIRMED_CODE`, `TEST_NEEDED`, `CONFIG_DEPENDENT`; do not misrepresent inferred exploit as live verified. For each finding check if already covered by an existing ID, consolidate into that ID with extra evidence if so; only append a new ID for a genuinely distinct root cause. Never fabricate severity or inflate the issue count.
+
+Status transitions: `OPEN`, `PARTIAL`, `FIXED_IN_CODE`, `NEEDS_VERIFICATION`, `POLICY_DECISION`, `TESTED`, `CLOSED`, `REGRESSION`. Do not use REGRESSION for a claimed fix that was never proven working. To reopen, record the previous value and precise source reason in `Status History`. Never close a ticket because a comment says fixed. Preserve chronology.
+
+Operational discipline: source audit and sandbox unit tests only; no production destructive probes, actual charges, real deletes, credential dumps or vulnerability publication. No unauthorized external target scanning. Do not modify implementation code unless the owner instructs; you may write isolated tests/proofs with safe mocks. Run build, typecheck, tests where available. For UI, check workflow states and role/provider applicability and report Petal-specific gaps without redesigning components.
+
+Continue independently through new source areas until tools/context/quota constrain you. Every ~8-15 confirmed/reverified findings, **save the workbook and git commit/push it in serial order** (pull/rebase latest and verify SHA before each update). Avoid simultaneous XLSX writers or force push. Before stopping, update status history, dashboard, push history, audit coverage and an audit summary linking new IDs. If no supported findings remain in an area, mark scope checked, not 'bug-free forever'.
+
+Release bar: zero known reproducible defects, zero critical workflow regressions, payments/refunds/cancellations/renewals E2E, no false COMPLETED provisioning, account-isolation tests, backup restore drill, MFA gating, verified provider states, stable navigation/UX. Do not imply launch readiness based on static inspection alone.
