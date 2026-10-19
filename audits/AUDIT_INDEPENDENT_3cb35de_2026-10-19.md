@@ -122,6 +122,15 @@ Reviewed at `2fc2350`; source traces only. NEW-381 also received an evidence not
 | NEW-392 | P2 | Reinstall completion inferred from the first running/offline reading (NEEDS_VERIFICATION) |
 | NEW-393 | P2 | Service invitation accept is not retry-safe; orphan panel subuser possible |
 
+## New findings, batch 6 (2) — CORS, CSRF, headers
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-394 | P2 | Default CORS allowlist includes `http://localhost:3021` with credentials, also in production |
+| NEW-395 | P2 | CSRF tokens are not bound to the session and are issued anonymously |
+
+Evidence notes added to SEC-10 (live headers: no CSP, no HSTS; nginx sets X-Frame-Options, nosniff, Referrer-Policy) and NEW-361 (device cookie has no Secure flag in the live deployment). `npm audit --omit=dev` reported 0 known vulnerabilities at this date. Frontend XSS spot-check: the markdown renderer escapes first and only emits fixed tags; no unescaped server-data interpolation found by pattern search (not exhaustive, 185 innerHTML sites).
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
