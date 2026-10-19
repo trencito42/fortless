@@ -186,7 +186,7 @@ export function listAdminAudit(db: Database.Database, options: AdminListOptions 
   const like = search(query);
   const rows = db.prepare(`
     SELECT ae.id, ae.account_id, ae.actor_type, ae.action, ae.resource_type,
-           ae.resource_id, ae.ip_address, ae.correlation_id, ae.created_at,
+           ae.resource_id, ae.ip_address, ae.correlation_id, ae.metadata, ae.created_at,
            u.name AS actor_name, u.email AS actor_email, a.name AS account_name
     FROM audit_events ae
     LEFT JOIN users u ON u.id = ae.actor_user_id
@@ -197,8 +197,17 @@ export function listAdminAudit(db: Database.Database, options: AdminListOptions 
     ORDER BY ae.created_at DESC, ae.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, like, like, like, limit, offset);
+  const total = (db.prepare(`
+    SELECT count(*) AS count
+    FROM audit_events ae
+    LEFT JOIN users u ON u.id = ae.actor_user_id
+    LEFT JOIN accounts a ON a.id = ae.account_id
+    WHERE (? = '' OR ae.action LIKE ? ESCAPE '\\' OR ae.resource_type LIKE ? ESCAPE '\\'
+      OR ae.resource_id LIKE ? ESCAPE '\\' OR ae.correlation_id LIKE ? ESCAPE '\\'
+      OR coalesce(u.email, '') LIKE ? ESCAPE '\\' OR coalesce(a.name, '') LIKE ? ESCAPE '\\')
+  `).get(query, like, like, like, like, like, like) as { count: number }).count;
 
-  return { logs: rows, limit, offset };
+  return { logs: rows, total, limit, offset };
 }
 
 export function listAdminStaff(db: Database.Database, options: AdminListOptions = {}) {
@@ -216,7 +225,13 @@ export function listAdminStaff(db: Database.Database, options: AdminListOptions 
     ORDER BY CASE sm.status WHEN 'ACTIVE' THEN 0 ELSE 1 END, sm.created_at ASC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, limit, offset);
-  return { staff: rows, limit, offset };
+  const total = (db.prepare(`
+    SELECT count(*) AS count
+    FROM staff_memberships sm
+    JOIN users u ON u.id = sm.user_id
+    WHERE (? = '' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\' OR sm.role LIKE ? ESCAPE '\\')
+  `).get(query, like, like, like) as { count: number }).count;
+  return { staff: rows, total, limit, offset };
 }
 
 export interface AdminAccountDetail {

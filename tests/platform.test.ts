@@ -1688,7 +1688,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         total: 1,
         jobs: [{ job_type: 'EMAIL', status: 'PENDING', subject: 'email_verification → operations@example.com' }],
       });
-      expect(listAdminAudit(db, { query: 'user.registration_pending' }).logs).toHaveLength(1);
+      expect(listAdminAudit(db, { query: 'user.registration_pending' })).toMatchObject({ total: 1, logs: [{ metadata: expect.any(String) }] });
     });
 
     it('ADMIN-03: persisted staff roles deny by default and revocation takes effect immediately', () => {
@@ -1700,7 +1700,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(hasStaffPermission(user.user.id, 'tickets:read', db)).toBe(true);
       expect(hasStaffPermission(user.user.id, 'audit:read', db)).toBe(false);
       expect(hasStaffPermission(user.user.id, 'staff:manage', db)).toBe(false);
-      expect(listAdminStaff(db, { query: 'support' }).staff).toHaveLength(1);
+      expect(listAdminStaff(db, { query: 'support' })).toMatchObject({ total: 1, staff: [{ email: 'support@example.com' }] });
       db.prepare("UPDATE staff_memberships SET status = 'REVOKED' WHERE user_id = ?").run(user.user.id);
       expect(hasStaffPermission(user.user.id, 'tickets:read', db)).toBe(false);
     });
