@@ -1235,6 +1235,15 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       `);
     },
   },
+  {
+    version: 60, // audit remediation block (60+) so concurrent work on other migration numbers cannot collide
+    name: 'quote lines keep interval, region and setup fee',
+    up(db) {
+      if (!hasColumn(db, 'quote_lines', 'interval')) db.exec("ALTER TABLE quote_lines ADD COLUMN interval TEXT NOT NULL DEFAULT 'MONTHLY'");
+      if (!hasColumn(db, 'quote_lines', 'region_id')) db.exec('ALTER TABLE quote_lines ADD COLUMN region_id TEXT');
+      if (!hasColumn(db, 'quote_lines', 'setup_fee_minor_units')) db.exec('ALTER TABLE quote_lines ADD COLUMN setup_fee_minor_units INTEGER NOT NULL DEFAULT 0');
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

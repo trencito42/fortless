@@ -510,7 +510,7 @@ async function executeProvisioningSaga(
   }
 
   // Confirm provider status
-  const confirmedStatus = (existingOnProvider?.status || (await adapter.lookupByCorrelationTag(correlationTag))?.status) || 'RUNNING';
+  const confirmedStatus = (existingOnProvider?.status || (await adapter.lookupByCorrelationTag(correlationTag))?.status) || 'INSTALLING';
 
   // 4. Update Database
   runInTransaction((trx) => {

@@ -80,7 +80,8 @@ export function saveBillingProfile(a: Actor, raw: unknown, db: Database.Database
   db.prepare(`
     INSERT INTO billing_profiles (id, account_id, tax_id, company_name, address_line1, address_line2, city, postal_code, country)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(account_id) DO UPDATE SET tax_id = excluded.tax_id, company_name = excluded.company_name, address_line1 = excluded.address_line1,
+    ON CONFLICT(account_id) DO UPDATE SET tax_id_type = CASE WHEN COALESCE(billing_profiles.tax_id, '') = COALESCE(excluded.tax_id, '') THEN billing_profiles.tax_id_type ELSE NULL END,
+      tax_id = excluded.tax_id, company_name = excluded.company_name, address_line1 = excluded.address_line1,
       address_line2 = excluded.address_line2, city = excluded.city, postal_code = excluded.postal_code, country = excluded.country, updated_at = datetime('now', 'utc')
   `).run(generateId('bpr'), a.accountId, profile.taxId, profile.companyName, profile.addressLine1, profile.addressLine2, profile.city, profile.postalCode, profile.country);
   audit(db, a, 'billing.profile_updated', 'account', a.accountId, { country: profile.country, hasTaxId: Boolean(profile.taxId) });

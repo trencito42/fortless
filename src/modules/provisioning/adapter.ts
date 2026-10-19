@@ -291,7 +291,9 @@ export class PterodactylHttpAdapter implements ProviderAdapter {
         externalId: String(attrs.id),
         identifier: attrs.identifier,
         name: attrs.name,
-        status: attrs.suspended ? 'STOPPED' : attrs.status === 'installing' ? 'INSTALLING' : 'RUNNING',
+        // FTL-PROV-204: the Application API cannot say whether the process is up. An installed server is offline until
+        // Wings reports otherwise, so it is STOPPED here and the runtime sync promotes it to RUNNING once observed.
+        status: attrs.suspended ? 'STOPPED' : attrs.status === 'installing' ? 'INSTALLING' : attrs.status === 'install_failed' ? 'ERROR' : 'STOPPED',
         nodeId: String(attrs.node),
         limits: {
           memoryMb: attrs.limits?.memory || 0,

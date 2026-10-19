@@ -270,7 +270,10 @@ CREATE TABLE IF NOT EXISTS quote_lines (
   plan_version_id TEXT NOT NULL REFERENCES plan_versions(id) ON DELETE RESTRICT,
   quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity > 0),
   unit_price_minor_units INTEGER NOT NULL,
-  total_minor_units INTEGER NOT NULL
+  total_minor_units INTEGER NOT NULL,
+  interval TEXT NOT NULL DEFAULT 'MONTHLY',
+  region_id TEXT,
+  setup_fee_minor_units INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS orders (

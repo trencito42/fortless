@@ -3,7 +3,7 @@ import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
 import { suspendService, unsuspendService, terminateService } from '../provisioning/services.js';
 import { queueEmail } from '../email/outbox.js';
-import { resolveTaxRate, computeTaxMinorUnits } from '../pricing/quote.js';
+import { resolveTaxRate, computeTaxMinorUnits, VERIFIED_TAX_ID_TYPE } from '../pricing/quote.js';
 
 export interface RenewalResult {
   renewedCount: number;
@@ -198,12 +198,13 @@ export async function processSubscriptionRenewals(
       `).run(graceEnd, sub.id);
 
       // Calculate dynamic tax for renewal invoice based on account country and tax settings (NEW-324)
-      const bp = trx.prepare('SELECT country, tax_id, company_name FROM billing_profiles WHERE account_id = ?').get(sub.account_id) as
-        | { country?: string; tax_id?: string; company_name?: string }
+      const bp = trx.prepare('SELECT country, tax_id, tax_id_type, company_name FROM billing_profiles WHERE account_id = ?').get(sub.account_id) as
+        | { country?: string; tax_id?: string; tax_id_type?: string | null; company_name?: string }
         | undefined;
       const country = bp?.country || 'DE';
-      const isB2B = Boolean(bp?.company_name || bp?.tax_id);
-      const taxEvidence = resolveTaxRate(country, isB2B, bp?.tax_id || undefined);
+      // NEW-304: reverse charge only for a tax id that staff marked as verified.
+      const verifiedVat = bp?.tax_id_type === VERIFIED_TAX_ID_TYPE && Boolean(bp?.tax_id);
+      const taxEvidence = resolveTaxRate(country, verifiedVat, verifiedVat ? bp!.tax_id! : undefined);
       const taxAmount = computeTaxMinorUnits(sub.renewal_price_minor_units, taxEvidence.taxRateBasisPoints);
       const totalAmount = sub.renewal_price_minor_units + taxAmount;
 

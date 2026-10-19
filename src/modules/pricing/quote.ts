@@ -43,6 +43,9 @@ export interface QuoteSnapshot {
   signature: string;
 }
 
+/** Set by staff (admin billing profile) after the tax id was checked; only this value permits reverse charge. */
+export const VERIFIED_TAX_ID_TYPE = 'EU_VAT_VERIFIED';
+
 const VAT_RATES: Record<string, number> = {
   DE: 1900,
   FR: 2000,
@@ -283,9 +286,9 @@ export function createQuote(
 
   for (const line of lines) {
     db.prepare(`
-      INSERT INTO quote_lines (id, quote_id, plan_version_id, quantity, unit_price_minor_units, total_minor_units)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(generateId('qln'), quoteId, line.planVersionId, line.quantity, line.unitPriceMinorUnits, line.totalMinorUnits);
+      INSERT INTO quote_lines (id, quote_id, plan_version_id, quantity, unit_price_minor_units, total_minor_units, interval, region_id, setup_fee_minor_units)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(generateId('qln'), quoteId, line.planVersionId, line.quantity, line.unitPriceMinorUnits, line.totalMinorUnits, line.interval ?? 'MONTHLY', line.regionId ?? null, line.setupFeeMinorUnits ?? 0);
   }
 
   return { ...quoteData, signature };
@@ -322,6 +325,9 @@ export function verifyQuote(quoteId: string, accountId: string, db: Database.Dat
     quantity: number;
     unit_price_minor_units: number;
     total_minor_units: number;
+    interval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
+    region_id: string | null;
+    setup_fee_minor_units: number;
   })[];
 
   const rawMeta = JSON.parse(quoteRow.tax_calculation_snapshot) as Record<string, unknown>;
@@ -344,6 +350,10 @@ export function verifyQuote(quoteId: string, accountId: string, db: Database.Dat
       quantity: l.quantity,
       unitPriceMinorUnits: l.unit_price_minor_units,
       totalMinorUnits: l.total_minor_units,
+      // FTL-BILL-201 / NEW-305 / NEW-315: what the customer was quoted must come back unchanged at checkout.
+      interval: l.interval,
+      regionId: l.region_id ?? undefined,
+      setupFeeMinorUnits: l.setup_fee_minor_units,
     })),
     validUntil: quoteRow.valid_until,
   };

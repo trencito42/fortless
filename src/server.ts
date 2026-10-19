@@ -94,7 +94,7 @@ import {
   updatePlanStatus,
 } from './modules/catalog/catalog.js';
 import { PterodactylHttpAdapter, ProviderError } from './modules/provisioning/adapter.js';
-import { createQuote } from './modules/pricing/quote.js';
+import { VERIFIED_TAX_ID_TYPE, createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
 import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund, retryPspInboxEvent } from './modules/payments/webhooks.js';
 import {
@@ -1312,14 +1312,16 @@ export function buildServer(): FastifyInstance {
     }
 
     try {
-      const profile = getDatabase().prepare('SELECT country, tax_id, company_name FROM billing_profiles WHERE account_id = ?').get(req.auth!.account.id) as
-        { country?: string | null; tax_id?: string | null; company_name?: string | null } | undefined;
+      const profile = getDatabase().prepare('SELECT country, tax_id, tax_id_type, company_name FROM billing_profiles WHERE account_id = ?').get(req.auth!.account.id) as
+        { country?: string | null; tax_id?: string | null; tax_id_type?: string | null; company_name?: string | null } | undefined;
+      // NEW-304: a tax id the customer typed is not evidence. Reverse charge needs a tax id that staff verified.
+      const verifiedVat = profile?.tax_id_type === VERIFIED_TAX_ID_TYPE && Boolean(profile.tax_id);
       const quote = createQuote(
         req.auth!.account.id,
         parse.data.items,
         (profile?.country || 'DE').toUpperCase(),
-        Boolean(profile?.company_name || profile?.tax_id),
-        profile?.tax_id || undefined,
+        verifiedVat,
+        verifiedVat ? profile!.tax_id! : undefined,
         parse.data.couponCode
       );
       return reply.status(201).send(quote);
