@@ -4,7 +4,7 @@ import { listProfiles, saveProfile, deleteProfile, describeProfileChange, Profil
 import { getProviderAdapter } from './modules/outbox/worker.js';
 import { createServiceSharing, SharingError } from './modules/provisioning/service-members.js';
 import { getServiceAccess } from './modules/provisioning/service-access.js';
-import { touchService, relinkService, RelinkError } from './modules/provisioning/runtime-sync.js';
+import { touchService, relinkService, RelinkError, reconcileWithPanel } from './modules/provisioning/runtime-sync.js';
 import { createServerPanelApi } from './modules/provisioning/server-panel.js';
 import { createFilesApi } from './modules/provisioning/files.js';
 import {
@@ -139,6 +139,7 @@ import {
   listAdminCreditNotes,
   getAdminCapacityPools,
   listAdminJobs,
+  retryAdminJob,
 } from './modules/admin/read-model.js';
 import { getStaffAccess, hasStaffPermission, STAFF_ROLES, type StaffPermission } from './modules/admin/access.js';
 import { applyStaffChange, StaffChangeError } from './modules/admin/staff.js';
@@ -2892,6 +2893,36 @@ export function buildServer(): FastifyInstance {
     return getAdminCapacityPools(getDatabase());
   });
 
+  app.patch('/api/v1/admin/infrastructure/nodes/:id/maintenance', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({ enabled: z.boolean(), reason: z.string().trim().min(5).max(300) }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Maintenance state and an audit reason are required.' });
+    const db = getDatabase();
+    const node = db.prepare('SELECT id, maintenance_mode FROM nodes WHERE id = ?').get(params.data.id) as { id: string; maintenance_mode: number } | undefined;
+    if (!node) return reply.status(404).send({ error: 'Node not found.' });
+    db.transaction(() => {
+      db.prepare('UPDATE nodes SET maintenance_mode = ? WHERE id = ?').run(body.data.enabled ? 1 : 0, params.data.id);
+      db.prepare(`INSERT INTO audit_events (id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+        VALUES (?, ?, 'STAFF', 'infrastructure.node_maintenance_changed', 'node', ?, ?, ?, ?)`)
+        .run(generateId('aud'), req.auth!.user.id, params.data.id, req.ip, generateId('cor'), JSON.stringify({ from: Boolean(node.maintenance_mode), to: body.data.enabled, reason: body.data.reason }));
+    })();
+    return { success: true, nodeId: params.data.id, maintenanceMode: body.data.enabled };
+  });
+
+  app.post('/api/v1/admin/infrastructure/reconcile', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const body = z.object({ reason: z.string().trim().min(5).max(300) }).safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: 'An audit reason is required.' });
+    if (config.PROVIDER_MODE !== 'pterodactyl_1' || !config.PTERODACTYL_PANEL_URL || !config.PTERODACTYL_API_KEY) return reply.status(503).send({ error: 'Pterodactyl provider is not configured.', code: 'PROVIDER_NOT_CONFIGURED' });
+    try {
+      const adapter = new PterodactylHttpAdapter({ panelUrl: config.PTERODACTYL_PANEL_URL, apiKey: config.PTERODACTYL_API_KEY, timeoutMs: 15_000 });
+      const result = await reconcileWithPanel(adapter, getDatabase(), config.PTERODACTYL_KEYMINT_SECRET);
+      recordCatalogAudit(req, 'infrastructure.reconciliation_completed', 'service', 'provider:pterodactyl', { ...result, reason: body.data.reason });
+      return { success: true, result };
+    } catch (err: unknown) {
+      return reply.status(502).send({ error: 'Provider reconciliation could not complete; no provider state was changed.', detail: (err as Error).message, code: 'RECONCILIATION_FAILED' });
+    }
+  });
+
   app.post('/api/v1/admin/payments/inbox/:id/retry', { preHandler: [requireAuth, requireStaffPermission('accounts:manage'), requireRecentStepUp] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     try {
@@ -2915,6 +2946,19 @@ export function buildServer(): FastifyInstance {
       type: parsed.data.type,
       status: parsed.data.status,
     });
+  });
+
+  app.post('/api/v1/admin/jobs/:type/:id/retry', { preHandler: [requireAuth, requireStaffPermission('services:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ type: z.enum(['PROVISIONING', 'OUTBOX', 'EMAIL', 'WEBHOOK']), id: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({ reason: z.string().trim().min(5).max(300) }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'A supported workflow and audit reason are required.' });
+    try {
+      if (params.data.type === 'WEBHOOK') return { success: true, result: retryPspInboxEvent(getDatabase(), params.data.id, { userId: req.auth!.user.id, ipAddress: req.ip }) };
+      return { success: true, result: retryAdminJob({ type: params.data.type, id: params.data.id, actorUserId: req.auth!.user.id, ipAddress: req.ip, reason: body.data.reason }, getDatabase()) };
+    } catch (err: unknown) {
+      const message = (err as Error).message;
+      return reply.status(message.startsWith('NOT_FOUND') ? 404 : message.startsWith('NOT_RETRYABLE') ? 409 : 422).send({ error: message, code: message.split(':')[0] });
+    }
   });
 
   // Admin Services: Suspend

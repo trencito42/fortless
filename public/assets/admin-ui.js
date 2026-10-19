@@ -2490,7 +2490,7 @@
       <td data-l="Status">${badge(job.status)}</td>
       <td data-l="Attempts">${Number(job.attempt_count || 0)}</td>
       <td data-l="Last error"><span class="muted">${esc(job.last_error || "\u2014")}</span></td>
-      <td data-l="Updated">${formatDate(job.updated_at)}</td>
+      <td data-l="Updated">${formatDate(job.updated_at)}${["FAILED", "NEEDS_MANUAL_REVIEW", "DEAD_LETTER", "ANOMALY"].includes(job.status) ? `<button class="btn xs" style="margin-top:6px" data-job-retry="${esc(job.job_type)}" data-job-id="${esc(job.id)}" data-permission="services:manage">Retry safely</button>` : ""}</td>
     </tr>`).join("") : '<tr><td colspan="7"><div class="es"><h4>No matching workflow records</h4><p>Nothing persisted for the selected filters.</p></div></td></tr>';
       const pages = Math.max(1, Math.ceil(total / pageSize));
       const start = (currentPage - 1) * pageSize;
@@ -2832,7 +2832,7 @@
         const used = x.total_memory_mb ? Math.round(x.allocated_memory_mb / x.total_memory_mb * 100) : 0;
         return `<article class="cap"><div><b>${esc(x.name)}</b><small>${esc(x.code)} \xB7 ${esc(x.country)} \xB7 ${x.node_count} nodes</small></div>${badge(x.is_active ? "ACTIVE" : "INACTIVE")}<div class="meter"><i style="width:${Math.min(used, 100)}%"></i></div><small>${used}% memory allocated</small></article>`;
       }).join("") : empty2("No configured capacity regions");
-      nodesHost.innerHTML = data.nodes.length ? data.nodes.map((x) => `<tr><td data-l="Node"><b>${esc(x.name)}</b><small>${esc(x.fqdn)}</small></td><td data-l="Region">${esc(x.region_name)}</td><td data-l="Services">${Number(x.active_service_count)}</td><td data-l="Memory">${Math.round(x.allocated_memory_mb / 1024)} / ${Math.round(x.max_memory_mb / 1024)} GB</td><td data-l="Disk">${Math.round(x.allocated_disk_mb / 1024)} / ${Math.round(x.max_disk_mb / 1024)} GB</td><td data-l="Mode">${badge(x.maintenance_mode ? "MAINTENANCE" : "AVAILABLE")}</td></tr>`).join("") : `<tr><td colspan="6">${empty2("No configured nodes")}</td></tr>`;
+      nodesHost.innerHTML = data.nodes.length ? data.nodes.map((x) => `<tr><td data-l="Node"><b>${esc(x.name)}</b><small>${esc(x.fqdn)}</small></td><td data-l="Region">${esc(x.region_name)}</td><td data-l="Services">${Number(x.active_service_count)}</td><td data-l="Memory">${Math.round(x.allocated_memory_mb / 1024)} / ${Math.round(x.max_memory_mb / 1024)} GB</td><td data-l="Disk">${Math.round(x.allocated_disk_mb / 1024)} / ${Math.round(x.max_disk_mb / 1024)} GB</td><td data-l="Mode">${badge(x.maintenance_mode ? "MAINTENANCE" : "AVAILABLE")}</td><td data-l="Action"><button class="btn xs" data-node-maintenance="${x.maintenance_mode ? "false" : "true"}" data-node-id="${esc(x.id)}" data-permission="services:manage">${x.maintenance_mode ? "Return to placement" : "Enter maintenance"}</button></td></tr>`).join("") : `<tr><td colspan="7">${empty2("No configured nodes")}</td></tr>`;
     } catch (error) {
       regionsHost.innerHTML = empty2(error.message);
     }
@@ -3043,7 +3043,7 @@
     await renderSettings();
   });
   function openOperation(kind, id, maxAmount = 0, currency = "EUR") {
-    const titles = { suspend: "Suspend service", unsuspend: "Unsuspend service", terminate: "Terminate service", refund: "Refund invoice" };
+    const titles = { suspend: "Suspend service", unsuspend: "Unsuspend service", terminate: "Terminate service", refund: "Refund invoice", "node-maintenance-on": "Put node into maintenance", "node-maintenance-off": "Return node to placement", reconcile: "Reconcile Pterodactyl state" };
     document.getElementById("operationKind").value = kind;
     document.getElementById("operationId").value = id;
     document.getElementById("operationTitle").textContent = titles[kind] || "Confirm operation";
@@ -3137,6 +3137,20 @@
       const serviceAction = target.closest("[data-service-action]");
       if (serviceAction) {
         openOperation(serviceAction.dataset.serviceAction, serviceAction.dataset.serviceId);
+        return;
+      }
+      const nodeMaintenance = target.closest("[data-node-maintenance]");
+      if (nodeMaintenance) {
+        openOperation(nodeMaintenance.dataset.nodeMaintenance === "true" ? "node-maintenance-on" : "node-maintenance-off", nodeMaintenance.dataset.nodeId);
+        return;
+      }
+      if (target.closest("[data-reconcile-provider]")) {
+        openOperation("reconcile", "provider:pterodactyl");
+        return;
+      }
+      const retryJob = target.closest("[data-job-retry]");
+      if (retryJob) {
+        openOperation(`retry-${retryJob.dataset.jobRetry}`, retryJob.dataset.jobId);
         return;
       }
       const serviceRow = target.closest("[data-service-id]");
@@ -3500,13 +3514,16 @@
       const id = document.getElementById("operationId").value;
       const reason = document.getElementById("operationReason").value.trim();
       const amountMinorUnits = Number(document.getElementById("operationAmount").value || 0);
-      const endpoint = kind === "refund" ? `/api/v1/admin/invoices/${encodeURIComponent(id)}/refund` : `/api/v1/admin/services/${encodeURIComponent(id)}/${kind}`;
+      const endpoint = kind === "refund" ? `/api/v1/admin/invoices/${encodeURIComponent(id)}/refund` : kind === "reconcile" ? "/api/v1/admin/infrastructure/reconcile" : kind.startsWith("retry-") ? `/api/v1/admin/jobs/${encodeURIComponent(kind.slice(6))}/${encodeURIComponent(id)}/retry` : kind.startsWith("node-maintenance-") ? `/api/v1/admin/infrastructure/nodes/${encodeURIComponent(id)}/maintenance` : `/api/v1/admin/services/${encodeURIComponent(id)}/${kind}`;
       try {
-        await api(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(kind === "refund" ? { amountMinorUnits, reason } : { reason }) });
+        const payload = kind === "refund" ? { amountMinorUnits, reason } : kind.startsWith("node-maintenance-") ? { enabled: kind.endsWith("on"), reason } : { reason };
+        await api(endpoint, { method: kind.startsWith("node-maintenance-") ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const modal = document.getElementById("modalOperation");
         if (modal) modal.hidden = true;
-        toast(`${kind === "refund" ? "Refund" : "Service operation"} accepted and audited.`, "good");
+        toast(`${kind === "refund" ? "Refund" : kind === "reconcile" ? "Reconciliation" : kind.startsWith("retry-") ? "Workflow retry" : kind.startsWith("node-maintenance-") ? "Node maintenance change" : "Service operation"} accepted and audited.`, "good");
         if (kind === "refund") await renderBilling();
+        else if (kind.startsWith("retry-")) await renderJobs();
+        else if (kind === "reconcile" || kind.startsWith("node-maintenance-")) await renderInfrastructure();
         else await renderServices();
       } catch (error) {
         toast(error.message, "bad");

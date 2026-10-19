@@ -49,7 +49,7 @@ export async function renderJobs(query = '', page = 1): Promise<void> {
       <td data-l="Status">${badge(job.status)}</td>
       <td data-l="Attempts">${Number(job.attempt_count || 0)}</td>
       <td data-l="Last error"><span class="muted">${esc(job.last_error || '—')}</span></td>
-      <td data-l="Updated">${formatDate(job.updated_at)}</td>
+      <td data-l="Updated">${formatDate(job.updated_at)}${(['FAILED', 'NEEDS_MANUAL_REVIEW', 'DEAD_LETTER', 'ANOMALY'].includes(job.status)) ? `<button class="btn xs" style="margin-top:6px" data-job-retry="${esc(job.job_type)}" data-job-id="${esc(job.id)}" data-permission="services:manage">Retry safely</button>` : ''}</td>
     </tr>`).join('') : '<tr><td colspan="7"><div class="es"><h4>No matching workflow records</h4><p>Nothing persisted for the selected filters.</p></div></td></tr>';
     const pages = Math.max(1, Math.ceil(total / pageSize));
     const start = (currentPage - 1) * pageSize;

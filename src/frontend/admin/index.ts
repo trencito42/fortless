@@ -134,7 +134,7 @@ router.register('settings', async () => {
 });
 
 function openOperation(kind: string, id: string, maxAmount = 0, currency = 'EUR'): void {
-  const titles: Record<string, string> = { suspend: 'Suspend service', unsuspend: 'Unsuspend service', terminate: 'Terminate service', refund: 'Refund invoice' };
+  const titles: Record<string, string> = { suspend: 'Suspend service', unsuspend: 'Unsuspend service', terminate: 'Terminate service', refund: 'Refund invoice', 'node-maintenance-on': 'Put node into maintenance', 'node-maintenance-off': 'Return node to placement', reconcile: 'Reconcile Pterodactyl state' };
   (document.getElementById('operationKind') as HTMLInputElement).value = kind;
   (document.getElementById('operationId') as HTMLInputElement).value = id;
   (document.getElementById('operationTitle') as HTMLElement).textContent = titles[kind] || 'Confirm operation';
@@ -236,6 +236,11 @@ function bindAdminEvents() {
       openOperation(serviceAction.dataset.serviceAction!, serviceAction.dataset.serviceId!);
       return;
     }
+    const nodeMaintenance = target.closest<HTMLElement>('[data-node-maintenance]');
+    if (nodeMaintenance) { openOperation(nodeMaintenance.dataset.nodeMaintenance === 'true' ? 'node-maintenance-on' : 'node-maintenance-off', nodeMaintenance.dataset.nodeId!); return; }
+    if (target.closest('[data-reconcile-provider]')) { openOperation('reconcile', 'provider:pterodactyl'); return; }
+    const retryJob = target.closest<HTMLElement>('[data-job-retry]');
+    if (retryJob) { openOperation(`retry-${retryJob.dataset.jobRetry}`, retryJob.dataset.jobId!); return; }
     const serviceRow = target.closest<HTMLElement>('[data-service-id]');
     if (serviceRow) {
       openServiceDetail(serviceRow.dataset.serviceId!);
@@ -572,12 +577,17 @@ function bindAdminEvents() {
     const id = (document.getElementById('operationId') as HTMLInputElement).value;
     const reason = (document.getElementById('operationReason') as HTMLInputElement).value.trim();
     const amountMinorUnits = Number((document.getElementById('operationAmount') as HTMLInputElement).value || 0);
-    const endpoint = kind === 'refund' ? `/api/v1/admin/invoices/${encodeURIComponent(id)}/refund` : `/api/v1/admin/services/${encodeURIComponent(id)}/${kind}`;
+    const endpoint = kind === 'refund' ? `/api/v1/admin/invoices/${encodeURIComponent(id)}/refund`
+      : kind === 'reconcile' ? '/api/v1/admin/infrastructure/reconcile'
+      : kind.startsWith('retry-') ? `/api/v1/admin/jobs/${encodeURIComponent(kind.slice(6))}/${encodeURIComponent(id)}/retry`
+      : kind.startsWith('node-maintenance-') ? `/api/v1/admin/infrastructure/nodes/${encodeURIComponent(id)}/maintenance`
+      : `/api/v1/admin/services/${encodeURIComponent(id)}/${kind}`;
     try {
-      await api(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(kind === 'refund' ? { amountMinorUnits, reason } : { reason }) });
+      const payload = kind === 'refund' ? { amountMinorUnits, reason } : kind.startsWith('node-maintenance-') ? { enabled: kind.endsWith('on'), reason } : { reason };
+      await api(endpoint, { method: kind.startsWith('node-maintenance-') ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const modal = document.getElementById('modalOperation'); if (modal) modal.hidden = true;
-      toast(`${kind === 'refund' ? 'Refund' : 'Service operation'} accepted and audited.`, 'good');
-      if (kind === 'refund') await renderBilling(); else await renderServices();
+      toast(`${kind === 'refund' ? 'Refund' : kind === 'reconcile' ? 'Reconciliation' : kind.startsWith('retry-') ? 'Workflow retry' : kind.startsWith('node-maintenance-') ? 'Node maintenance change' : 'Service operation'} accepted and audited.`, 'good');
+      if (kind === 'refund') await renderBilling(); else if (kind.startsWith('retry-')) await renderJobs(); else if (kind === 'reconcile' || kind.startsWith('node-maintenance-')) await renderInfrastructure(); else await renderServices();
     } catch (error: any) { toast(error.message, 'bad'); }
   });
 

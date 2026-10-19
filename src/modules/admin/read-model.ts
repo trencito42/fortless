@@ -984,3 +984,45 @@ export function listAdminJobs(db: Database.Database, options: AdminJobListOption
   const total = (db.prepare(`SELECT count(*) AS count FROM (${union}) ${where}`).get(...args) as { count: number }).count;
   return { jobs, total, limit, offset };
 }
+
+export function retryAdminJob(
+  data: { type: 'PROVISIONING' | 'OUTBOX' | 'EMAIL'; id: string; actorUserId: string; ipAddress: string; reason: string },
+  db: Database.Database
+) {
+  const supportedOutbox = new Set(['service.provision.v1', 'service.suspend.v1', 'service.unsuspend.v1', 'service.terminate.v1', 'stripe.subscription.cancel.v1', 'stripe.refund.create.v1', 'stripe.subscription.resume.v1']);
+  const tokenEmails = new Set(['email_verification', 'password_reset', 'account_invitation', 'service_invitation']);
+  return runInTransaction((trx) => {
+    let resourceId = data.id;
+    let previousStatus = '';
+    if (data.type === 'EMAIL') {
+      const row = trx.prepare('SELECT status, template FROM email_outbox WHERE id = ?').get(data.id) as { status: string; template: string } | undefined;
+      if (!row) throw new Error('NOT_FOUND: email job not found.');
+      if (!['FAILED', 'DEAD_LETTER'].includes(row.status)) throw new Error(`NOT_RETRYABLE: email is ${row.status}.`);
+      if (tokenEmails.has(row.template)) throw new Error('NOT_RETRYABLE: one-time-link emails must be regenerated through their original security workflow.');
+      previousStatus = row.status;
+      trx.prepare("UPDATE email_outbox SET status='PENDING', attempts=0, last_error=NULL, dead_lettered_at=NULL, lease_token=NULL, lease_expires_at=NULL, scheduled_at=datetime('now','utc') WHERE id = ?").run(data.id);
+    } else if (data.type === 'OUTBOX') {
+      const row = trx.prepare('SELECT status, event_type, aggregate_id FROM outbox_events WHERE id = ?').get(data.id) as { status: string; event_type: string; aggregate_id: string } | undefined;
+      if (!row) throw new Error('NOT_FOUND: outbox job not found.');
+      if (row.status !== 'DEAD_LETTER') throw new Error(`NOT_RETRYABLE: outbox event is ${row.status}.`);
+      if (!supportedOutbox.has(row.event_type)) throw new Error('NOT_RETRYABLE: unsupported workflow remains fail-closed.');
+      previousStatus = row.status; resourceId = row.aggregate_id;
+      trx.prepare("UPDATE outbox_events SET status='PENDING', retry_count=0, last_error=NULL, lease_token=NULL, lease_expires_at=NULL, scheduled_at=datetime('now','utc') WHERE id = ?").run(data.id);
+    } else {
+      const operation = trx.prepare('SELECT status, service_id, operation_type FROM provision_operations WHERE id = ?').get(data.id) as { status: string; service_id: string; operation_type: string } | undefined;
+      if (!operation) throw new Error('NOT_FOUND: provisioning job not found.');
+      if (!['FAILED', 'NEEDS_MANUAL_REVIEW'].includes(operation.status)) throw new Error(`NOT_RETRYABLE: provisioning operation is ${operation.status}.`);
+      const eventTypes: Record<string, string> = { CREATE: 'service.provision.v1', SUSPEND: 'service.suspend.v1', UNSUSPEND: 'service.unsuspend.v1', TERMINATE: 'service.terminate.v1' };
+      const eventType = eventTypes[operation.operation_type];
+      const event = eventType ? trx.prepare("SELECT id FROM outbox_events WHERE aggregate_id = ? AND event_type = ? AND status = 'DEAD_LETTER' ORDER BY created_at DESC LIMIT 1").get(operation.service_id, eventType) as { id: string } | undefined : undefined;
+      if (!event) throw new Error('NOT_RETRYABLE: no matching dead-letter workflow can be resumed safely.');
+      previousStatus = operation.status; resourceId = operation.service_id;
+      trx.prepare("UPDATE provision_operations SET status='PENDING', last_error=NULL, updated_at=datetime('now','utc') WHERE id = ?").run(data.id);
+      trx.prepare("UPDATE outbox_events SET status='PENDING', retry_count=0, last_error=NULL, lease_token=NULL, lease_expires_at=NULL, scheduled_at=datetime('now','utc') WHERE id = ?").run(event.id);
+    }
+    trx.prepare(`INSERT INTO audit_events (id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, 'STAFF', 'operations.job_retried', 'operational_job', ?, ?, ?, ?)`)
+      .run(generateId('aud'), data.actorUserId, resourceId, data.ipAddress, generateId('cor'), JSON.stringify({ type: data.type, jobId: data.id, previousStatus, reason: data.reason }));
+    return { type: data.type, id: data.id, status: 'PENDING' };
+  }, db);
+}

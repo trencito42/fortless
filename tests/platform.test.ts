@@ -127,6 +127,7 @@ import {
   updateAdminTicketRouting,
   createTicketDepartment,
   createTicketMacro,
+  retryAdminJob,
   updateAccountStatus,
   listAdminServices,
   listAdminTickets,
@@ -1928,6 +1929,18 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(getAdminTicketDetail(ticket.ticketId, db)!.ticket).toMatchObject({ assigned_staff_id: staff.user.id, department_id: department.id, department_name: 'Game Support', priority: 'URGENT' });
       expect(getAdminSupportMeta(db)).toMatchObject({ departments: expect.arrayContaining([expect.objectContaining({ id: department.id })]), macros: [expect.objectContaining({ id: macro.id })], staff: [expect.objectContaining({ id: staff.user.id, active_count: 1 })] });
       expect(listAdminTickets(db, { departmentId: department.id, assignedTo: staff.user.id, status: 'OPEN' })).toMatchObject({ total: 1 });
+    });
+
+    it('ADMIN-11: operational retries reset only eligible idempotent workflows and audit the action', () => {
+      const staff = registerUser({ email: 'job_staff@example.com', password: 'Password123!', name: 'Job Staff', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      db.prepare(`INSERT INTO email_outbox (id, recipient, template, subject, payload_json, status, attempts, last_error)
+        VALUES ('eml_retry', 'customer@example.com', 'payment_failed', 'Payment failed', '{}', 'DEAD_LETTER', 5, 'smtp timeout')`).run();
+      expect(retryAdminJob({ type: 'EMAIL', id: 'eml_retry', actorUserId: staff.user.id, ipAddress: '10.0.0.12', reason: 'SMTP transport recovered' }, db)).toMatchObject({ status: 'PENDING' });
+      expect(db.prepare("SELECT status, attempts, last_error FROM email_outbox WHERE id='eml_retry'").get()).toEqual({ status: 'PENDING', attempts: 0, last_error: null });
+      db.prepare(`INSERT INTO email_outbox (id, recipient, template, subject, payload_json, status, attempts)
+        VALUES ('eml_token', 'customer@example.com', 'password_reset', 'Reset', '{}', 'DEAD_LETTER', 5)`).run();
+      expect(() => retryAdminJob({ type: 'EMAIL', id: 'eml_token', actorUserId: staff.user.id, ipAddress: '10.0.0.12', reason: 'Unsafe resend attempt' }, db)).toThrow('one-time-link emails');
+      expect(db.prepare("SELECT count(*) AS count FROM audit_events WHERE action='operations.job_retried'").get()).toEqual({ count: 1 });
     });
   });
 

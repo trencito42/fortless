@@ -136,7 +136,7 @@
         <div id="adminInvoiceDetailBody" class="col" style="gap:14px"></div>
       </section>
 
-      <section class="page" id="page-infrastructure"><div class="hd"><div><h2>Infrastructure</h2><p>Local allocation ledger and provider readiness.</p></div></div><div id="infrastructureMetrics" class="g g4 k2 admin-metrics"></div><div id="capacityRegions" class="g g3" style="margin-bottom:12px"></div><article class="card table-card"><div class="card-head"><div><h2>Capacity nodes</h2><p>Only persisted nodes are shown; no inferred capacity.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Node</th><th>Region</th><th>Services</th><th>Memory</th><th>Disk</th><th>Mode</th></tr></thead><tbody id="capacityNodes"></tbody></table></div></article></section>
+      <section class="page" id="page-infrastructure"><div class="hd"><div><h2>Infrastructure</h2><p>Local allocation ledger and provider readiness.</p></div><button class="btn pri" type="button" data-reconcile-provider data-permission="services:manage">Reconcile provider</button></div><div id="infrastructureMetrics" class="g g4 k2 admin-metrics"></div><div id="capacityRegions" class="g g3" style="margin-bottom:12px"></div><article class="card table-card"><div class="card-head"><div><h2>Capacity nodes</h2><p>Maintenance prevents new placement; provider metrics are never inferred.</p></div></div><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Node</th><th>Region</th><th>Services</th><th>Memory</th><th>Disk</th><th>Mode</th><th></th></tr></thead><tbody id="capacityNodes"></tbody></table></div></article></section>
 
       <section class="page" id="page-catalog">
         <div class="hd">
