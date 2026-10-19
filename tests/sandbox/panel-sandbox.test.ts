@@ -28,13 +28,14 @@ describe.skipIf(!enabled)('Pterodactyl TEST panel verification', () => {
   // The key-mint endpoint only accepts fortless_acc_ tags; the sbx marker keeps these objects recognisable.
   const tag = `fortless_acc_sbx_${stamp}`;
   let panelUserId = 0;
+  let inviteeUserId = 0;
   let externalId = '';
   let clientKey = '';
 
   afterAll(async () => {
     if (externalId) await adapter.terminate(externalId).catch((e) => console.warn('cleanup server failed', String(e)));
-    if (panelUserId) {
-      await fetch(`${panelUrl}/api/application/users/${panelUserId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${get('PTERODACTYL_API_KEY')}`, Accept: 'application/json' } })
+    for (const id of [inviteeUserId, panelUserId].filter(Boolean)) {
+      await fetch(`${panelUrl}/api/application/users/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${get('PTERODACTYL_API_KEY')}`, Accept: 'application/json' } })
         .catch((e) => console.warn('cleanup user failed', String(e)));
     }
   });
@@ -110,6 +111,37 @@ describe.skipIf(!enabled)('Pterodactyl TEST panel verification', () => {
     await adapter.deleteFiles(externalId, '/', ['fortless-sbx.txt'], clientKey);
     const names = (await adapter.listFiles(externalId, '/', clientKey)).map((f) => f.name);
     expect(names).not.toContain('fortless-sbx.txt');
+  });
+
+  it('NEW-393: a sub-user can be created, found again by e-mail and re-permissioned in place (the adopt path)', async () => {
+    const inviteTag = `${tag}_inv`;
+    const email = `${inviteTag}@example.com`;
+    const invitee = await adapter.ensurePanelUser({ correlationTag: inviteTag, email, username: inviteTag.slice(0, 30), firstName: 'Invitee', lastName: 'Check' });
+    inviteeUserId = invitee.panelUserId;
+    const list = async () => ((await adapter.clientServerCall(externalId, clientKey, 'GET', '/users'))?.data ?? []) as any[];
+    expect((await list()).some((u) => String(u.attributes.email).toLowerCase() === email.toLowerCase())).toBe(false);
+    const created = await adapter.clientServerCall(externalId, clientKey, 'POST', '/users', { email, permissions: ['control.console'] });
+    const uuid = String(created.attributes.uuid);
+    // a retry that found the half-finished invitation: the lookup by e-mail must hit and the update must apply in place
+    const found = (await list()).find((u) => String(u.attributes.email).toLowerCase() === email.toLowerCase());
+    expect(String(found.attributes.uuid)).toBe(uuid);
+    await adapter.clientServerCall(externalId, clientKey, 'POST', `/users/${uuid}`, { permissions: ['control.console', 'file.read'] });
+    const updated = (await list()).find((u) => u.attributes.uuid === uuid);
+    expect(updated.attributes.permissions).toEqual(expect.arrayContaining(['control.console', 'file.read']));
+    expect((await list()).filter((u) => String(u.attributes.email).toLowerCase() === email.toLowerCase())).toHaveLength(1);
+    await adapter.clientServerCall(externalId, clientKey, 'DELETE', `/users/${uuid}`);
+    expect((await list()).some((u) => u.attributes.uuid === uuid)).toBe(false);
+  });
+
+  it('NEW-409/NEW-413: while the server is suspended the owner key gets no new console credentials, and they return after unsuspend', async () => {
+    await adapter.suspend(externalId);
+    try {
+      await expect(adapter.getWebsocketCredentials(externalId, clientKey)).rejects.toBeDefined();
+    } finally {
+      await adapter.unsuspend(externalId);
+    }
+    const creds = await adapter.getWebsocketCredentials(externalId, clientKey);
+    expect(creds.token.length).toBeGreaterThan(20);
   });
 
   it('terminate removes the server and a second terminate is harmless', async () => {
