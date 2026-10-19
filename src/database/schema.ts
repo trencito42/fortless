@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS mfa_factors (
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK(type IN ('TOTP')),
   secret_encrypted TEXT NOT NULL,
+  pending_secret_encrypted TEXT,
   name TEXT NOT NULL DEFAULT 'Authenticator app',
   is_confirmed INTEGER NOT NULL DEFAULT 0,
   last_used_at TEXT,
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
 
 CREATE TABLE IF NOT EXISTS mfa_attempts (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
   session_id TEXT NOT NULL,
   succeeded INTEGER NOT NULL DEFAULT 0,
   attempted_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
@@ -324,6 +326,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
   service_id TEXT UNIQUE NOT NULL,
+  psp_subscription_id TEXT,
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'PAST_DUE', 'CANCEL_SCHEDULED', 'CANCELED', 'TERMINATED')),
   billing_interval TEXT NOT NULL CHECK(billing_interval IN ('MONTHLY', 'QUARTERLY', 'ANNUAL')),
   current_period_start TEXT NOT NULL,

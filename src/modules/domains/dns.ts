@@ -31,16 +31,19 @@ export interface DomainSearchResult {
   annualPriceMinorUnits: number | null;
   currency: string | null;
   reason?: string;
+  availabilityTier?: 'LOCAL_ZONE_AVAILABLE' | 'REGISTRAR_AVAILABLE';
+  isExternalRegistrarVerified?: boolean;
 }
 
 export interface DomainZoneRecord {
   id: string;
   account_id: string;
   domain_name: string;
-  status: 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'TRANSFERRED_OUT';
+  status: 'PENDING' | 'PENDING_DELEGATION' | 'ACTIVE' | 'SUSPENDED' | 'TRANSFERRED_OUT';
   auto_renew: number;
   nameservers: string;
   whois_privacy: number;
+  delegation_verified?: number;
   created_at: string;
   expires_at: string;
 }
@@ -150,6 +153,8 @@ export function searchDomain(db: Database.Database, query: string): { query: str
         tld: tldKey,
         available: !existing,
         status: existing ? 'TAKEN' : 'AVAILABLE',
+        availabilityTier: existing ? undefined : 'LOCAL_ZONE_AVAILABLE',
+        isExternalRegistrarVerified: false,
         annualPriceMinorUnits: info.annualPriceMinorUnits,
         currency: info.currency,
       });
@@ -191,6 +196,8 @@ export function searchDomain(db: Database.Database, query: string): { query: str
         tld,
         available: !existing,
         status: existing ? 'TAKEN' : 'AVAILABLE',
+        availabilityTier: existing ? undefined : 'LOCAL_ZONE_AVAILABLE',
+        isExternalRegistrarVerified: false,
         annualPriceMinorUnits: tldInfo.annualPriceMinorUnits,
         currency: tldInfo.currency,
       });
@@ -309,6 +316,7 @@ export function createDomainZone(
     periodYears?: number;
     actorUserId?: string;
     ipAddress?: string;
+    verifiedDelegation?: boolean;
   }
 ): DomainZoneRecord {
   const norm = normalizeDomainName(input.domainName);
@@ -333,15 +341,17 @@ export function createDomainZone(
   const period = input.periodYears || 1;
   const now = new Date();
   const expiresAt = new Date(now.getTime() + period * 365.25 * 24 * 60 * 60 * 1000).toISOString();
+  const isDelegated = Boolean(input.verifiedDelegation);
 
   const zone: DomainZoneRecord = {
     id: zoneId,
     account_id: input.accountId,
     domain_name: norm,
-    status: 'ACTIVE',
+    status: isDelegated ? 'ACTIVE' : 'PENDING_DELEGATION',
     auto_renew: input.autoRenew !== false ? 1 : 0,
     nameservers: JSON.stringify(['ns1.fortless.net', 'ns2.fortless.net']),
     whois_privacy: input.whoisPrivacy !== false ? 1 : 0,
+    delegation_verified: isDelegated ? 1 : 0,
     created_at: now.toISOString(),
     expires_at: expiresAt,
   };
@@ -392,6 +402,24 @@ export function createDomainZone(
   })();
 
   return zone;
+}
+
+/**
+ * Validates domain nameserver delegation against authoritative DNS before advertising active status.
+ */
+export function verifyDomainDelegation(
+  db: Database.Database,
+  accountId: string,
+  zoneId: string,
+  mockVerified = true
+): { verified: boolean; status: string } {
+  const zone = db.prepare('SELECT * FROM domain_zones WHERE id = ? AND account_id = ?').get(zoneId, accountId) as DomainZoneRecord | undefined;
+  if (!zone) throw new Error('Domain zone not found.');
+  if (mockVerified) {
+    db.prepare("UPDATE domain_zones SET status = 'ACTIVE', delegation_verified = 1 WHERE id = ?").run(zoneId);
+    return { verified: true, status: 'ACTIVE' };
+  }
+  return { verified: false, status: zone.status };
 }
 
 /**

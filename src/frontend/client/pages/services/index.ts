@@ -88,13 +88,34 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
     const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
     const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
 
+    const caps = service.providerCapabilities || {
+      console: service.providerType === 'PTERODACTYL',
+      files: service.providerType === 'PTERODACTYL',
+      game: service.providerType === 'PTERODACTYL',
+      databases: service.providerType === 'PTERODACTYL',
+      schedules: service.providerType === 'PTERODACTYL',
+      backups: service.providerType === 'PTERODACTYL' || service.providerType === 'PROXMOX',
+      network: service.providerType === 'PTERODACTYL' || service.providerType === 'PROXMOX',
+      startup: service.providerType === 'PTERODACTYL',
+      settings: true,
+      users: true,
+      power: service.providerType !== 'CPANEL',
+    };
     const perms = new Set<string>(service.access?.permissions ?? []);
     const can = (perm: string) => providerReady && st.controllable && perms.has(perm);
     const show = {
-      c: can('websocket.connect'), f: can('file.read'), m: can('file.read'), d: can('database.read'), h: can('schedule.read'), b: can('backup.read'), n: can('allocation.read'),
-      s: can('startup.read'), g: can('settings.rename'), u: providerReady && st.controllable && service.access?.kind === 'ACCOUNT' && perms.has('control.start'),
+      c: caps.console && can('websocket.connect'),
+      f: caps.files && can('file.read'),
+      m: caps.game && can('file.read'),
+      d: caps.databases && can('database.read'),
+      h: caps.schedules && can('schedule.read'),
+      b: caps.backups && can('backup.read'),
+      n: caps.network && can('allocation.read'),
+      s: caps.startup && can('startup.read'),
+      g: caps.settings && can('settings.rename'),
+      u: caps.users && providerReady && st.controllable && service.access?.kind === 'ACCOUNT' && perms.has('control.start'),
     };
-    const canPower = can('control.start') || can('control.stop') || can('control.restart');
+    const canPower = caps.power && (can('control.start') || can('control.stop') || can('control.restart'));
     const powerBtns = !providerReady ? `<span class="pill warn">Provider controls unavailable</span>` : !canPower ? '' : `<button class="btn s sec" id="dtlRestartBtn" data-pwr="restart" ${runningNow ? '' : 'disabled'}>${hero('refresh', 'xs')}Restart</button><button class="btn s badt" id="dtlStopBtn" data-pwr="stop" ${runningNow ? '' : 'disabled'}>${hero('stop', 'xs')}Stop</button><button class="btn s goodt" id="dtlStartBtn" data-pwr="start" ${runningNow ? 'disabled' : ''}>${hero('play', 'xs')}Start</button>`;
     const advancedKeys = new Set(['d', 'h', 'n', 's', 'g', 'u', 'a']);
     const advancedSlugs = new Set(['databases', 'schedules', 'network', 'startup', 'settings', 'users', 'allocation']);
@@ -128,7 +149,7 @@ export async function renderServiceDetail(serviceId: string, tab?: string): Prom
       <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:24px 0 20px">
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true" data-t="o">Overview</button>
         ${([['c', 'Console', 'dtlPaneConsole'], ['f', 'Files', 'dtlPaneFiles'], ['m', 'Game', 'dtlPaneGame'], ['d', 'Databases', 'dtlPaneDatabases'], ['h', 'Schedules', 'dtlPaneSchedules'], ['b', 'Backups', 'dtlPaneBackups'], ['n', 'Network', 'dtlPaneNetwork'], ['s', 'Startup', 'dtlPaneStartup'], ['g', 'Settings', 'dtlPaneSettings'], ['u', 'Users', 'dtlPaneUsers']] as const).filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join('')}
-        <button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab('a')}>Allocation</button>
+        ${show.n ? `<button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab('a')}>Allocation</button>` : ''}
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1" data-t="e">Activity</button>
       </div>
 

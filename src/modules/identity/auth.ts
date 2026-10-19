@@ -139,7 +139,8 @@ export function generateTotpCode(secret: string, now = Date.now()): string {
   return totpAt(secret, Math.floor(now / 30_000));
 }
 function recoveryDigest(userId: string, code: string): string {
-  return crypto.createHash('sha256').update(`${userId}:${code.replace(/[^A-Z0-9]/gi, '').toUpperCase()}`).digest('hex');
+  const normalized = code.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  return crypto.createHmac('sha256', config.SESSION_SECRET).update(`${userId}:${normalized}`).digest('hex');
 }
 
 export class MfaConfigurationUnavailableError extends Error {
@@ -304,7 +305,10 @@ function recordLoginAttempt(email: string, ipAddress: string, succeeded: boolean
 function isLoginThrottled(email: string, ipAddress: string, db: Database.Database): boolean {
   const row = db.prepare(`SELECT count(*) AS failures FROM auth_login_attempts WHERE identifier_hash = ? AND ip_address = ?
     AND succeeded = 0 AND attempted_at >= datetime('now', '-15 minutes')`).get(identifierDigest(email), ipAddress) as { failures: number };
-  return row.failures >= MAX_FAILED_LOGINS;
+  if (row.failures >= MAX_FAILED_LOGINS) return true;
+  const globalRow = db.prepare(`SELECT count(*) AS failures FROM auth_login_attempts WHERE identifier_hash = ?
+    AND succeeded = 0 AND attempted_at >= datetime('now', '-15 minutes')`).get(identifierDigest(email)) as { failures: number };
+  return globalRow.failures >= 10;
 }
 export function loginUser(
   data: { email: string; password: string; ipAddress: string; userAgent: string; deviceId?: string }, db: Database.Database = getDatabase()
@@ -514,9 +518,8 @@ export function completeMfaChallenge(token: string, code: string, ipAddress: str
     const attempts = trx.prepare(`SELECT count(*) AS total FROM mfa_attempts WHERE session_id = ? AND succeeded = 0
       AND attempted_at >= datetime('now', '-15 minutes')`).get(sessionId) as { total: number };
     const userAttempts = trx.prepare(`
-      SELECT count(*) AS total FROM mfa_attempts ma
-      JOIN sessions s ON s.id = ma.session_id
-      WHERE s.user_id = ? AND ma.succeeded = 0 AND ma.attempted_at >= datetime('now', '-15 minutes')
+      SELECT count(*) AS total FROM mfa_attempts
+      WHERE user_id = ? AND succeeded = 0 AND attempted_at >= datetime('now', '-15 minutes')
     `).get(session.user_id) as { total: number };
     if (attempts.total >= MAX_MFA_ATTEMPTS || userAttempts.total >= MAX_MFA_ATTEMPTS) {
       throw new Error('Too many verification attempts. Try again after 15 minutes.');
@@ -524,15 +527,20 @@ export function completeMfaChallenge(token: string, code: string, ipAddress: str
     const factor = confirmedMfa(session.user_id, trx);
     if (!factor) throw new Error('No authenticator is configured for this account.');
     const normalizedCode = code.trim().toUpperCase();
-    const recovery = trx.prepare(`SELECT id FROM mfa_recovery_codes WHERE user_id = ? AND code_hash = ? AND consumed_at IS NULL`)
+    let recovery = trx.prepare(`SELECT id FROM mfa_recovery_codes WHERE user_id = ? AND code_hash = ? AND consumed_at IS NULL`)
       .get(session.user_id, recoveryDigest(session.user_id, normalizedCode)) as { id: string } | undefined;
+    if (!recovery) {
+      const legacyHash = crypto.createHash('sha256').update(`${session.user_id}:${normalizedCode.replace(/[^A-Z0-9]/gi, '')}`).digest('hex');
+      recovery = trx.prepare(`SELECT id FROM mfa_recovery_codes WHERE user_id = ? AND code_hash = ? AND consumed_at IS NULL`)
+        .get(session.user_id, legacyHash) as { id: string } | undefined;
+    }
     let valid = Boolean(recovery);
     if (!valid) {
       try { valid = validTotp(decryptSecret(factor.secret_encrypted), normalizedCode); }
       catch { throw new MfaConfigurationUnavailableError(); }
     }
-    trx.prepare('INSERT INTO mfa_attempts (id, session_id, succeeded) VALUES (?, ?, ?)')
-      .run(generateId('mfa'), sessionId, valid ? 1 : 0);
+    trx.prepare('INSERT INTO mfa_attempts (id, user_id, session_id, succeeded) VALUES (?, ?, ?, ?)')
+      .run(generateId('mfa'), session.user_id, sessionId, valid ? 1 : 0);
     if (!valid) return { recoveryCodeUsed: false, error: 'The verification code is invalid.' };
     if (recovery) trx.prepare("UPDATE mfa_recovery_codes SET consumed_at = datetime('now', 'utc') WHERE id = ?").run(recovery.id);
 
@@ -572,11 +580,27 @@ export function getMfaStatus(userId: string, db: Database.Database = getDatabase
 export function beginTotpEnrollment(userId: string, password: string, email: string, db: Database.Database = getDatabase()): { secret: string; uri: string } {
   const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
   if (!user || !verifyPassword(user.password_hash, password)) throw new Error('The current password is incorrect.');
+  if (confirmedMfa(userId, db)) {
+    throw new Error('Multi-factor authentication is already enabled on this account. To replace your authenticator, use the factor replacement flow with step-up verification.');
+  }
   const secret = base32Encode(crypto.randomBytes(20));
-  db.prepare(`INSERT INTO mfa_factors (id, user_id, type, secret_encrypted, is_confirmed)
-    VALUES (?, ?, 'TOTP', ?, 0) ON CONFLICT(user_id, type) DO UPDATE SET secret_encrypted = excluded.secret_encrypted,
-    is_confirmed = 0, last_used_at = NULL, created_at = datetime('now', 'utc')`)
+  db.prepare(`INSERT INTO mfa_factors (id, user_id, type, secret_encrypted, pending_secret_encrypted, is_confirmed)
+    VALUES (?, ?, 'TOTP', ?, NULL, 0) ON CONFLICT(user_id, type) DO UPDATE SET secret_encrypted = excluded.secret_encrypted,
+    pending_secret_encrypted = NULL, is_confirmed = 0, last_used_at = NULL, created_at = datetime('now', 'utc')`)
     .run(generateId('mff'), userId, encryptSecret(secret));
+  const label = encodeURIComponent(`Fortless:${email}`);
+  return { secret, uri: `otpauth://totp/${label}?secret=${secret}&issuer=Fortless&algorithm=SHA1&digits=6&period=30` };
+}
+
+export function beginTotpReplacement(userId: string, email: string, db: Database.Database = getDatabase()): { secret: string; uri: string } {
+  const factor = confirmedMfa(userId, db);
+  if (!factor) {
+    throw new Error('Multi-factor authentication is not yet enabled.');
+  }
+  const secret = base32Encode(crypto.randomBytes(20));
+  // Preserve confirmed active factor! Store the replacement secret in pending_secret_encrypted
+  db.prepare('UPDATE mfa_factors SET pending_secret_encrypted = ? WHERE id = ?')
+    .run(encryptSecret(secret), factor.id);
   const label = encodeURIComponent(`Fortless:${email}`);
   return { secret, uri: `otpauth://totp/${label}?secret=${secret}&issuer=Fortless&algorithm=SHA1&digits=6&period=30` };
 }
@@ -588,7 +612,8 @@ export function regenerateRecoveryCodes(
   return runInTransaction((trx) => {
     const factor = confirmedMfa(data.userId, db);
     if (!factor) throw new Error('Multi-factor authentication is not enabled.');
-    const codes = Array.from({ length: 10 }, () => `${crypto.randomBytes(4).toString('hex').slice(0, 4)}-${crypto.randomBytes(4).toString('hex').slice(0, 4)}`.toUpperCase());
+    // 128-bit uniformly random recovery codes (16 random bytes formatted as 32 hex chars with hyphens)
+    const codes = Array.from({ length: 10 }, () => (crypto.randomBytes(16).toString('hex').toUpperCase().match(/.{4}/g) || []).join('-'));
     trx.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(data.userId);
     const insert = trx.prepare('INSERT INTO mfa_recovery_codes (id, user_id, code_hash) VALUES (?, ?, ?)');
     for (const code of codes) {
@@ -597,16 +622,44 @@ export function regenerateRecoveryCodes(
     trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
       VALUES (?, ?, ?, 'USER', 'user.mfa_recovery_codes_regenerated', 'user', ?, ?, ?)`)
       .run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
+    const user = trx.prepare('SELECT email FROM users WHERE id = ?').get(data.userId) as { email: string } | undefined;
+    if (user?.email) {
+      queueEmail(trx, { recipient: user.email, template: 'security_alert', payload: { action: 'MFA recovery codes were regenerated' } });
+    }
     return codes;
   }, db);
 }
 
 export function confirmTotpEnrollment(data: { userId: string; accountId: string; sessionId: string; code: string; ipAddress: string }, db: Database.Database = getDatabase()): string[] {
   return runInTransaction((trx) => {
+    // Check if confirming a replacement factor
+    const confirmedFactor = trx.prepare("SELECT id, secret_encrypted, pending_secret_encrypted FROM mfa_factors WHERE user_id = ? AND type = 'TOTP' AND is_confirmed = 1")
+      .get(data.userId) as { id: string; secret_encrypted: string; pending_secret_encrypted?: string | null } | undefined;
+
+    if (confirmedFactor && confirmedFactor.pending_secret_encrypted) {
+      if (!validTotp(decryptSecret(confirmedFactor.pending_secret_encrypted), data.code.trim())) {
+        throw new Error('The verification code is invalid.');
+      }
+      trx.prepare("UPDATE mfa_factors SET secret_encrypted = pending_secret_encrypted, pending_secret_encrypted = NULL, last_used_at = datetime('now', 'utc') WHERE id = ?")
+        .run(confirmedFactor.id);
+      const codes = Array.from({ length: 10 }, () => (crypto.randomBytes(16).toString('hex').toUpperCase().match(/.{4}/g) || []).join('-'));
+      trx.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(data.userId);
+      const insert = trx.prepare('INSERT INTO mfa_recovery_codes (id, user_id, code_hash) VALUES (?, ?, ?)');
+      for (const code of codes) insert.run(generateId('mrc'), data.userId, recoveryDigest(data.userId, code));
+      trx.prepare("UPDATE sessions SET mfa_verified_at = CASE WHEN id = ? THEN datetime('now', 'utc') ELSE NULL END WHERE user_id = ?")
+        .run(data.sessionId, data.userId);
+      trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+        VALUES (?, ?, ?, 'USER', 'user.mfa_factor_replaced', 'user', ?, ?, ?)`)
+        .run(generateId('aud'), data.accountId, data.userId, data.userId, data.ipAddress, generateId('cor'));
+      const user = trx.prepare('SELECT email FROM users WHERE id = ?').get(data.userId) as { email: string };
+      queueEmail(trx, { recipient: user.email, template: 'mfa_changed', payload: { enabled: true } });
+      return codes;
+    }
+
     const factor = trx.prepare("SELECT id, secret_encrypted FROM mfa_factors WHERE user_id = ? AND type = 'TOTP' AND is_confirmed = 0")
       .get(data.userId) as { id: string; secret_encrypted: string } | undefined;
     if (!factor || !validTotp(decryptSecret(factor.secret_encrypted), data.code.trim())) throw new Error('The verification code is invalid.');
-    const codes = Array.from({ length: 10 }, () => `${crypto.randomBytes(4).toString('hex').slice(0, 4)}-${crypto.randomBytes(4).toString('hex').slice(0, 4)}`.toUpperCase());
+    const codes = Array.from({ length: 10 }, () => (crypto.randomBytes(16).toString('hex').toUpperCase().match(/.{4}/g) || []).join('-'));
     trx.prepare("UPDATE mfa_factors SET is_confirmed = 1, last_used_at = datetime('now', 'utc') WHERE id = ?").run(factor.id);
     trx.prepare('DELETE FROM mfa_recovery_codes WHERE user_id = ?').run(data.userId);
     const insert = trx.prepare('INSERT INTO mfa_recovery_codes (id, user_id, code_hash) VALUES (?, ?, ?)');

@@ -14,12 +14,88 @@ export interface ServiceAccessInfo {
   sharedBy: string | null;
 }
 
+export interface ProviderCapabilities {
+  console: boolean;
+  files: boolean;
+  game: boolean;
+  databases: boolean;
+  schedules: boolean;
+  backups: boolean;
+  network: boolean;
+  startup: boolean;
+  settings: boolean;
+  users: boolean;
+  power: boolean;
+}
+
+export function getProviderCapabilities(providerType: string): ProviderCapabilities {
+  switch (providerType?.toUpperCase()) {
+    case 'PTERODACTYL':
+      return {
+        console: true,
+        files: true,
+        game: true,
+        databases: true,
+        schedules: true,
+        backups: true,
+        network: true,
+        startup: true,
+        settings: true,
+        users: true,
+        power: true,
+      };
+    case 'CPANEL':
+      return {
+        console: false,
+        files: false,
+        game: false,
+        databases: false,
+        schedules: false,
+        backups: false,
+        network: false,
+        startup: false,
+        settings: true,
+        users: true,
+        power: false,
+      };
+    case 'PROXMOX':
+      return {
+        console: false,
+        files: false,
+        game: false,
+        databases: false,
+        schedules: false,
+        backups: true,
+        network: true,
+        startup: false,
+        settings: true,
+        users: true,
+        power: true,
+      };
+    default:
+      return {
+        console: false,
+        files: false,
+        game: false,
+        databases: false,
+        schedules: false,
+        backups: false,
+        network: false,
+        startup: false,
+        settings: true,
+        users: true,
+        power: false,
+      };
+  }
+}
+
 export interface ServiceDetail {
   access: ServiceAccessInfo;
   id: string;
   accountId: string;
   orderItemId: string;
   providerType: string;
+  providerCapabilities?: ProviderCapabilities;
   externalId: string | null;
   identifier: string | null;
   contractStatus: 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'CANCELLED' | 'TERMINATED';
@@ -105,6 +181,7 @@ export function getServiceDetail(
     accountId: row.account_id,
     orderItemId: row.order_item_id,
     providerType: row.provider_type,
+    providerCapabilities: getProviderCapabilities(row.provider_type),
     externalId: row.external_id,
     identifier: row.identifier,
     contractStatus: row.contract_status,

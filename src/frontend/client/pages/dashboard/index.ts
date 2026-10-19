@@ -57,7 +57,7 @@ function renderServiceInventory(): void {
     const mem = `${(memMb / 1024).toFixed(memMb % 1024 === 0 ? 0 : 1)} GB`;
     const diskMb = Number(svc.disk_limit_mb || 0);
     const disk = diskMb >= 1024 ? `${(diskMb / 1024).toFixed(diskMb % 1024 === 0 ? 0 : 1)} GB disk` : `${diskMb} MB disk`;
-    const canControl = st.controllable && (!svc.shared_by || svc.shared_preset !== 'viewer');
+    const canControl = st.controllable && (!svc.shared_by || svc.shared_preset !== 'viewer') && svc.user_can_control !== false;
     const powers = !canControl ? '' : providerReady
       ? `<button class="btn xs" data-power="RESTART" data-service="${esc(svc.id)}" ${running ? '' : 'disabled'}><svg class="ic xs" aria-hidden="true"><use href="#i-refresh"/></svg>Restart</button><button class="btn xs bad" data-power="STOP" data-service="${esc(svc.id)}" ${running ? '' : 'disabled'}><svg class="ic xs" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button><button class="btn xs good" data-power="START" data-service="${esc(svc.id)}" ${running ? 'disabled' : ''}><svg class="ic xs" aria-hidden="true"><use href="#i-play"/></svg>Start</button>`
       : `<span class="pill warn">Provider controls unavailable</span>`;
@@ -140,9 +140,17 @@ export async function renderServices(): Promise<void> {
       btn.setAttribute('aria-selected', 'true');
       renderServiceInventory();
     });
-    document.getElementById('refreshServicesBtn')?.addEventListener('click', () => {
-      toast('Refreshed services list', 'info');
-      renderServices();
+    document.getElementById('refreshServicesBtn')?.addEventListener('click', async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement | null;
+      if (btn) btn.disabled = true;
+      try {
+        await renderServices();
+        toast('Refreshed services list', 'info');
+      } catch (err: any) {
+        toast('Failed to refresh services: ' + (err.message || 'Network error'), 'bad');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
     });
 
   } catch (error: any) {

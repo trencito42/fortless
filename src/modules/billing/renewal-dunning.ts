@@ -154,7 +154,7 @@ export async function processSubscriptionRenewals(
     FROM subscriptions sub
     JOIN accounts acc ON acc.id = sub.account_id
     JOIN users u ON u.id = acc.owner_user_id
-    WHERE sub.status = 'ACTIVE' AND sub.auto_renew = 1 AND datetime(sub.next_renewal_date) <= datetime('now', 'utc')
+    WHERE sub.status = 'ACTIVE' AND sub.auto_renew = 1 AND sub.psp_subscription_id IS NULL AND datetime(sub.next_renewal_date) <= datetime('now', 'utc')
   `).all() as any[];
 
   for (const sub of dueActive) {

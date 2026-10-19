@@ -982,6 +982,23 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user_device ON sessions(user_id, device_id)');
     },
   },
+  {
+    version: 40,
+    name: 'audit delta security & billing schema alignments',
+    up(db) {
+      if (!hasColumn(db, 'mfa_factors', 'pending_secret_encrypted')) {
+        db.exec('ALTER TABLE mfa_factors ADD COLUMN pending_secret_encrypted TEXT');
+      }
+      if (!hasColumn(db, 'mfa_attempts', 'user_id')) {
+        db.exec('ALTER TABLE mfa_attempts ADD COLUMN user_id TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_mfa_attempts_user_id ON mfa_attempts(user_id, attempted_at)');
+      if (!hasColumn(db, 'subscriptions', 'psp_subscription_id')) {
+        db.exec('ALTER TABLE subscriptions ADD COLUMN psp_subscription_id TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_subscriptions_psp ON subscriptions(psp_subscription_id)');
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

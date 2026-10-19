@@ -12,8 +12,8 @@ OUT = pathlib.Path('docs/design/shots'); OUT.mkdir(parents=True, exist_ok=True)
 ROUTES = {
  'login':'/login','register':'/register','mfa':'/mfa-challenge','forgot':'/forgot-password',
  'reset':'/reset-password?token=sample','verify':'/verify-email?token=sample',
- 'home':'/app','services':'/app/services','deploy':'/app/deploy','domains':'/app/domains',
- 'billing':'/app/billing','support':'/app/support','activity':'/app/activity','settings':'/app/settings',
+ 'home':'/app','services':'/app/services','service-detail':'/app/services/sample','deploy':'/app/deploy','domains':'/app/domains',
+ 'billing':'/app/billing','support':'/app/support','ticket-detail':'/app/support/sample','activity':'/app/activity','settings':'/app/settings',
  'o-over':'/admin','o-acc':'/admin/accounts','o-svc':'/admin/services','o-tix':'/admin/tickets',
  'o-aud':'/admin/audit','o-staff':'/admin/staff','status':'/status','legal':'/legal',
 }

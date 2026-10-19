@@ -14,6 +14,8 @@ export class Router {
   private cleanups: Array<() => void> = [];
   private currentMatch: RouteMatch | null = null;
   private basePath: string;
+  private navigationSeq = 0;
+  private activeAbortController: AbortController | null = null;
 
   constructor(routes: RouteDefinition[] | Record<string, RouteDefinition> = [], basePath = '/app') {
     this.routes = Array.isArray(routes) ? [...routes] : Object.values(routes);
@@ -54,6 +56,18 @@ export class Router {
     return this.currentMatch;
   }
 
+  public getNavigationSeq(): number {
+    return this.navigationSeq;
+  }
+
+  public isCurrentNavigation(seq: number): boolean {
+    return this.navigationSeq === seq;
+  }
+
+  public getSignal(): AbortSignal | undefined {
+    return this.activeAbortController?.signal;
+  }
+
   public navigate(pathOrId: string, params?: Record<string, string>): void {
     let targetPath = pathOrId;
     if (this.routes.some((r) => r.id === pathOrId)) {
@@ -77,6 +91,17 @@ export class Router {
   }
 
   public resolve(): void {
+    this.navigationSeq++;
+    const currentSeq = this.navigationSeq;
+    if (this.activeAbortController) {
+      try {
+        this.activeAbortController.abort();
+      } catch {
+        // ignore
+      }
+    }
+    this.activeAbortController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
     // A tab change inside the same view only announces the new tab; the page is not rebuilt.
     const path = window.location.pathname;
     const prev = this.currentMatch;
@@ -119,7 +144,20 @@ export class Router {
 
         const handler = this.handlers.get(route.id);
         if (handler) {
-          handler(this.currentMatch);
+          try {
+            const res = handler(this.currentMatch);
+            if (res && typeof (res as any).then === 'function') {
+              (res as Promise<void>).catch((err) => {
+                if (this.isCurrentNavigation(currentSeq)) {
+                  console.error('Route handler error:', err);
+                }
+              });
+            }
+          } catch (err) {
+            if (this.isCurrentNavigation(currentSeq)) {
+              console.error('Route handler error:', err);
+            }
+          }
         }
         return;
       }

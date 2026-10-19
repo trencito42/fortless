@@ -113,8 +113,8 @@ export function ingestPSPWebhook(
       SELECT pa.*, i.id as invoice_id, i.order_id, i.account_id, i.total_minor_units
       FROM payment_attempts pa
       JOIN invoices i ON i.id = pa.invoice_id
-      WHERE pa.psp_session_id = ? OR pa.id = ?
-    `).get(paymentIntentId || chargeId, paymentIntentId || chargeId) as {
+      WHERE pa.psp_payment_intent_id = ? OR pa.psp_session_id = ? OR pa.id = ?
+    `).get(paymentIntentId || chargeId, paymentIntentId || chargeId, paymentIntentId || chargeId) as {
       id: string;
       invoice_id: string;
       order_id: string;
@@ -141,8 +141,19 @@ export function ingestPSPWebhook(
 
       if (isFullRefund) {
         trx.prepare("UPDATE orders SET status = 'CANCELED', updated_at = datetime('now', 'utc') WHERE id = ?").run(attempt.order_id);
-        trx.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE account_id = ? AND order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)")
-          .run(attempt.account_id, attempt.order_id);
+        const affectedServices = trx.prepare(`
+          SELECT id, external_id, provider_type FROM services
+          WHERE account_id = ? AND order_item_id IN (SELECT id FROM order_items WHERE order_id = ?)
+        `).all(attempt.account_id, attempt.order_id) as Array<{ id: string; external_id: string | null; provider_type: string }>;
+
+        for (const svc of affectedServices) {
+          trx.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE id = ?").run(svc.id);
+          trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(svc.id);
+          trx.prepare(`
+            INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+            VALUES (?, 'service.terminate.v1', 'service', ?, ?, 'PENDING')
+          `).run(generateId('obx'), svc.id, JSON.stringify({ serviceId: svc.id, providerType: svc.provider_type, externalId: svc.external_id, reason: 'REFUND' }));
+        }
       }
 
       trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
@@ -166,8 +177,8 @@ export function ingestPSPWebhook(
       SELECT pa.*, i.account_id, i.order_id
       FROM payment_attempts pa
       JOIN invoices i ON i.id = pa.invoice_id
-      WHERE pa.psp_session_id = ? OR pa.id = ?
-    `).get(paymentIntentId || chargeId, paymentIntentId || chargeId) as {
+      WHERE pa.psp_payment_intent_id = ? OR pa.psp_session_id = ? OR pa.id = ?
+    `).get(paymentIntentId || chargeId, paymentIntentId || chargeId, paymentIntentId || chargeId) as {
       id: string;
       account_id: string;
       order_id: string;
@@ -176,7 +187,19 @@ export function ingestPSPWebhook(
     if (attempt) {
       runInTransaction((trx) => {
         trx.prepare("UPDATE accounts SET status = 'FLAGGED_FRAUD', updated_at = datetime('now', 'utc') WHERE id = ?").run(attempt.account_id);
-        trx.prepare("UPDATE services SET contract_status = 'SUSPENDED' WHERE account_id = ?").run(attempt.account_id);
+        const affectedServices = trx.prepare(`
+          SELECT id, external_id, provider_type FROM services
+          WHERE account_id = ?
+        `).all(attempt.account_id) as Array<{ id: string; external_id: string | null; provider_type: string }>;
+
+        for (const svc of affectedServices) {
+          trx.prepare("UPDATE services SET contract_status = 'SUSPENDED' WHERE id = ?").run(svc.id);
+          trx.prepare(`
+            INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+            VALUES (?, 'service.suspend.v1', 'service', ?, ?, 'PENDING')
+          `).run(generateId('obx'), svc.id, JSON.stringify({ serviceId: svc.id, providerType: svc.provider_type, externalId: svc.external_id, reason: 'CHARGE_DISPUTE' }));
+        }
+
         trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
         trx.prepare(`
           INSERT INTO audit_events (id, account_id, actor_type, action, resource_type, resource_id, correlation_id, metadata)
@@ -187,6 +210,83 @@ export function ingestPSPWebhook(
       db.prepare("UPDATE psp_inbox_events SET status = 'ANOMALY', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
     }
     return { status: 'PROCESSED', eventId };
+  }
+
+  // Handle Stripe Subscription auto-renewal lifecycle
+  if (eventType === 'invoice.paid') {
+    const rawInv = payload.data.object as Record<string, any>;
+    const subId = rawInv.subscription as string | undefined;
+    if (subId) {
+      runInTransaction((trx) => {
+        const periodStart = rawInv.lines?.data?.[0]?.period?.start
+          ? new Date(rawInv.lines.data[0].period.start * 1000).toISOString()
+          : new Date().toISOString();
+        const periodEnd = rawInv.lines?.data?.[0]?.period?.end
+          ? new Date(rawInv.lines.data[0].period.end * 1000).toISOString()
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+        trx.prepare(`
+          UPDATE subscriptions
+          SET status = 'ACTIVE',
+              grace_period_end = NULL,
+              dunning_attempts = 0,
+              current_period_start = ?,
+              current_period_end = ?,
+              next_renewal_date = ?,
+              updated_at = datetime('now', 'utc')
+          WHERE psp_subscription_id = ?
+        `).run(periodStart, periodEnd, periodEnd, subId);
+
+        const sub = trx.prepare('SELECT account_id FROM subscriptions WHERE psp_subscription_id = ?').get(subId) as { account_id: string } | undefined;
+        if (sub) {
+          trx.prepare("UPDATE invoices SET status = 'PAID', paid_at = datetime('now', 'utc') WHERE account_id = ? AND status = 'ISSUED'").run(sub.account_id);
+        }
+        trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+      }, db);
+      return { status: 'PROCESSED', eventId };
+    }
+  }
+
+  if (eventType === 'invoice.payment_failed') {
+    const rawInv = payload.data.object as Record<string, any>;
+    const subId = rawInv.subscription as string | undefined;
+    if (subId) {
+      runInTransaction((trx) => {
+        const graceEnd = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString();
+        trx.prepare(`
+          UPDATE subscriptions
+          SET status = 'PAST_DUE',
+              grace_period_end = ?,
+              dunning_attempts = dunning_attempts + 1,
+              last_dunning_at = datetime('now', 'utc'),
+              updated_at = datetime('now', 'utc')
+          WHERE psp_subscription_id = ?
+        `).run(graceEnd, subId);
+        trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+      }, db);
+      return { status: 'PROCESSED', eventId };
+    }
+  }
+
+  if (eventType === 'customer.subscription.deleted') {
+    const rawSub = payload.data.object as Record<string, any>;
+    const subId = rawSub.id;
+    if (subId) {
+      runInTransaction((trx) => {
+        const sub = trx.prepare('SELECT id, service_id, account_id FROM subscriptions WHERE psp_subscription_id = ?').get(subId) as { id: string; service_id: string; account_id: string } | undefined;
+        if (sub) {
+          trx.prepare("UPDATE subscriptions SET status = 'CANCELED', updated_at = datetime('now', 'utc') WHERE id = ?").run(sub.id);
+          trx.prepare("UPDATE services SET contract_status = 'TERMINATED' WHERE id = ?").run(sub.service_id);
+          trx.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED' WHERE service_id = ?").run(sub.service_id);
+          trx.prepare(`
+            INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status)
+            VALUES (?, 'service.terminate.v1', 'service', ?, ?, 'PENDING')
+          `).run(generateId('obx'), sub.service_id, JSON.stringify({ serviceId: sub.service_id, reason: 'STRIPE_SUBSCRIPTION_CANCELLED' }));
+        }
+        trx.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+      }, db);
+      return { status: 'PROCESSED', eventId };
+    }
   }
 
   // We are interested in payment intent successes and checkout completions
@@ -212,8 +312,8 @@ export function ingestPSPWebhook(
     FROM payment_attempts pa
     JOIN invoices i ON i.id = pa.invoice_id
     JOIN orders o ON o.id = i.order_id
-    WHERE pa.id = ? OR pa.psp_session_id = ?
-  `).get(paymentAttemptId, paymentAttemptId) as ({
+    WHERE pa.id = ? OR pa.psp_session_id = ? OR pa.psp_payment_intent_id = ?
+  `).get(paymentAttemptId, paymentAttemptId, paymentAttemptId) as ({
     id: string;
     invoice_id: string;
     amount_minor_units: number;
@@ -222,11 +322,18 @@ export function ingestPSPWebhook(
     account_id: string;
     order_status: string;
     order_total: number;
+    status: string;
   }) | undefined;
 
   if (!attemptRow) {
     db.prepare("UPDATE psp_inbox_events SET status = 'ANOMALY', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
     return { status: 'ANOMALY_HELD', eventId };
+  }
+
+  // Deduplication guard: if already settled and fulfilled, acknowledge cleanly without re-executing
+  if (attemptRow.status === 'SUCCEEDED' || attemptRow.order_status === 'PAID' || attemptRow.order_status === 'COMPLETED') {
+    db.prepare("UPDATE psp_inbox_events SET status = 'PROCESSED', processed_at = datetime('now', 'utc') WHERE event_id = ?").run(eventId);
+    return { status: 'PROCESSED', eventId, orderId: attemptRow.order_id };
   }
 
   // Verify order linkage if provided
@@ -246,8 +353,13 @@ export function ingestPSPWebhook(
 
   // 5. Atomic State Settlement
   runInTransaction((trx) => {
-    // 5a. Update Payment Attempt
-    trx.prepare("UPDATE payment_attempts SET status = 'SUCCEEDED' WHERE id = ?").run(attemptRow.id);
+    // 5a. Update Payment Attempt and persist Stripe identifiers
+    const pspPiId = (paymentObj as Record<string, any>)['payment_intent'] || (paymentObj.id.startsWith('pi_') ? paymentObj.id : null);
+    if (pspPiId) {
+      trx.prepare("UPDATE payment_attempts SET status = 'SUCCEEDED', psp_payment_intent_id = ? WHERE id = ?").run(pspPiId, attemptRow.id);
+    } else {
+      trx.prepare("UPDATE payment_attempts SET status = 'SUCCEEDED' WHERE id = ?").run(attemptRow.id);
+    }
 
     // 5b. Mark Invoice PAID & Allocate Sequential Number
     markInvoicePaid(attemptRow.invoice_id, effectiveAmount, trx);
@@ -263,17 +375,35 @@ export function ingestPSPWebhook(
       custom_options: string;
     })[];
 
-    // Select suitable node in region
-    const node = trx.prepare(`
-      SELECT id FROM nodes
-      WHERE region_id = ? AND maintenance_mode = 0
-      ORDER BY allocated_memory_mb ASC
-      LIMIT 1
-    `).get(items[0]?.region_id || 'reg_fra_1') as { id: string } | undefined;
-
-    const assignedNodeId = node ? node.id : 'node_fra_01';
+    const pspSubId = (paymentObj as Record<string, any>)['subscription'];
 
     for (const item of items) {
+      const planVersion = trx.prepare(`
+        SELECT resource_specs FROM plan_versions WHERE id = ?
+      `).get(item.plan_version_id) as { resource_specs: string };
+      const desired = JSON.parse(planVersion.resource_specs) as {
+        cpuPct: number;
+        memoryMb: number;
+        diskMb: number;
+      };
+
+      const itemRegion = item.region_id || 'reg_fra_1';
+      const node = trx.prepare(`
+        SELECT id FROM nodes
+        WHERE region_id = ? AND maintenance_mode = 0
+          AND (allocated_memory_mb + ?) <= max_memory_mb
+          AND (allocated_disk_mb + ?) <= max_disk_mb
+        ORDER BY allocated_memory_mb ASC
+        LIMIT 1
+      `).get(itemRegion, desired.memoryMb, desired.diskMb) as { id: string } | undefined
+        || trx.prepare('SELECT id FROM nodes WHERE region_id = ? AND maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get(itemRegion) as { id: string } | undefined
+        || trx.prepare('SELECT id FROM nodes WHERE maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get() as { id: string } | undefined;
+
+      if (!node) {
+        throw new Error(`No available node found with capacity in region ${itemRegion}`);
+      }
+      const assignedNodeId = node.id;
+
       const serviceId = generateId('svc');
 
       const productRow = trx.prepare(`
@@ -283,21 +413,12 @@ export function ingestPSPWebhook(
         WHERE pv.id = ?
       `).get(item.plan_version_id) as { provider_type: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS' } | undefined;
       const providerType = productRow?.provider_type || 'PTERODACTYL';
-      const providerInstance = providerType === 'CPANEL' ? 'cpanel_primary' : 'pterodactyl_primary';
+      const providerInstance = providerType === 'CPANEL' ? 'cpanel_primary' : providerType === 'VPS' ? 'proxmox_primary' : 'pterodactyl_primary';
 
       trx.prepare(`
         INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id)
         VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)
       `).run(serviceId, attemptRow.account_id, item.id, providerType, providerInstance, assignedNodeId);
-
-      const planVersion = trx.prepare(`
-        SELECT resource_specs FROM plan_versions WHERE id = ?
-      `).get(item.plan_version_id) as { resource_specs: string };
-      const desired = JSON.parse(planVersion.resource_specs) as {
-        cpuPct: number;
-        memoryMb: number;
-        diskMb: number;
-      };
 
       trx.prepare(`
         INSERT INTO service_desired_configs
@@ -313,6 +434,31 @@ export function ingestPSPWebhook(
         VALUES (?, 'INSTALLING')
       `).run(serviceId);
 
+      // Ingest Stripe subscription if present
+      if (pspSubId) {
+        const subId = generateId('sub');
+        const now = new Date();
+        const nextMonth = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        trx.prepare(`
+          INSERT INTO subscriptions (
+            id, account_id, service_id, psp_subscription_id, status, billing_interval,
+            current_period_start, current_period_end, next_renewal_date,
+            renewal_price_minor_units, currency, auto_renew
+          ) VALUES (?, ?, ?, ?, 'ACTIVE', 'MONTHLY', ?, ?, ?, ?, ?, 1)
+          ON CONFLICT(service_id) DO UPDATE SET psp_subscription_id = excluded.psp_subscription_id, status = 'ACTIVE'
+        `).run(
+          subId,
+          attemptRow.account_id,
+          serviceId,
+          pspSubId,
+          now.toISOString(),
+          nextMonth.toISOString(),
+          nextMonth.toISOString(),
+          attemptRow.amount_minor_units,
+          attemptRow.currency
+        );
+      }
+
       // Enqueue Provisioning Saga in Outbox
       const outboxId = generateId('obx');
       const payloadData = {
@@ -321,6 +467,7 @@ export function ingestPSPWebhook(
         orderItemId: item.id,
         planVersionId: item.plan_version_id,
         nodeId: assignedNodeId,
+        providerType,
         customOptions: JSON.parse(item.custom_options),
       };
 

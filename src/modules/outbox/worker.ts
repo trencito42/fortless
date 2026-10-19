@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { getDatabase, runInTransaction } from '../../database/index.js';
-import { type ProviderAdapter, MockPterodactylAdapter } from '../provisioning/adapter.js';
+import { type ProviderAdapter, MockPterodactylAdapter, MockCpanelAdapter, MockProxmoxAdapter } from '../provisioning/adapter.js';
 import { resolvePanelUserId } from '../provisioning/panel-link.js';
 import { queueEmail } from '../email/outbox.js';
 import { createNotification } from '../notifications/notifications.js';
@@ -14,6 +14,23 @@ export function setProviderAdapter(adapter: ProviderAdapter): void {
 
 export function getProviderAdapter(): ProviderAdapter {
   return defaultAdapter;
+}
+
+export function getAdapterForService(providerType?: string, currentAdapter: ProviderAdapter = defaultAdapter): ProviderAdapter {
+  const norm = (providerType || 'PTERODACTYL').toUpperCase();
+  if (currentAdapter && currentAdapter.providerType === norm) {
+    return currentAdapter;
+  }
+  switch (norm) {
+    case 'CPANEL':
+      return new MockCpanelAdapter();
+    case 'PROXMOX':
+    case 'VPS':
+      return new MockProxmoxAdapter();
+    case 'PTERODACTYL':
+    default:
+      return currentAdapter || defaultAdapter;
+  }
 }
 
 export interface OutboxWorkerOptions {
@@ -100,17 +117,22 @@ export async function processOutboxQueue(
 
   for (const event of claimedEvents) {
     try {
+      const parsedPayload = event.payload ? JSON.parse(event.payload) : {};
+      const service = db.prepare('SELECT id, provider_type, external_id FROM services WHERE id = ?').get(event.aggregate_id) as { id: string; provider_type: string; external_id: string } | undefined;
+      const targetProviderType = service?.provider_type || parsedPayload.providerType || 'PTERODACTYL';
+      const eventAdapter = getAdapterForService(targetProviderType, adapter);
+
       if (event.event_type === 'service.provision.v1') {
-        await executeProvisioningSaga(event.aggregate_id, JSON.parse(event.payload), adapter, db);
+        await executeProvisioningSaga(event.aggregate_id, parsedPayload, eventAdapter, db);
       } else if (event.event_type === 'service.suspend.v1') {
-        const service = db.prepare('SELECT external_id FROM services WHERE id = ?').get(event.aggregate_id) as { external_id: string } | undefined;
-        if (service?.external_id) {
-          await adapter.suspend(service.external_id);
+        const extId = service?.external_id || parsedPayload.externalId;
+        if (extId) {
+          await eventAdapter.suspend(extId);
         }
       } else if (event.event_type === 'service.terminate.v1') {
-        const service = db.prepare('SELECT external_id FROM services WHERE id = ?').get(event.aggregate_id) as { external_id: string } | undefined;
-        if (service?.external_id) {
-          await adapter.terminate(service.external_id);
+        const extId = service?.external_id || parsedPayload.externalId;
+        if (extId) {
+          await eventAdapter.terminate(extId);
         }
       }
 
@@ -214,21 +236,7 @@ async function executeProvisioningSaga(
   const resources = JSON.parse(plan.resource_specs);
   const correlationTag = `fortless_svc_${serviceId}`;
 
-  // 1b. Node Capacity and Maintenance Verification
-  const node = db.prepare(`
-    SELECT id, name, max_memory_mb, allocated_memory_mb, max_disk_mb, allocated_disk_mb, maintenance_mode
-    FROM nodes WHERE id = ?
-  `).get(payload.nodeId) as {
-    id: string;
-    name: string;
-    max_memory_mb: number;
-    allocated_memory_mb: number;
-    max_disk_mb: number;
-    allocated_disk_mb: number;
-    maintenance_mode: number;
-  } | undefined;
-
-  // Initialize or update provision operation
+  // 1b. Node Capacity and Maintenance Verification & Atomic Reservation
   const existingOp = db.prepare('SELECT id FROM provision_operations WHERE service_id = ?').get(serviceId);
   if (!existingOp) {
     db.prepare(`
@@ -242,6 +250,19 @@ async function executeProvisioningSaga(
       WHERE service_id = ?
     `).run(serviceId);
   }
+
+  const node = payload.nodeId ? db.prepare(`
+    SELECT id, name, max_memory_mb, allocated_memory_mb, max_disk_mb, allocated_disk_mb, maintenance_mode
+    FROM nodes WHERE id = ?
+  `).get(payload.nodeId) as {
+    id: string;
+    name: string;
+    max_memory_mb: number;
+    allocated_memory_mb: number;
+    max_disk_mb: number;
+    allocated_disk_mb: number;
+    maintenance_mode: number;
+  } | undefined : undefined;
 
   if (node && node.maintenance_mode === 1) {
     db.prepare(`
@@ -259,6 +280,29 @@ async function executeProvisioningSaga(
       WHERE service_id = ?
     `).run(serviceId);
     throw new Error(`Insufficient capacity on node ${node.name}`);
+  }
+
+  let capacityReserved = false;
+  if (payload.nodeId) {
+    const reserveRes = db.prepare(`
+      UPDATE nodes
+      SET allocated_memory_mb = allocated_memory_mb + ?,
+          allocated_disk_mb = allocated_disk_mb + ?
+      WHERE id = ?
+        AND maintenance_mode = 0
+        AND (allocated_memory_mb + ?) <= max_memory_mb
+        AND (allocated_disk_mb + ?) <= max_disk_mb
+    `).run(resources.memoryMb, resources.diskMb, payload.nodeId, resources.memoryMb, resources.diskMb);
+
+    if (reserveRes.changes === 0) {
+      db.prepare(`
+        UPDATE provision_operations
+        SET status = 'NEEDS_MANUAL_REVIEW', last_error = 'Insufficient capacity on node at reservation time', updated_at = datetime('now', 'utc')
+        WHERE service_id = ?
+      `).run(serviceId);
+      throw new Error(`Insufficient capacity on node at reservation time`);
+    }
+    capacityReserved = true;
   }
 
   // 2. Pre-flight Lookup: Check if provider already has this server (Recovery check)
@@ -308,11 +352,22 @@ async function executeProvisioningSaga(
         externalId = discovered.externalId;
         identifier = discovered.identifier;
       } else {
-        // Truly failed or unreachable
+        // Truly failed or unreachable: release the reserved node capacity
+        if (capacityReserved && payload.nodeId) {
+          db.prepare(`
+            UPDATE nodes
+            SET allocated_memory_mb = max(0, allocated_memory_mb - ?),
+                allocated_disk_mb = max(0, allocated_disk_mb - ?)
+            WHERE id = ?
+          `).run(resources.memoryMb, resources.diskMb, payload.nodeId);
+        }
         throw provisionErr;
       }
     }
   }
+
+  // Confirm provider status
+  const confirmedStatus = (existingOnProvider?.status || (await adapter.lookupByCorrelationTag(correlationTag))?.status) || 'RUNNING';
 
   // 4. Update Database
   runInTransaction((trx) => {
@@ -324,25 +379,15 @@ async function executeProvisioningSaga(
 
     trx.prepare(`
       UPDATE service_observed_states
-      SET runtime_state = 'RUNNING', last_checked_at = datetime('now', 'utc')
+      SET runtime_state = ?, last_checked_at = datetime('now', 'utc')
       WHERE service_id = ?
-    `).run(serviceId);
+    `).run(confirmedStatus, serviceId);
 
     trx.prepare(`
       UPDATE order_items
       SET fulfillment_status = 'FULFILLED'
       WHERE id = ?
     `).run(payload.orderItemId);
-
-    // Atomically allocate capacity on the node
-    if (payload.nodeId) {
-      trx.prepare(`
-        UPDATE nodes
-        SET allocated_memory_mb = allocated_memory_mb + ?,
-            allocated_disk_mb = allocated_disk_mb + ?
-        WHERE id = ?
-      `).run(resources.memoryMb, resources.diskMb, payload.nodeId);
-    }
 
     trx.prepare(`
       UPDATE provision_operations

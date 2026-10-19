@@ -20,7 +20,8 @@ export function serviceState(s: StateInput): ServiceStateView {
   if (contract !== 'ACTIVE') return { label: contract, tone: CONTRACT[contract] ?? 'warn', running: false, controllable: false };
   const runtime = String(s.runtime_state ?? s.runtimeState ?? 'UNKNOWN').toUpperCase();
   const r = RUNTIME[runtime] ?? { label: runtime, tone: 'info' as Tone };
-  return { label: r.label, tone: r.tone, running: runtime === 'RUNNING', controllable: true };
+  const controllable = runtime === 'RUNNING' || runtime === 'STOPPED' || runtime === 'OFFLINE';
+  return { label: r.label, tone: r.tone, running: runtime === 'RUNNING', controllable };
 }
 
 /** Maps a live Wings state (running, offline, starting, stopping) onto the same tags. */

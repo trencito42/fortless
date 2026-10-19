@@ -7,6 +7,8 @@
     cleanups = [];
     currentMatch = null;
     basePath;
+    navigationSeq = 0;
+    activeAbortController = null;
     constructor(routes = [], basePath = "/app") {
       this.routes = Array.isArray(routes) ? [...routes] : Object.values(routes);
       this.basePath = basePath;
@@ -42,6 +44,15 @@
     getCurrentMatch() {
       return this.currentMatch;
     }
+    getNavigationSeq() {
+      return this.navigationSeq;
+    }
+    isCurrentNavigation(seq) {
+      return this.navigationSeq === seq;
+    }
+    getSignal() {
+      return this.activeAbortController?.signal;
+    }
     navigate(pathOrId, params) {
       let targetPath = pathOrId;
       if (this.routes.some((r) => r.id === pathOrId)) {
@@ -62,6 +73,15 @@
       this.resolve();
     }
     resolve() {
+      this.navigationSeq++;
+      const currentSeq = this.navigationSeq;
+      if (this.activeAbortController) {
+        try {
+          this.activeAbortController.abort();
+        } catch {
+        }
+      }
+      this.activeAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       const path = window.location.pathname;
       const prev = this.currentMatch;
       if (prev?.route.tabbed) {
@@ -96,7 +116,20 @@
           this.updateActiveLinks(route.id);
           const handler = this.handlers.get(route.id);
           if (handler) {
-            handler(this.currentMatch);
+            try {
+              const res = handler(this.currentMatch);
+              if (res && typeof res.then === "function") {
+                res.catch((err) => {
+                  if (this.isCurrentNavigation(currentSeq)) {
+                    console.error("Route handler error:", err);
+                  }
+                });
+              }
+            } catch (err) {
+              if (this.isCurrentNavigation(currentSeq)) {
+                console.error("Route handler error:", err);
+              }
+            }
           }
           return;
         }

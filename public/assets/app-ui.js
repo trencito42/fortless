@@ -7,6 +7,8 @@
     cleanups = [];
     currentMatch = null;
     basePath;
+    navigationSeq = 0;
+    activeAbortController = null;
     constructor(routes = [], basePath = "/app") {
       this.routes = Array.isArray(routes) ? [...routes] : Object.values(routes);
       this.basePath = basePath;
@@ -42,6 +44,15 @@
     getCurrentMatch() {
       return this.currentMatch;
     }
+    getNavigationSeq() {
+      return this.navigationSeq;
+    }
+    isCurrentNavigation(seq) {
+      return this.navigationSeq === seq;
+    }
+    getSignal() {
+      return this.activeAbortController?.signal;
+    }
     navigate(pathOrId, params) {
       let targetPath = pathOrId;
       if (this.routes.some((r) => r.id === pathOrId)) {
@@ -62,6 +73,15 @@
       this.resolve();
     }
     resolve() {
+      this.navigationSeq++;
+      const currentSeq = this.navigationSeq;
+      if (this.activeAbortController) {
+        try {
+          this.activeAbortController.abort();
+        } catch {
+        }
+      }
+      this.activeAbortController = typeof AbortController !== "undefined" ? new AbortController() : null;
       const path = window.location.pathname;
       const prev = this.currentMatch;
       if (prev?.route.tabbed) {
@@ -96,7 +116,20 @@
           this.updateActiveLinks(route.id);
           const handler = this.handlers.get(route.id);
           if (handler) {
-            handler(this.currentMatch);
+            try {
+              const res = handler(this.currentMatch);
+              if (res && typeof res.then === "function") {
+                res.catch((err) => {
+                  if (this.isCurrentNavigation(currentSeq)) {
+                    console.error("Route handler error:", err);
+                  }
+                });
+              }
+            } catch (err) {
+              if (this.isCurrentNavigation(currentSeq)) {
+                console.error("Route handler error:", err);
+              }
+            }
           }
           return;
         }
@@ -1338,7 +1371,8 @@ ${selectedOr("code")}
     if (contract !== "ACTIVE") return { label: contract, tone: CONTRACT[contract] ?? "warn", running: false, controllable: false };
     const runtime = String(s.runtime_state ?? s.runtimeState ?? "UNKNOWN").toUpperCase();
     const r = RUNTIME[runtime] ?? { label: runtime, tone: "info" };
-    return { label: r.label, tone: r.tone, running: runtime === "RUNNING", controllable: true };
+    const controllable = runtime === "RUNNING" || runtime === "STOPPED" || runtime === "OFFLINE";
+    return { label: r.label, tone: r.tone, running: runtime === "RUNNING", controllable };
   }
   function liveState(state) {
     const s = state.toLowerCase();
@@ -1563,7 +1597,7 @@ ${selectedOr("code")}
       const mem = `${(memMb / 1024).toFixed(memMb % 1024 === 0 ? 0 : 1)} GB`;
       const diskMb = Number(svc.disk_limit_mb || 0);
       const disk = diskMb >= 1024 ? `${(diskMb / 1024).toFixed(diskMb % 1024 === 0 ? 0 : 1)} GB disk` : `${diskMb} MB disk`;
-      const canControl = st.controllable && (!svc.shared_by || svc.shared_preset !== "viewer");
+      const canControl = st.controllable && (!svc.shared_by || svc.shared_preset !== "viewer") && svc.user_can_control !== false;
       const powers = !canControl ? "" : providerReady ? `<button class="btn xs" data-power="RESTART" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}><svg class="ic xs" aria-hidden="true"><use href="#i-refresh"/></svg>Restart</button><button class="btn xs bad" data-power="STOP" data-service="${esc(svc.id)}" ${running ? "" : "disabled"}><svg class="ic xs" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button><button class="btn xs good" data-power="START" data-service="${esc(svc.id)}" ${running ? "disabled" : ""}><svg class="ic xs" aria-hidden="true"><use href="#i-play"/></svg>Start</button>` : `<span class="pill warn">Provider controls unavailable</span>`;
       const searchTokens = `${esc(svc.plan_name || "")} ${esc(svc.identifier || "")} ${esc(svc.id || "")} ${esc(svc.node_name || "")}`.toLowerCase();
       return `<article class="li h" data-c="Service row" data-s="${running ? "RUNNING" : "OTHER"}" data-t="${searchTokens}" data-p="${esc(svc.plan_name || "")}" style="flex-wrap:wrap;padding:14px 16px"><span class="tile ${tone} sm"><svg class="ic" aria-hidden="true"><use href="#i-server"/></svg></span><div class="tx" style="min-width:160px"><div class="row" style="gap:8px"><b style="white-space:normal">${esc(svc.plan_name || "Hosting service")}</b><span class="pill ${tone} d">${esc(rt)}</span>${svc.shared_by ? `<span class="pill info">Shared by ${esc(svc.shared_by)}</span>` : ""}</div><small style="white-space:normal">${esc(svc.node_name || svc.node_id || "\u2014")} \xB7 ${esc(mem)} RAM \xB7 ${esc(String(svc.cpu_limit_pct || 0))}% CPU \xB7 ${esc(disk)}</small></div>${svc.identifier ? `<code class="hide-n">${esc(svc.identifier)}</code>` : ""}<div class="row" style="gap:6px">${powers}${isTerminated(svc) ? "" : `<a href="/app/services/${esc(svc.id)}" class="btn xs tint" data-app-route="service-detail"><svg class="ic xs" aria-hidden="true"><use href="#i-arrow-right-01"/></svg>Manage</a>`}</div></article>`;
@@ -1635,9 +1669,17 @@ ${selectedOr("code")}
         btn.setAttribute("aria-selected", "true");
         renderServiceInventory();
       });
-      document.getElementById("refreshServicesBtn")?.addEventListener("click", () => {
-        toast("Refreshed services list", "info");
-        renderServices();
+      document.getElementById("refreshServicesBtn")?.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        if (btn) btn.disabled = true;
+        try {
+          await renderServices();
+          toast("Refreshed services list", "info");
+        } catch (err) {
+          toast("Failed to refresh services: " + (err.message || "Network error"), "bad");
+        } finally {
+          if (btn) btn.disabled = false;
+        }
       });
     } catch (error) {
       host.innerHTML = `<div class="alert bad">${hero("warning", "s")}<div><b>Failed to load services</b><span>${esc(error.message)}</span></div></div>`;
@@ -3620,21 +3662,34 @@ ${selectedOr("code")}
       const ramMb = Number(service.desiredConfig?.memoryLimitMb || 0);
       const cpuPct = Number(service.desiredConfig?.cpuLimitPct || 0);
       const diskMb = Number(service.desiredConfig?.diskLimitMb || 0);
+      const caps = service.providerCapabilities || {
+        console: service.providerType === "PTERODACTYL",
+        files: service.providerType === "PTERODACTYL",
+        game: service.providerType === "PTERODACTYL",
+        databases: service.providerType === "PTERODACTYL",
+        schedules: service.providerType === "PTERODACTYL",
+        backups: service.providerType === "PTERODACTYL" || service.providerType === "PROXMOX",
+        network: service.providerType === "PTERODACTYL" || service.providerType === "PROXMOX",
+        startup: service.providerType === "PTERODACTYL",
+        settings: true,
+        users: true,
+        power: service.providerType !== "CPANEL"
+      };
       const perms = new Set(service.access?.permissions ?? []);
       const can = (perm) => providerReady && st.controllable && perms.has(perm);
       const show = {
-        c: can("websocket.connect"),
-        f: can("file.read"),
-        m: can("file.read"),
-        d: can("database.read"),
-        h: can("schedule.read"),
-        b: can("backup.read"),
-        n: can("allocation.read"),
-        s: can("startup.read"),
-        g: can("settings.rename"),
-        u: providerReady && st.controllable && service.access?.kind === "ACCOUNT" && perms.has("control.start")
+        c: caps.console && can("websocket.connect"),
+        f: caps.files && can("file.read"),
+        m: caps.game && can("file.read"),
+        d: caps.databases && can("database.read"),
+        h: caps.schedules && can("schedule.read"),
+        b: caps.backups && can("backup.read"),
+        n: caps.network && can("allocation.read"),
+        s: caps.startup && can("startup.read"),
+        g: caps.settings && can("settings.rename"),
+        u: caps.users && providerReady && st.controllable && service.access?.kind === "ACCOUNT" && perms.has("control.start")
       };
-      const canPower = can("control.start") || can("control.stop") || can("control.restart");
+      const canPower = caps.power && (can("control.start") || can("control.stop") || can("control.restart"));
       const powerBtns = !providerReady ? `<span class="pill warn">Provider controls unavailable</span>` : !canPower ? "" : `<button class="btn s sec" id="dtlRestartBtn" data-pwr="restart" ${runningNow ? "" : "disabled"}>${hero("refresh", "xs")}Restart</button><button class="btn s badt" id="dtlStopBtn" data-pwr="stop" ${runningNow ? "" : "disabled"}>${hero("stop", "xs")}Stop</button><button class="btn s goodt" id="dtlStartBtn" data-pwr="start" ${runningNow ? "disabled" : ""}>${hero("play", "xs")}Start</button>`;
       const advancedKeys = /* @__PURE__ */ new Set(["d", "h", "n", "s", "g", "u", "a"]);
       const advancedSlugs = /* @__PURE__ */ new Set(["databases", "schedules", "network", "startup", "settings", "users", "allocation"]);
@@ -3667,7 +3722,7 @@ ${selectedOr("code")}
       <div class="tabs under" id="serviceDetailTabs" role="tablist" aria-label="Service details" style="margin:24px 0 20px">
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneOverview" aria-selected="true" data-t="o">Overview</button>
         ${[["c", "Console", "dtlPaneConsole"], ["f", "Files", "dtlPaneFiles"], ["m", "Game", "dtlPaneGame"], ["d", "Databases", "dtlPaneDatabases"], ["h", "Schedules", "dtlPaneSchedules"], ["b", "Backups", "dtlPaneBackups"], ["n", "Network", "dtlPaneNetwork"], ["s", "Startup", "dtlPaneStartup"], ["g", "Settings", "dtlPaneSettings"], ["u", "Users", "dtlPaneUsers"]].filter(([k]) => show[k]).map(([k, l, c]) => `<button class="tab" type="button" role="tab" aria-controls="${c}" aria-selected="false" tabindex="-1" data-t="${k}"${advancedTab(k)}>${l}</button>`).join("")}
-        <button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab("a")}>Allocation</button>
+        ${show.n ? `<button class="tab" type="button" role="tab" aria-controls="dtlPaneAllocation" aria-selected="false" tabindex="-1" data-t="a"${advancedTab("a")}>Allocation</button>` : ""}
         <button class="tab" type="button" role="tab" aria-controls="dtlPaneActivity" aria-selected="false" tabindex="-1" data-t="e">Activity</button>
       </div>
 

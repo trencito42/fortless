@@ -32,6 +32,7 @@ import {
   completeMfaChallenge,
   getMfaStatus,
   beginTotpEnrollment,
+  beginTotpReplacement,
   confirmTotpEnrollment,
   regenerateRecoveryCodes,
   disableTotp,
@@ -820,6 +821,16 @@ export function buildServer(): FastifyInstance {
     if (!parse.success) return reply.status(400).send({ error: 'Enter your current password.' });
     try {
       return reply.send(beginTotpEnrollment(req.auth!.user.id, parse.data.password, req.auth!.user.email));
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      if (msg.includes('already enabled')) return reply.status(409).send({ error: msg });
+      return reply.status(400).send({ error: msg });
+    }
+  });
+
+  app.post('/api/v1/auth/mfa/totp/replace', { preHandler: [requireAuth, requireRecentStepUp] }, async (req, reply) => {
+    try {
+      return reply.send(beginTotpReplacement(req.auth!.user.id, req.auth!.user.email));
     } catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
   });
 
@@ -835,7 +846,7 @@ export function buildServer(): FastifyInstance {
     } catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
   });
 
-  app.post('/api/v1/auth/mfa/recovery-codes/regenerate', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/api/v1/auth/mfa/recovery-codes/regenerate', { preHandler: [requireAuth, requireRecentStepUp] }, async (req, reply) => {
     try {
       const recoveryCodes = regenerateRecoveryCodes({
         userId: req.auth!.user.id,
@@ -1479,7 +1490,14 @@ export function buildServer(): FastifyInstance {
       WHERE s.account_id = @acc OR sm.user_id IS NOT NULL
       ORDER BY s.created_at DESC
     `).all({ acc: req.auth!.account.id, usr: req.auth!.user.id });
-    return { services };
+    const userRole = req.auth!.membership.role;
+    const isAccountController = userRole === 'OWNER' || userRole === 'TECH_ADMIN';
+    const enriched = (services as any[]).map((svc) => {
+      const isOwnerAcc = svc.account_id === req.auth!.account.id;
+      const user_can_control = isOwnerAcc ? isAccountController : (svc.shared_preset === 'operator' || svc.shared_preset === 'admin');
+      return { ...svc, user_can_control };
+    });
+    return { services: enriched };
   });
 
   // Services: Get Detail (Tenant Isolated!)

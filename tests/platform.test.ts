@@ -15,6 +15,8 @@ import {
   revokeUserSession,
   revokeOtherUserSessions,
   beginTotpEnrollment,
+  beginTotpReplacement,
+  regenerateRecoveryCodes,
   confirmTotpEnrollment,
   completeMfaChallenge,
   completeStepUp,
@@ -3792,6 +3794,208 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       // Customer cannot download the internal attachment directly
       const customerDownload = getTicketAttachment(ticket.ticketId, internalAtt.id, user.account.id, db);
       expect(customerDownload).toBeNull();
+    });
+  });
+
+  describe('Category T: Audit Delta Security & Commercial Precision (FTL-SEC-201 - FTL-DNS-202)', () => {
+    it('FTL-SEC-201: Active TOTP cannot be silently downgraded or replaced without atomic verification', () => {
+      const user = registerUser({ name: 'MFA User', email: 'mfa.sec201@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const verified = verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx = authenticateSession(verified.token, db)!;
+      const enrollment = beginTotpEnrollment(user.user.id, 'Password12345!', user.user.email, db);
+      const validCode = generateTotpCode(enrollment.secret);
+      confirmTotpEnrollment({
+        userId: user.user.id,
+        accountId: user.account.id,
+        sessionId: ctx.session.id,
+        code: validCode,
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      // Normal enrollment MUST be rejected when MFA is confirmed
+      expect(() => {
+        beginTotpEnrollment(user.user.id, 'Password12345!', user.user.email, db);
+      }).toThrow('Multi-factor authentication is already enabled');
+
+      // Replacement must keep confirmed MFA active
+      const replacement = beginTotpReplacement(user.user.id, user.user.email, db);
+      const status = getMfaStatus(user.user.id, db);
+      expect(status.enabled).toBe(true);
+
+      const login = loginUser({ email: user.user.email, password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      expect(login.requiresMfa).toBe(true);
+
+      // Old secret still works before replacement is confirmed
+      const oldFactorCode = generateTotpCode(enrollment.secret);
+      expect(() => {
+        completeMfaChallenge(login.token, oldFactorCode, '127.0.0.1', db);
+      }).not.toThrow();
+
+      // Confirming replacement atomically activates new secret
+      const newFactorCode = generateTotpCode(replacement.secret);
+      confirmTotpEnrollment({
+        userId: user.user.id,
+        accountId: user.account.id,
+        sessionId: ctx.session.id,
+        code: newFactorCode,
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      const loginAfter = loginUser({ email: user.user.email, password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      // Now new factor works
+      expect(() => {
+        completeMfaChallenge(loginAfter.token, newFactorCode, '127.0.0.1', db);
+      }).not.toThrow();
+    });
+
+    it('FTL-SEC-202: MFA failures persist account-wide across same-device session deletion', () => {
+      const user = registerUser({ name: 'MFA Brute', email: 'mfa.brute@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const verified = verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx = authenticateSession(verified.token, db)!;
+      const enrollment = beginTotpEnrollment(user.user.id, 'Password12345!', user.user.email, db);
+      confirmTotpEnrollment({
+        userId: user.user.id,
+        accountId: user.account.id,
+        sessionId: ctx.session.id,
+        code: generateTotpCode(enrollment.secret),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      const login1 = loginUser({ email: user.user.email, password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test', deviceId: 'dev_same_123' }, db);
+
+      // Fail 5 times on device (reaches MAX_MFA_ATTEMPTS threshold)
+      for (let i = 0; i < 5; i++) {
+        expect(() => {
+          completeMfaChallenge(login1.token, '000000', '127.0.0.1', db);
+        }).toThrow();
+      }
+
+      // Re-login with valid password on same device (removes previous unverified session)
+      const relogin = loginUser({ email: user.user.email, password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test', deviceId: 'dev_same_123' }, db);
+      expect(relogin.requiresMfa).toBe(true);
+
+      // Next failure must trigger throttle block immediately due to durable user_id tracking
+      expect(() => {
+        completeMfaChallenge(relogin.token, '000000', '127.0.0.1', db);
+      }).toThrow(/Too many verification attempts/);
+    });
+
+    it('FTL-SEC-204: Recovery codes have 128-bit uniform entropy and replace old codes', () => {
+      const user = registerUser({ name: 'MFA Recov', email: 'mfa.recov@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const verified = verifyEmail(user.verificationToken, { ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const ctx = authenticateSession(verified.token, db)!;
+      const enrollment = beginTotpEnrollment(user.user.id, 'Password12345!', user.user.email, db);
+      const initialCodes = confirmTotpEnrollment({
+        userId: user.user.id,
+        accountId: user.account.id,
+        sessionId: ctx.session.id,
+        code: generateTotpCode(enrollment.secret),
+        ipAddress: '127.0.0.1',
+      }, db);
+
+      expect(initialCodes).toHaveLength(10);
+      for (const code of initialCodes) {
+        const rawHex = code.replace(/-/g, '');
+        expect(rawHex.length).toBe(32);
+      }
+
+      const freshCodes = regenerateRecoveryCodes({
+        userId: user.user.id,
+        accountId: user.account.id,
+        ipAddress: '127.0.0.1',
+      }, db);
+      expect(freshCodes).toHaveLength(10);
+      expect(freshCodes[0]).not.toBe(initialCodes[0]);
+
+      const login = loginUser({ email: user.user.email, password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      // Consuming old code fails
+      expect(() => {
+        completeMfaChallenge(login.token, initialCodes[0]!, '127.0.0.1', db);
+      }).toThrow(/verification code is invalid/);
+
+      // Consuming new code succeeds
+      const recoveryResult = completeMfaChallenge(login.token, freshCodes[0]!, '127.0.0.1', db);
+      expect(recoveryResult.recoveryCodeUsed).toBe(true);
+    });
+
+    it('FTL-DNS-201 & FTL-DNS-202: Domain search explicitly specifies local tier, zones start as PENDING_DELEGATION', () => {
+      const user = registerUser({ name: 'DNS User', email: 'dns.test@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const searchRes = searchDomain(db, 'example.com');
+      expect(searchRes.results[0]?.available).toBe(true);
+      expect(searchRes.results[0]?.availabilityTier).toBe('LOCAL_ZONE_AVAILABLE');
+      expect(searchRes.results[0]?.isExternalRegistrarVerified).toBe(false);
+
+      const zone = createDomainZone(db, {
+        accountId: user.account.id,
+        domainName: 'testmydomain.org',
+      });
+      expect(zone.status).toBe('PENDING_DELEGATION');
+    });
+
+    it('FTL-BILL-202 & FTL-BILL-203: Webhook settlement is idempotent and refund enqueues service termination outbox event', () => {
+      const user = registerUser({ name: 'Bill User', email: 'bill.sec@example.com', password: 'Password12345!', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const quote = createQuote(user.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+      const ordId = 'ord_delta_1';
+      const invId = 'inv_delta_1';
+      const paId = 'pa_delta_1';
+
+      db.prepare(`
+        INSERT INTO orders (id, account_id, quote_id, status, currency, total_minor_units, idempotency_key)
+        VALUES (?, ?, ?, 'AWAITING_PAYMENT', 'EUR', 1428, 'idem_bill_test')
+      `).run(ordId, user.account.id, quote.id);
+
+      db.prepare(`
+        INSERT INTO order_items (id, order_id, plan_version_id, region_id, custom_options, fulfillment_status)
+        VALUES ('ori_b1', ?, 'plv_mc_4gb', 'reg_fra_1', '{}', 'PENDING')
+      `).run(ordId);
+
+      db.prepare(`
+        INSERT INTO invoices (id, account_id, order_id, invoice_number, status, currency, total_minor_units, subtotal_minor_units, tax_minor_units, amount_paid_minor_units, due_date)
+        VALUES (?, ?, ?, 'INV-TEST-DELTA-01', 'ISSUED', 'EUR', 1428, 1200, 228, 0, datetime('now', '+30 days'))
+      `).run(invId, user.account.id, ordId);
+
+      db.prepare(`
+        INSERT INTO payment_attempts (id, invoice_id, psp_name, status, amount_minor_units, currency, psp_payment_intent_id, idempotency_key)
+        VALUES (?, ?, 'stripe', 'PROCESSING', 1428, 'EUR', 'pi_sec_203', 'idem_pa_delta_1')
+      `).run(paId, invId);
+
+      const successEvt1: any = {
+        id: 'evt_stripe_succ_1',
+        type: 'payment_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: 'pi_sec_203', amount: 1428, currency: 'eur', status: 'succeeded', metadata: { paymentAttemptId: paId, orderId: ordId } } },
+      };
+
+      const res1 = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(successEvt1), successEvt1, db);
+      expect(res1.status).toBe('PROCESSED');
+
+      // Duplicate event with DIFFERENT event ID describing same payment must acknowledge without failing
+      const successEvt2: any = {
+        id: 'evt_stripe_succ_2',
+        type: 'checkout.session.completed',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: 'cs_other_id', amount_total: 1428, currency: 'eur', payment_status: 'paid', metadata: { paymentAttemptId: paId, orderId: ordId } } },
+      };
+
+      const res2 = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(successEvt2), successEvt2, db);
+      expect(res2.status).toBe('PROCESSED');
+
+      // Verify refund terminates service and enqueues termination outbox event
+      const refundEvt: any = {
+        id: 'evt_stripe_refund_1',
+        type: 'charge.refunded',
+        created: Math.floor(Date.now() / 1000),
+        data: { object: { id: 'ch_refund_1', payment_intent: 'pi_sec_203', amount_refunded: 1428 } },
+      };
+
+      const resRefund = ingestPSPWebhook('stripe', 'acct_primary', JSON.stringify(refundEvt), refundEvt, db);
+      expect(resRefund.status).toBe('PROCESSED');
+
+      const service = db.prepare('SELECT contract_status FROM services WHERE account_id = ?').get(user.account.id) as any;
+      expect(service.contract_status).toBe('TERMINATED');
+
+      const outboxEvt = db.prepare("SELECT * FROM outbox_events WHERE event_type = 'service.terminate.v1'").get() as any;
+      expect(outboxEvt).toBeDefined();
     });
   });
 });

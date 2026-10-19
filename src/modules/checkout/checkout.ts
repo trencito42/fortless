@@ -64,10 +64,27 @@ export async function processCheckout(
     ON CONFLICT(account_id, scope, idempotency_key) DO UPDATE SET status = 'IN_PROGRESS'
   `).run(data.accountId, data.idempotencyKey, requestHash);
 
+  let txResult: {
+    orderId: string;
+    invoiceId: string;
+    paymentAttemptId: string;
+    totalMinorUnits: number;
+    currency: string;
+    planName: string;
+    billingInterval: 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
+  } | null = null;
+
   try {
-    const txResult = runInTransaction((trx) => {
+    txResult = runInTransaction((trx) => {
       // 2. Validate Quote
       const quote = verifyQuote(data.quoteId, data.accountId, trx);
+
+      // Verify compatible billing intervals across quote lines
+      const intervals = new Set(quote.lines.map((l) => l.interval || 'MONTHLY'));
+      if (intervals.size > 1) {
+        throw new Error('Mixed billing intervals in a single order are not supported.');
+      }
+      const billingInterval = (quote.lines[0]?.interval || 'MONTHLY') as 'MONTHLY' | 'QUARTERLY' | 'SEMI_ANNUAL' | 'ANNUAL';
 
       // 3. Mark Quote Converted
       trx.prepare("UPDATE quotes SET status = 'CONVERTED' WHERE id = ?").run(quote.id);
@@ -147,6 +164,7 @@ export async function processCheckout(
         totalMinorUnits: quote.totalMinorUnits,
         currency: quote.currency,
         planName: quote.lines[0] ? 'Fortless Hosting Plan' : 'Hosting Plan',
+        billingInterval,
       };
     }, db);
 
@@ -162,7 +180,24 @@ export async function processCheckout(
         regionId: data.regionId,
       }, db);
     } else {
-      // Paid plan: create Stripe Checkout Session
+      // Paid plan: create Stripe Checkout Session with accurate billing interval
+      let recurringConfig: { interval: 'month' | 'year'; interval_count?: number };
+      switch (txResult.billingInterval) {
+        case 'QUARTERLY':
+          recurringConfig = { interval: 'month', interval_count: 3 };
+          break;
+        case 'SEMI_ANNUAL':
+          recurringConfig = { interval: 'month', interval_count: 6 };
+          break;
+        case 'ANNUAL':
+          recurringConfig = { interval: 'year' };
+          break;
+        case 'MONTHLY':
+        default:
+          recurringConfig = { interval: 'month' };
+          break;
+      }
+
       const stripe = new Stripe(config.STRIPE_SECRET_KEY);
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',
@@ -171,7 +206,7 @@ export async function processCheckout(
           price_data: {
             currency: txResult.currency.toLowerCase(),
             product_data: { name: txResult.planName },
-            recurring: { interval: 'month' },
+            recurring: recurringConfig,
             unit_amount: txResult.totalMinorUnits,
           },
           quantity: 1,
@@ -190,13 +225,15 @@ export async function processCheckout(
             accountId: data.accountId,
           },
         },
+      }, {
+        idempotencyKey: `cs_${txResult.paymentAttemptId}_${data.idempotencyKey}`,
       });
 
       if (!session.url) {
         throw new Error('Stripe did not return a checkout URL.');
       }
 
-      // Bind real Stripe session ID to payment attempt
+      // Bind real Stripe session ID and payment intent ID to payment attempt
       db.prepare('UPDATE payment_attempts SET psp_session_id = ? WHERE id = ?')
         .run(session.id, txResult.paymentAttemptId);
 
@@ -226,6 +263,14 @@ export async function processCheckout(
     // Reopen quote if external checkout provider failed so customer can retry
     db.prepare("UPDATE quotes SET status = 'OPEN' WHERE id = ? AND account_id = ? AND status = 'CONVERTED'")
       .run(data.quoteId, data.accountId);
+    // Compensate local order and invoice to prevent orphaned billable state on failure
+    if (txResult) {
+      try {
+        db.prepare("UPDATE orders SET status = 'CANCELLED' WHERE id = ?").run(txResult.orderId);
+        db.prepare("UPDATE invoices SET status = 'VOID' WHERE id = ?").run(txResult.invoiceId);
+        db.prepare("UPDATE payment_attempts SET status = 'FAILED' WHERE id = ?").run(txResult.paymentAttemptId);
+      } catch { /* compensation best-effort */ }
+    }
     throw err;
   }
 }
@@ -263,19 +308,32 @@ async function fulfillFreeOrder(
     const items = trx.prepare('SELECT * FROM order_items WHERE order_id = ?').all(args.orderId) as ({
       id: string;
       plan_version_id: string;
+      region_id?: string;
       custom_options: string;
     })[];
 
-    const node = trx.prepare(`
-      SELECT id FROM nodes
-      WHERE region_id = ? AND maintenance_mode = 0
-      ORDER BY allocated_memory_mb ASC
-      LIMIT 1
-    `).get(args.regionId) as { id: string } | undefined;
-
-    const assignedNodeId = node?.id ?? 'node_fra_01';
-
     for (const item of items) {
+      const planVersion = trx.prepare('SELECT resource_specs FROM plan_versions WHERE id = ?')
+        .get(item.plan_version_id) as { resource_specs: string };
+      const desired = JSON.parse(planVersion.resource_specs) as { cpuPct: number; memoryMb: number; diskMb: number };
+
+      const itemRegion = item.region_id || args.regionId;
+      const node = trx.prepare(`
+        SELECT id FROM nodes
+        WHERE region_id = ? AND maintenance_mode = 0
+          AND (allocated_memory_mb + ?) <= max_memory_mb
+          AND (allocated_disk_mb + ?) <= max_disk_mb
+        ORDER BY allocated_memory_mb ASC
+        LIMIT 1
+      `).get(itemRegion, desired.memoryMb, desired.diskMb) as { id: string } | undefined
+        || trx.prepare('SELECT id FROM nodes WHERE region_id = ? AND maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get(itemRegion) as { id: string } | undefined
+        || trx.prepare('SELECT id FROM nodes WHERE maintenance_mode = 0 ORDER BY allocated_memory_mb ASC LIMIT 1').get() as { id: string } | undefined;
+
+      if (!node) {
+        throw new Error(`No available node found with capacity in region ${itemRegion}`);
+      }
+      const assignedNodeId = node.id;
+
       const serviceId = generateId('svc');
 
       const productRow = trx.prepare(`
@@ -285,16 +343,12 @@ async function fulfillFreeOrder(
         WHERE pv.id = ?
       `).get(item.plan_version_id) as { provider_type: 'PTERODACTYL' | 'CPANEL' | 'REGISTRAR' | 'VPS' } | undefined;
       const providerType = productRow?.provider_type || 'PTERODACTYL';
-      const providerInstance = providerType === 'CPANEL' ? 'cpanel_primary' : 'pterodactyl_primary';
+      const providerInstance = providerType === 'CPANEL' ? 'cpanel_primary' : providerType === 'VPS' ? 'proxmox_primary' : 'pterodactyl_primary';
 
       trx.prepare(`
         INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id)
         VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)
       `).run(serviceId, args.accountId, item.id, providerType, providerInstance, assignedNodeId);
-
-      const planVersion = trx.prepare('SELECT resource_specs FROM plan_versions WHERE id = ?')
-        .get(item.plan_version_id) as { resource_specs: string };
-      const desired = JSON.parse(planVersion.resource_specs) as { cpuPct: number; memoryMb: number; diskMb: number };
 
       trx.prepare(`
         INSERT INTO service_desired_configs
