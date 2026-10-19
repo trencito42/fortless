@@ -88,10 +88,31 @@ Reviewed at `fc02778`. Full detail (file:line, evidence, fix, acceptance test) i
 
 Checked and not filed: attachment code otherwise sound (size cap, MIME allowlist, sanitized names, tenant scoping, internal-note filtering); the mod installer already uses manual redirects, a host allowlist and SHA-512 checks. Only NEW-368 was reproduced; the rest are source traces.
 
+## New findings, batch 4 (12) — staff admin, sessions, DNS records, file manager, AI, sharing
+
+Reviewed at `645bf61`; all are source traces (no runtime reproduction).
+
+| ID | Pri | Finding |
+|---|---|---|
+| NEW-376 | P1 | `POST /admin/staff` upserts and skips the self-change and last-owner guards that `PATCH` enforces |
+| NEW-377 | P2 | `cleanupExpiredSessions` has no caller; expired/MFA-pending sessions accumulate |
+| NEW-378 | P2 | Staff "sync" with read-only permission mints keys, writes state, returns `success:true` on failure and leaks error text |
+| NEW-379 | P2 | Manual renewal run needs no step-up (POLICY_DECISION) |
+| NEW-380 | P2 | Audit export is unaudited, needs no step-up and silently truncates at 10 000 rows |
+| NEW-381 | P2 | File manager mutations report provider timeouts as failures (only archive/unarchive/pull use pending) |
+| NEW-382 | P2 | File read buffers the entire file before the 1 MB limit |
+| NEW-383 | P2 | DNS names are case-sensitive in CNAME collision checks |
+| NEW-384 | P2 | DNS records have no quota/duplicate check; SRV weight/port not forced to integers |
+| NEW-385 | P1 | DNS data lives only in SQLite; nothing publishes it while the UI advertises Fortless nameservers (NEEDS_VERIFICATION) |
+| NEW-386 | P2 | AI endpoints are wired to a keyword mock with fabricated confidence (no UI caller found) |
+| NEW-387 | P2 | A shared service is granted to the recipient account's single panel user, so all its OWNER/TECH_ADMIN get panel access (NEEDS_VERIFICATION) |
+
+Checked and not filed: session list/revoke paths are scoped to the user and audited; password reset and change revoke other sessions; `/oidc/authorize` enforces the OWNER/TECH_ADMIN role inside `resolvePanelIdentity`; file path normalisation rejects `..`, NUL and backslashes; team invite/removal role checks are present; the Wings token is never returned with the account key.
+
 ## Chains followed in this batch
 
 Quote → Checkout → Stripe → Webhook → Invoice → Provisioning; Renewal → Failure → Grace → Suspension → Recovery; Cancellation → Stripe → Worker → Provider; Refund → Ledger → Service lifecycle (all static). Payment chains are not safe for real money until NEW-344..347, NEW-349 and NEW-351 are closed.
 
 ## Not covered yet (scope checked, not "safe")
 
-Runtime timing behaviour, session revocation routes, DNS record validation and update/delete paths in depth, Pterodactyl console and file manager (permission paths read earlier, not re-audited as an independent pass), frontend permission and provider-outage states, staff/admin permission matrix, email deliverability, and the cPanel and Proxmox adapters (cPanel not implemented yet).
+Runtime timing behaviour, frontend permission and provider-outage states (UI hides tabs by permission; per-button gating not audited), Wings websocket behaviour in a browser, Pterodactyl SSO panel-side configuration, backups/schedules/databases/startup endpoints of the server panel, game-tools installers beyond the earlier read, notification and email-template paths, and the cPanel and Proxmox adapters (cPanel not implemented yet).
