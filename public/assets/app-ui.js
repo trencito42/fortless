@@ -3354,11 +3354,6 @@ ${selectedOr("code")}
           <!-- TOP HEADER -->
           <div class="ch" style="margin-bottom:0">
             <div class="tx">
-              <div class="row" style="gap:8px;margin-bottom:6px">
-                <span class="pill info">${esc(p.name)}</span>
-                <span class="pill violet">${p.compression === "bz2" ? "bzip2 (.bz2)" : "Raw HTTP"}</span>
-                ${stats.cvarConfigured ? '<span class="pill good d">sv_downloadurl ready</span>' : '<span class="pill warn d">Pending configuration</span>'}
-              </div>
               <h3>Automated FastDL (HTTP Sync)</h3>
               <p>Mirrors maps, models, materials, and sounds to dedicated high-speed CDN storage so players connect and download instantly.</p>
             </div>
