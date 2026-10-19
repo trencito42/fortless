@@ -123,6 +123,10 @@ import {
   getAdminAccountDetail,
   addAdminAccountNote,
   updateAdminBillingProfile,
+  getAdminSupportMeta,
+  updateAdminTicketRouting,
+  createTicketDepartment,
+  createTicketMacro,
   updateAccountStatus,
   listAdminServices,
   listAdminTickets,
@@ -1886,6 +1890,20 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(detail.notes).toMatchObject([{ author_name: 'Billing Staff', body: 'Customer supplied fiscal documents for manual review.' }]);
       expect(detail.billingProfile).toMatchObject({ company_name: 'Context SRL', tax_id: 'RO123456', tax_id_type: 'VAT', country: 'RO' });
       expect(db.prepare("SELECT count(*) AS count FROM audit_events WHERE action IN ('account.admin_note_added', 'billing.profile_updated_by_staff')").get()).toEqual({ count: 2 });
+    });
+
+    it('ADMIN-10: support routing, departments, macros and workload use persisted records', () => {
+      const customer = registerUser({ email: 'routing_customer@example.com', password: 'Password123!', name: 'Routing Customer', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      const staff = registerUser({ email: 'routing_staff@example.com', password: 'Password123!', name: 'Routing Staff', ipAddress: '127.0.0.1', userAgent: 'test' }, db);
+      db.prepare("INSERT INTO staff_memberships (user_id, role, status) VALUES (?, 'SUPPORT', 'ACTIVE')").run(staff.user.id);
+      const department = createTicketDepartment({ name: 'Game Support', description: 'Game runtime incidents', actorUserId: staff.user.id, ipAddress: '10.0.0.11' }, db);
+      const macro = createTicketMacro({ name: 'Need logs', body: 'Please attach the latest server log.', status: 'WAITING_CUSTOMER', departmentId: department.id, actorUserId: staff.user.id, ipAddress: '10.0.0.11' }, db);
+      const ticket = createTicket({ accountId: customer.account.id, userId: customer.user.id, subject: 'Server crash', message: 'It crashes at boot.', priority: 'NORMAL', ipAddress: '127.0.0.1' }, db);
+      updateAdminTicketRouting({ ticketId: ticket.ticketId, assignedStaffId: staff.user.id, departmentId: department.id, priority: 'URGENT', actorUserId: staff.user.id, ipAddress: '10.0.0.11' }, db);
+
+      expect(getAdminTicketDetail(ticket.ticketId, db)!.ticket).toMatchObject({ assigned_staff_id: staff.user.id, department_id: department.id, department_name: 'Game Support', priority: 'URGENT' });
+      expect(getAdminSupportMeta(db)).toMatchObject({ departments: expect.arrayContaining([expect.objectContaining({ id: department.id })]), macros: [expect.objectContaining({ id: macro.id })], staff: [expect.objectContaining({ id: staff.user.id, active_count: 1 })] });
+      expect(listAdminTickets(db, { departmentId: department.id, assignedTo: staff.user.id, status: 'OPEN' })).toMatchObject({ total: 1 });
     });
   });
 

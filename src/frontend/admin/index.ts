@@ -312,26 +312,45 @@ function bindAdminEvents() {
 
   document.addEventListener('submit', async (event: SubmitEvent) => {
     const form = event.target as HTMLFormElement;
-    if (form.id !== 'adminAccountNoteForm' && form.id !== 'adminBillingProfileForm') return;
+    const handled = ['adminAccountNoteForm', 'adminBillingProfileForm', 'adminTicketRoutingForm', 'supportDepartmentForm', 'supportMacroForm'];
+    if (!handled.includes(form.id)) return;
     event.preventDefault();
-    const accountId = getActiveAccountId();
-    if (!accountId) return;
     const button = form.querySelector<HTMLButtonElement>('button[type="submit"]');
     if (button) button.disabled = true;
     try {
       const values = new FormData(form);
       if (form.id === 'adminAccountNoteForm') {
+        const accountId = getActiveAccountId(); if (!accountId) return;
         await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/notes`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: values.get('body') }),
         });
         toast('Administrative note saved.', 'good');
-      } else {
+        await renderAccountDetail(accountId);
+      } else if (form.id === 'adminBillingProfileForm') {
+        const accountId = getActiveAccountId(); if (!accountId) return;
         await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/billing-profile`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(values.entries())),
         });
         toast('Billing profile updated and audited.', 'good');
+        await renderAccountDetail(accountId);
+      } else if (form.id === 'adminTicketRoutingForm') {
+        const ticketId = getActiveTicketId(); if (!ticketId) return;
+        await api(`/api/v1/admin/tickets/${encodeURIComponent(ticketId)}/routing`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          departmentId: (document.getElementById('adminTicketDepartment') as HTMLSelectElement).value || null,
+          assignedStaffId: (document.getElementById('adminTicketAssignee') as HTMLSelectElement).value || null,
+          priority: (document.getElementById('adminTicketPriority') as HTMLSelectElement).value,
+        }) });
+        toast('Ticket routing updated.', 'good');
+        await renderTicketDetail(ticketId);
+      } else if (form.id === 'supportDepartmentForm') {
+        await api('/api/v1/admin/support/departments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(values.entries())) });
+        form.reset(); toast('Support department created.', 'good'); await renderTickets();
+      } else if (form.id === 'supportMacroForm') {
+        const payload = Object.fromEntries(values.entries()) as Record<string, FormDataEntryValue | null>;
+        payload.status = payload.status || null; payload.departmentId = payload.departmentId || null;
+        await api('/api/v1/admin/support/macros', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        form.reset(); toast('Reply macro created.', 'good'); await renderTickets();
       }
-      await renderAccountDetail(accountId);
     } catch (error: any) {
       toast(error.message, 'bad');
     } finally {

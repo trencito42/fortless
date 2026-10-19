@@ -118,6 +118,10 @@ import {
   getAdminServiceDetail,
   listAdminTickets,
   getAdminTicketDetail,
+  getAdminSupportMeta,
+  updateAdminTicketRouting,
+  createTicketDepartment,
+  createTicketMacro,
   addStaffTicketReply,
   updateTicketStatus,
   listAdminAudit,
@@ -2832,9 +2836,57 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/api/v1/admin/tickets', { preHandler: [requireAuth, requireStaffPermission('tickets:read')] }, async (req, reply) => {
-    const options = parseAdminList(req.query);
-    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
-    return listAdminTickets(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+    const options = z.object({
+      q: z.string().max(100).optional().default(''),
+      limit: z.coerce.number().int().min(1).max(50).optional().default(25),
+      offset: z.coerce.number().int().min(0).optional().default(0),
+      status: z.enum(['OPEN', 'WAITING_CUSTOMER', 'WAITING_STAFF', 'RESOLVED', 'CLOSED']).optional(),
+      departmentId: z.string().max(100).optional(),
+      assignedTo: z.string().max(100).optional(),
+    }).safeParse(req.query);
+    if (!options.success) return reply.status(400).send({ error: 'Invalid ticket filters.' });
+    return listAdminTickets(getDatabase(), { query: options.data.q, limit: options.data.limit, offset: options.data.offset, status: options.data.status, departmentId: options.data.departmentId, assignedTo: options.data.assignedTo });
+  });
+
+  app.get('/api/v1/admin/support/meta', { preHandler: [requireAuth, requireStaffPermission('tickets:read')] }, async () => getAdminSupportMeta(getDatabase()));
+
+  app.patch('/api/v1/admin/tickets/:ticketId/routing', { preHandler: [requireAuth, requireStaffPermission('tickets:manage')] }, async (req, reply) => {
+    const params = z.object({ ticketId: z.string().min(1) }).safeParse(req.params);
+    const body = z.object({
+      assignedStaffId: z.string().min(1).nullable(),
+      departmentId: z.string().min(1).nullable(),
+      priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']),
+    }).safeParse(req.body);
+    if (!params.success || !body.success) return reply.status(400).send({ error: 'Valid assignment, department and priority are required.' });
+    try {
+      return updateAdminTicketRouting({ ticketId: params.data.ticketId, actorUserId: req.auth!.user.id, ipAddress: req.ip, ...body.data }, getDatabase());
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/v1/admin/support/departments', { preHandler: [requireAuth, requireStaffPermission('tickets:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const body = z.object({ name: z.string().trim().min(2).max(80), description: z.string().trim().max(300).optional().default('') }).safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: 'A valid unique department name is required.' });
+    try {
+      return reply.status(201).send(createTicketDepartment({ ...body.data, actorUserId: req.auth!.user.id, ipAddress: req.ip }, getDatabase()));
+    } catch (err: unknown) {
+      return reply.status(409).send({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/v1/admin/support/macros', { preHandler: [requireAuth, requireStaffPermission('tickets:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const body = z.object({
+      name: z.string().trim().min(2).max(100), body: z.string().trim().min(2).max(10_000),
+      status: z.enum(['OPEN', 'WAITING_CUSTOMER', 'WAITING_STAFF', 'RESOLVED', 'CLOSED']).nullable().optional().default(null),
+      departmentId: z.string().min(1).nullable().optional().default(null),
+    }).safeParse(req.body);
+    if (!body.success) return reply.status(400).send({ error: 'A valid macro name and response body are required.' });
+    try {
+      return reply.status(201).send(createTicketMacro({ ...body.data, actorUserId: req.auth!.user.id, ipAddress: req.ip }, getDatabase()));
+    } catch (err: unknown) {
+      return reply.status(409).send({ error: (err as Error).message });
+    }
   });
 
   app.get('/api/v1/admin/tickets/:ticketId', { preHandler: [requireAuth, requireStaffPermission('tickets:read')] }, async (req, reply) => {

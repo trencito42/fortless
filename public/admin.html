@@ -181,10 +181,16 @@
       </section>
 
       <section class="page" id="page-tickets">
-        <div class="hd"><div class="tx"><h2>Support queue</h2><p>Real customer threads ordered by priority and activity.</p></div></div><div class="row" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></label><div class="seg" data-filter-target="ticketsList"><button aria-selected="true" data-filter-value="ALL">All</button><button aria-selected="false" data-filter-value="OPEN">Open</button><button aria-selected="false" data-filter-value="WAITING_STAFF">Waiting staff</button></div></div><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Priority</th><th>Subject</th><th>Account</th><th>Status</th><th>Updated</th></tr></thead><tbody id="ticketsList"></tbody></table></div>
+        <div class="hd"><div class="tx"><h2>Support queue</h2><p>Assigned workload, departments and real customer threads.</p></div></div>
+        <div id="supportWorkload" class="g g4 k2" style="margin-bottom:12px"></div>
+        <div class="row wrap" style="margin-bottom:12px"><label class="sch"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search ticket or customer" data-search="tickets" aria-label="Search tickets"></label><label class="field"><span class="sr-only">Status</span><div class="inp"><select id="ticketsStatusFilter"><option value="">All statuses</option><option>OPEN</option><option>WAITING_CUSTOMER</option><option>WAITING_STAFF</option><option>RESOLVED</option><option>CLOSED</option></select></div></label><label class="field"><span class="sr-only">Department</span><div class="inp"><select id="ticketsDepartmentFilter"><option value="">All departments</option></select></div></label><label class="field"><span class="sr-only">Assignment</span><div class="inp"><select id="ticketsAssignmentFilter"><option value="">All assignees</option><option value="UNASSIGNED">Unassigned</option></select></div></label></div><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Priority</th><th>Subject</th><th>Department</th><th>Assigned</th><th>Status</th><th>Updated</th></tr></thead><tbody id="ticketsList"></tbody></table></div>
         <div class="row wrap" id="adminTicketsPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
           <span class="muted" id="adminTicketsPageInfo" style="font-size:12.5px"></span>
           <div class="pager" id="adminTicketsPager" data-c="Pagination"></div>
+        </div>
+        <div class="g g2" style="margin-top:14px" data-permission="tickets:manage">
+          <form id="supportDepartmentForm" class="card col" style="gap:10px"><div class="ch"><div class="tx"><h3>Add department</h3><p>Creates a persisted routing queue.</p></div></div><label class="field"><span>Name</span><div class="inp"><input name="name" required minlength="2" maxlength="80"></div></label><label class="field"><span>Description</span><div class="inp"><input name="description" maxlength="300"></div></label><button class="btn s pri" type="submit">Create department</button></form>
+          <form id="supportMacroForm" class="card col" style="gap:10px"><div class="ch"><div class="tx"><h3>Add reply macro</h3><p>Reusable response with optional next status.</p></div></div><label class="field"><span>Name</span><div class="inp"><input name="name" required minlength="2" maxlength="100"></div></label><label class="field"><span>Response</span><div class="inp ta"><textarea name="body" required minlength="2" maxlength="10000"></textarea></div></label><div class="g g2"><label class="field"><span>Next status</span><div class="inp"><select name="status"><option value="">No change</option><option>WAITING_CUSTOMER</option><option>RESOLVED</option></select></div></label><label class="field"><span>Department</span><div class="inp"><select name="departmentId" id="supportMacroDepartment"><option value="">Any</option></select></div></label></div><button class="btn s pri" type="submit">Create macro</button></form>
         </div>
         </div>
       </section>
@@ -194,6 +200,12 @@
           <div class="tx"><a class="eyebrow" href="/admin/tickets" data-route="tickets">← Support queue</a><h2 id="adminTicketSubject">Support ticket</h2><p id="adminTicketMeta">Loading customer and service context…</p></div>
         </div>
         <div id="adminTicketContext" class="row wrap" style="margin-bottom:12px"></div>
+        <form id="adminTicketRoutingForm" class="card row wrap" style="gap:10px;margin-bottom:12px;align-items:flex-end" data-permission="tickets:manage">
+          <label class="field" style="flex:1"><span>Department</span><div class="inp"><select id="adminTicketDepartment"></select></div></label>
+          <label class="field" style="flex:1"><span>Assigned staff</span><div class="inp"><select id="adminTicketAssignee"><option value="">Unassigned</option></select></div></label>
+          <label class="field"><span>Priority</span><div class="inp"><select id="adminTicketPriority"><option>LOW</option><option>NORMAL</option><option>HIGH</option><option>URGENT</option></select></div></label>
+          <button class="btn s pri" type="submit">Save routing</button>
+        </form>
         <article class="card">
           <div id="adminTicketMessages" class="col" style="gap:10px"></div>
           <div id="adminTicketAttachments" class="att-list" style="margin:12px 0"></div>
@@ -201,6 +213,7 @@
         <form id="adminTicketReplyForm" class="card col" style="gap:12px;margin-top:14px" data-permission="tickets:manage">
           <div class="ch"><div class="tx"><h3>Staff response</h3><p>Customer replies and private internal notes are stored separately.</p></div></div>
           <div class="row wrap" style="gap:12px;align-items:center">
+            <label class="field" style="flex:1"><span>Reply macro</span><div class="inp"><select id="adminTicketMacro"><option value="">Write custom response</option></select></div></label>
             <label class="field" style="flex:1"><span>Status</span><div class="inp"><select id="adminTicketStatusSelect"><option value="OPEN">OPEN</option><option value="WAITING_CUSTOMER">WAITING CUSTOMER</option><option value="WAITING_STAFF">WAITING STAFF</option><option value="RESOLVED">RESOLVED</option><option value="CLOSED">CLOSED</option></select></div></label>
             <label style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:650"><input type="checkbox" id="adminTicketInternalNote"> Private internal note</label>
           </div>

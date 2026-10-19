@@ -2125,6 +2125,33 @@
   var adminTicketsPage = 1;
   var adminTicketsPageSize = 10;
   var adminTicketsListenersBound = false;
+  var supportMeta = { departments: [], macros: [], staff: [] };
+  function ticketFilters() {
+    return {
+      status: document.getElementById("ticketsStatusFilter")?.value || "",
+      departmentId: document.getElementById("ticketsDepartmentFilter")?.value || "",
+      assignedTo: document.getElementById("ticketsAssignmentFilter")?.value || ""
+    };
+  }
+  function hydrateSupportMeta() {
+    const departments = supportMeta.departments.filter((item) => item.is_active);
+    for (const id of ["ticketsDepartmentFilter", "supportMacroDepartment"]) {
+      const select = document.getElementById(id);
+      if (!select) continue;
+      const selected = select.value;
+      const first = id === "ticketsDepartmentFilter" ? '<option value="">All departments</option>' : '<option value="">Any</option>';
+      select.innerHTML = first + departments.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
+      select.value = selected;
+    }
+    const assignment = document.getElementById("ticketsAssignmentFilter");
+    if (assignment) {
+      const selected = assignment.value;
+      assignment.innerHTML = '<option value="">All assignees</option><option value="UNASSIGNED">Unassigned</option>' + supportMeta.staff.map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
+      assignment.value = selected;
+    }
+    const workload = document.getElementById("supportWorkload");
+    if (workload) workload.innerHTML = supportMeta.staff.slice(0, 4).map((item) => `<article class="card flat"><small class="muted">${esc(item.role)}</small><b>${esc(item.name)}</b><span>${Number(item.active_count || 0)} active \xB7 ${Number(item.waiting_count || 0)} waiting</span></article>`).join("") || '<div class="empty"><b>No active support staff.</b></div>';
+  }
   function getActiveTicketId() {
     return activeTicketId;
   }
@@ -2136,7 +2163,7 @@
     if (!host) return;
     if (!cachedTickets.length) {
       if (paginationRow) paginationRow.style.display = "none";
-      host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
+      host.innerHTML = `<tr><td colspan="6"><div class="empty"><b>No matching support tickets.</b></div></td></tr>`;
       return;
     }
     const pages = Math.max(1, Math.ceil(adminTicketsTotal / adminTicketsPageSize));
@@ -2144,7 +2171,7 @@
     if (paginationRow) paginationRow.style.display = adminTicketsTotal > adminTicketsPageSize ? "flex" : "none";
     if (infoEl) infoEl.textContent = `Showing ${start + 1}\u2013${start + cachedTickets.length} of ${adminTicketsTotal}`;
     if (pagerEl) pagerEl.innerHTML = renderPager(adminTicketsPage, pages);
-    host.innerHTML = cachedTickets.map((x) => `<tr class="h" data-filter-state="${esc(x.status === "WAITING_STAFF" ? "WAITING_STAFF" : "OPEN")}" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)}</small></td><td data-l="Account">${esc(x.account_name)}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
+    host.innerHTML = cachedTickets.map((x) => `<tr class="h" data-ticket-id="${esc(x.id)}" style="cursor:pointer"><td data-l="Priority">${badge(x.priority)}</td><td data-l="Subject"><b>${esc(x.subject)}</b><small>${Number(x.message_count)} messages \xB7 ${esc(x.customer_name)} \xB7 ${esc(x.account_name)}</small></td><td data-l="Department">${esc(x.department_name || "Unrouted")}</td><td data-l="Assigned">${esc(x.assigned_staff_name || "Unassigned")}</td><td data-l="Status">${badge(x.status)}</td><td data-l="Updated" class="muted">${formatDate(x.updated_at)}</td></tr>`).join("");
   }
   function bindAdminTicketsListeners() {
     if (adminTicketsListenersBound) return;
@@ -2160,6 +2187,17 @@
         }
       }
     });
+    for (const id of ["ticketsStatusFilter", "ticketsDepartmentFilter", "ticketsAssignmentFilter"]) {
+      document.getElementById(id)?.addEventListener("change", () => void renderTickets(adminTicketsQuery, 1));
+    }
+    document.getElementById("adminTicketMacro")?.addEventListener("change", (event) => {
+      const macro = supportMeta.macros.find((item) => item.id === event.target.value);
+      if (!macro) return;
+      const body = document.getElementById("adminReplyBody");
+      const status = document.getElementById("adminTicketStatusSelect");
+      if (body) body.value = macro.body;
+      if (status && macro.status) status.value = macro.status;
+    });
   }
   async function renderTickets(q = "", page = 1) {
     const host = document.querySelector("#ticketsList");
@@ -2168,7 +2206,17 @@
       adminTicketsQuery = q;
       adminTicketsPage = Math.max(1, page);
       const offset = (adminTicketsPage - 1) * adminTicketsPageSize;
-      const d = await api(`/api/v1/admin/tickets?q=${encodeURIComponent(q)}&limit=${adminTicketsPageSize}&offset=${offset}`);
+      const filter = ticketFilters();
+      const params = new URLSearchParams({ q, limit: String(adminTicketsPageSize), offset: String(offset) });
+      if (filter.status) params.set("status", filter.status);
+      if (filter.departmentId) params.set("departmentId", filter.departmentId);
+      if (filter.assignedTo) params.set("assignedTo", filter.assignedTo);
+      const [d, meta] = await Promise.all([
+        api(`/api/v1/admin/tickets?${params}`),
+        api("/api/v1/admin/support/meta")
+      ]);
+      supportMeta = meta;
+      hydrateSupportMeta();
       cachedTickets = d.tickets || [];
       adminTicketsTotal = Number(d.total || 0);
       paintTicketsList();
@@ -2188,7 +2236,8 @@
     if (!msgBox) return;
     msgBox.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink2)">Loading ticket thread\u2026</div>';
     try {
-      const d = await api(`/api/v1/admin/tickets/${encodeURIComponent(ticketId)}`);
+      const [d, meta] = await Promise.all([api(`/api/v1/admin/tickets/${encodeURIComponent(ticketId)}`), api("/api/v1/admin/support/meta")]);
+      supportMeta = meta;
       const subEl = document.getElementById("adminTicketSubject");
       const metaEl = document.getElementById("adminTicketMeta");
       const statusSelect = document.getElementById("adminTicketStatusSelect");
@@ -2196,6 +2245,20 @@
       if (metaEl)
         metaEl.textContent = `${d.ticket.account_name} \xB7 Customer: ${d.ticket.creator_name} (${d.ticket.creator_email}) \xB7 Created ${formatDate(d.ticket.created_at)}`;
       if (statusSelect) statusSelect.value = d.ticket.status;
+      const department = document.getElementById("adminTicketDepartment");
+      const assignee = document.getElementById("adminTicketAssignee");
+      const priority = document.getElementById("adminTicketPriority");
+      const macro = document.getElementById("adminTicketMacro");
+      if (department) {
+        department.innerHTML = '<option value="">Unrouted</option>' + supportMeta.departments.filter((item) => item.is_active).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
+        department.value = d.ticket.department_id || "";
+      }
+      if (assignee) {
+        assignee.innerHTML = '<option value="">Unassigned</option>' + supportMeta.staff.map((item) => `<option value="${esc(item.id)}">${esc(item.name)} \xB7 ${Number(item.active_count || 0)} active</option>`).join("");
+        assignee.value = d.ticket.assigned_staff_id || "";
+      }
+      if (priority) priority.value = d.ticket.priority;
+      if (macro) macro.innerHTML = '<option value="">Write custom response</option>' + supportMeta.macros.filter((item) => !item.department_id || item.department_id === d.ticket.department_id).map((item) => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join("");
       const context = document.getElementById("adminTicketContext");
       if (context) {
         context.innerHTML = `<a class="btn s" href="/admin/accounts/${encodeURIComponent(d.ticket.account_id)}" data-route="account-detail">View customer account</a>${d.ticket.service_id ? `<a class="btn s" href="/admin/services/${encodeURIComponent(d.ticket.service_id)}" data-route="admin-service-detail">View related service</a>` : '<span class="pill">No related service</span>'}${badge(d.ticket.priority)}${badge(d.ticket.status)}`;
@@ -3088,30 +3151,57 @@
     });
     document.addEventListener("submit", async (event) => {
       const form = event.target;
-      if (form.id !== "adminAccountNoteForm" && form.id !== "adminBillingProfileForm") return;
+      const handled = ["adminAccountNoteForm", "adminBillingProfileForm", "adminTicketRoutingForm", "supportDepartmentForm", "supportMacroForm"];
+      if (!handled.includes(form.id)) return;
       event.preventDefault();
-      const accountId = getActiveAccountId();
-      if (!accountId) return;
       const button = form.querySelector('button[type="submit"]');
       if (button) button.disabled = true;
       try {
         const values = new FormData(form);
         if (form.id === "adminAccountNoteForm") {
+          const accountId = getActiveAccountId();
+          if (!accountId) return;
           await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/notes`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ body: values.get("body") })
           });
           toast("Administrative note saved.", "good");
-        } else {
+          await renderAccountDetail(accountId);
+        } else if (form.id === "adminBillingProfileForm") {
+          const accountId = getActiveAccountId();
+          if (!accountId) return;
           await api(`/api/v1/admin/accounts/${encodeURIComponent(accountId)}/billing-profile`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(Object.fromEntries(values.entries()))
           });
           toast("Billing profile updated and audited.", "good");
+          await renderAccountDetail(accountId);
+        } else if (form.id === "adminTicketRoutingForm") {
+          const ticketId = getActiveTicketId();
+          if (!ticketId) return;
+          await api(`/api/v1/admin/tickets/${encodeURIComponent(ticketId)}/routing`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+            departmentId: document.getElementById("adminTicketDepartment").value || null,
+            assignedStaffId: document.getElementById("adminTicketAssignee").value || null,
+            priority: document.getElementById("adminTicketPriority").value
+          }) });
+          toast("Ticket routing updated.", "good");
+          await renderTicketDetail(ticketId);
+        } else if (form.id === "supportDepartmentForm") {
+          await api("/api/v1/admin/support/departments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.fromEntries(values.entries())) });
+          form.reset();
+          toast("Support department created.", "good");
+          await renderTickets();
+        } else if (form.id === "supportMacroForm") {
+          const payload = Object.fromEntries(values.entries());
+          payload.status = payload.status || null;
+          payload.departmentId = payload.departmentId || null;
+          await api("/api/v1/admin/support/macros", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          form.reset();
+          toast("Reply macro created.", "good");
+          await renderTickets();
         }
-        await renderAccountDetail(accountId);
       } catch (error) {
         toast(error.message, "bad");
       } finally {

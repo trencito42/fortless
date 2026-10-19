@@ -150,25 +150,33 @@ export function listAdminServices(db: Database.Database, options: AdminListOptio
   return { services: rows, total, limit, offset };
 }
 
-export function listAdminTickets(db: Database.Database, options: AdminListOptions = {}) {
+export function listAdminTickets(db: Database.Database, options: AdminListOptions & { status?: string; departmentId?: string; assignedTo?: string } = {}) {
   const { query, limit, offset } = page(options);
   const like = search(query);
+  const status = options.status || '';
+  const departmentId = options.departmentId || '';
+  const assignedTo = options.assignedTo || '';
   const rows = db.prepare(`
     SELECT t.id, t.subject, t.priority, t.status, t.created_at, t.updated_at,
            a.id AS account_id, a.name AS account_name,
            creator.name AS customer_name, creator.email AS customer_email,
-           assignee.name AS assigned_staff_name,
+           assignee.name AS assigned_staff_name, t.assigned_staff_id,
+           t.department_id, d.name AS department_name,
            (SELECT count(*) FROM ticket_messages tm WHERE tm.ticket_id = t.id) AS message_count
     FROM tickets t
     JOIN accounts a ON a.id = t.account_id
     JOIN users creator ON creator.id = t.created_by_user_id
     LEFT JOIN users assignee ON assignee.id = t.assigned_staff_id
+    LEFT JOIN ticket_departments d ON d.id = t.department_id
     WHERE (? = '' OR t.id LIKE ? ESCAPE '\\' OR t.subject LIKE ? ESCAPE '\\'
       OR a.name LIKE ? ESCAPE '\\' OR creator.name LIKE ? ESCAPE '\\' OR creator.email LIKE ? ESCAPE '\\')
+      AND (? = '' OR t.status = ?)
+      AND (? = '' OR t.department_id = ?)
+      AND (? = '' OR (? = 'UNASSIGNED' AND t.assigned_staff_id IS NULL) OR t.assigned_staff_id = ?)
     ORDER BY CASE t.priority WHEN 'URGENT' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END,
              t.updated_at DESC, t.id DESC
     LIMIT ? OFFSET ?
-  `).all(query, like, like, like, like, like, limit, offset);
+  `).all(query, like, like, like, like, like, status, status, departmentId, departmentId, assignedTo, assignedTo, assignedTo, limit, offset);
   const total = (db.prepare(`
     SELECT count(*) AS count
     FROM tickets t
@@ -176,7 +184,10 @@ export function listAdminTickets(db: Database.Database, options: AdminListOption
     JOIN users creator ON creator.id = t.created_by_user_id
     WHERE (? = '' OR t.id LIKE ? ESCAPE '\\' OR t.subject LIKE ? ESCAPE '\\'
       OR a.name LIKE ? ESCAPE '\\' OR creator.name LIKE ? ESCAPE '\\' OR creator.email LIKE ? ESCAPE '\\')
-  `).get(query, like, like, like, like, like) as { count: number }).count;
+      AND (? = '' OR t.status = ?)
+      AND (? = '' OR t.department_id = ?)
+      AND (? = '' OR (? = 'UNASSIGNED' AND t.assigned_staff_id IS NULL) OR t.assigned_staff_id = ?)
+  `).get(query, like, like, like, like, like, status, status, departmentId, departmentId, assignedTo, assignedTo, assignedTo) as { count: number }).count;
 
   return { tickets: rows, total, limit, offset };
 }
@@ -516,11 +527,12 @@ export interface AdminTicketDetail {
 export function getAdminTicketDetail(ticketId: string, db: Database.Database): AdminTicketDetail | null {
   const ticket = db.prepare(`
     SELECT t.*, a.name AS account_name, creator.name AS creator_name, creator.email AS creator_email,
-           assignee.name AS assigned_staff_name
+           assignee.name AS assigned_staff_name, d.name AS department_name
     FROM tickets t
     JOIN accounts a ON a.id = t.account_id
     JOIN users creator ON creator.id = t.created_by_user_id
     LEFT JOIN users assignee ON assignee.id = t.assigned_staff_id
+    LEFT JOIN ticket_departments d ON d.id = t.department_id
     WHERE t.id = ?
   `).get(ticketId) as AdminTicketDetail['ticket'] | undefined;
   if (!ticket) return null;
@@ -538,6 +550,71 @@ export function getAdminTicketDetail(ticketId: string, db: Database.Database): A
   const attachments = listTicketAttachments(ticketId, null, db);
 
   return { ticket, messages, attachments };
+}
+
+export function getAdminSupportMeta(db: Database.Database) {
+  const departments = db.prepare(`SELECT id, name, description, is_active, created_at FROM ticket_departments ORDER BY is_active DESC, name ASC`).all();
+  const macros = db.prepare(`SELECT m.id, m.name, m.body, m.status, m.department_id, d.name AS department_name, m.is_active, m.updated_at
+    FROM ticket_macros m LEFT JOIN ticket_departments d ON d.id = m.department_id
+    WHERE m.is_active = 1 ORDER BY m.name ASC`).all();
+  const staff = db.prepare(`
+    SELECT u.id, u.name, u.email, sm.role,
+      sum(CASE WHEN t.status NOT IN ('RESOLVED', 'CLOSED') THEN 1 ELSE 0 END) AS active_count,
+      sum(CASE WHEN t.status = 'WAITING_STAFF' THEN 1 ELSE 0 END) AS waiting_count,
+      max(t.updated_at) AS latest_activity
+    FROM staff_memberships sm JOIN users u ON u.id = sm.user_id
+    LEFT JOIN tickets t ON t.assigned_staff_id = u.id
+    WHERE sm.status = 'ACTIVE' AND sm.role IN ('OWNER', 'ADMINISTRATOR', 'SUPPORT')
+    GROUP BY u.id, u.name, u.email, sm.role ORDER BY active_count ASC, u.name ASC
+  `).all();
+  return { departments, macros, staff };
+}
+
+export function updateAdminTicketRouting(
+  data: { ticketId: string; assignedStaffId: string | null; departmentId: string | null; priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'; actorUserId: string; ipAddress: string },
+  db: Database.Database
+) {
+  return runInTransaction((trx) => {
+    const ticket = trx.prepare('SELECT account_id, assigned_staff_id, department_id, priority FROM tickets WHERE id = ?').get(data.ticketId) as any;
+    if (!ticket) throw new Error('Ticket not found.');
+    if (data.assignedStaffId) {
+      const staff = trx.prepare("SELECT 1 FROM staff_memberships WHERE user_id = ? AND status = 'ACTIVE'").get(data.assignedStaffId);
+      if (!staff) throw new Error('Assigned staff member is not active.');
+    }
+    if (data.departmentId) {
+      const department = trx.prepare('SELECT 1 FROM ticket_departments WHERE id = ? AND is_active = 1').get(data.departmentId);
+      if (!department) throw new Error('Department is not active.');
+    }
+    trx.prepare("UPDATE tickets SET assigned_staff_id = ?, department_id = ?, priority = ?, updated_at = datetime('now', 'utc') WHERE id = ?")
+      .run(data.assignedStaffId, data.departmentId, data.priority, data.ticketId);
+    trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'STAFF', 'ticket.routing_updated', 'ticket', ?, ?, ?, ?)`)
+      .run(generateId('aud'), ticket.account_id, data.actorUserId, data.ticketId, data.ipAddress, generateId('cor'), JSON.stringify({ from: { assignedStaffId: ticket.assigned_staff_id, departmentId: ticket.department_id, priority: ticket.priority }, to: { assignedStaffId: data.assignedStaffId, departmentId: data.departmentId, priority: data.priority } }));
+    return { ticketId: data.ticketId };
+  }, db);
+}
+
+export function createTicketDepartment(data: { name: string; description: string; actorUserId: string; ipAddress: string }, db: Database.Database) {
+  const id = generateId('dep');
+  db.transaction(() => {
+    db.prepare('INSERT INTO ticket_departments (id, name, description) VALUES (?, ?, ?)').run(id, data.name, data.description);
+    db.prepare(`INSERT INTO audit_events (id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, 'STAFF', 'ticket.department_created', 'ticket_department', ?, ?, ?, ?)`)
+      .run(generateId('aud'), data.actorUserId, id, data.ipAddress, generateId('cor'), JSON.stringify({ name: data.name }));
+  })();
+  return { id };
+}
+
+export function createTicketMacro(data: { name: string; body: string; status: string | null; departmentId: string | null; actorUserId: string; ipAddress: string }, db: Database.Database) {
+  const id = generateId('mac');
+  db.transaction(() => {
+    db.prepare('INSERT INTO ticket_macros (id, name, body, status, department_id, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, data.name, data.body, data.status, data.departmentId, data.actorUserId);
+    db.prepare(`INSERT INTO audit_events (id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, 'STAFF', 'ticket.macro_created', 'ticket_macro', ?, ?, ?, ?)`)
+      .run(generateId('aud'), data.actorUserId, id, data.ipAddress, generateId('cor'), JSON.stringify({ name: data.name }));
+  })();
+  return { id };
 }
 
 export function addStaffTicketReply(
