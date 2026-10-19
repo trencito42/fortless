@@ -59,6 +59,7 @@ interface FastDlStatus {
 interface ManifestItem {
   id: string;
   filePath: string;
+  storageRelPath?: string;
   fileSize: number;
   compressedSize: number;
   fileHash: string;
@@ -129,23 +130,23 @@ export function initFastDl(serviceId: string) {
         return;
       }
 
+      const root = (status?.publicDownloadUrl || '').replace(/\/+$/, '');
       listHost.innerHTML = res.items.map((item) => {
-        const ext = item.filePath.split('.').pop()?.toUpperCase() || 'FILE';
         const savingsBytes = item.fileSize > item.compressedSize ? item.fileSize - item.compressedSize : 0;
         const savingsRatio = item.fileSize > 0 ? Math.round((savingsBytes / item.fileSize) * 100) : 0;
+        // The address a player's game actually requests: the stored file (with .bz2 when compressed) under the download URL.
+        const stored = item.storageRelPath || item.filePath;
+        const direct = root && item.status === 'SYNCED' ? `${root}/${stored.split('/').map(encodeURIComponent).join('/')}` : '';
 
         return `<tr class="h">
-          <td data-l="Asset Path">
-            <div class="row nw" style="gap:8px;align-items:center">
-              <span class="pill" style="font-size:10.5px;padding:2px 6px">${esc(ext)}</span>
-              <b class="mono" style="font-size:13px;word-break:break-all">${esc(item.filePath)}</b>
-            </div>
+          <td data-l="Direct link">
+            ${direct
+              ? `<span class="cpf" style="max-width:100%"><a class="mono" style="font-size:13px;word-break:break-all" href="${esc(direct)}" target="_blank" rel="noopener noreferrer">${esc(stored)}</a><button class="ib xs" type="button" data-copy="${esc(direct)}" data-copy-label="link" aria-label="Copy direct link">${hero('copy-01', 'xs')}</button></span>`
+              : `<b class="mono" style="font-size:13px;word-break:break-all">${esc(item.filePath)}</b>`}
           </td>
           <td data-l="Original" class="mono muted">${esc(formatBytes(item.fileSize))}</td>
-          <td data-l="Compressed" class="mono">${esc(formatBytes(item.compressedSize))} ${item.isCompressed ? '<span class="faint">(.bz2)</span>' : ''}</td>
-          <td data-l="Savings">
-            ${savingsRatio > 0 ? `<span class="pill good" style="font-size:11px">−${savingsRatio}%</span>` : '<span class="faint">—</span>'}
-          </td>
+          <td data-l="Stored" class="mono">${esc(formatBytes(item.compressedSize))}</td>
+          <td data-l="Savings" class="mono muted">${savingsRatio > 0 ? `−${savingsRatio}%` : '—'}</td>
           <td data-l="Hash">
             <span class="cpf mono" style="font-size:11.5px">
               <code>${esc(item.fileHash.slice(0, 10))}…${esc(item.fileHash.slice(-6))}</code>
@@ -330,9 +331,9 @@ export function initFastDl(serviceId: string) {
               <table class="tbl rsp" data-c="Data table">
                 <thead>
                   <tr>
-                    <th>Asset Path</th>
+                    <th>Direct link</th>
                     <th>Original</th>
-                    <th>FastDL Stored</th>
+                    <th>Stored</th>
                     <th>Savings</th>
                     <th>SHA-256 Verification</th>
                     <th>Status</th>
