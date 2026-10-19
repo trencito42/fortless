@@ -16,6 +16,13 @@ export interface AdminJobListOptions extends AdminListOptions {
   status?: string;
 }
 
+export interface AdminAuditListOptions extends AdminListOptions {
+  accountId?: string;
+  serviceId?: string;
+  from?: string;
+  to?: string;
+}
+
 function page(options: AdminListOptions) {
   return {
     query: (options.query || '').trim().slice(0, 100),
@@ -192,9 +199,26 @@ export function listAdminTickets(db: Database.Database, options: AdminListOption
   return { tickets: rows, total, limit, offset };
 }
 
-export function listAdminAudit(db: Database.Database, options: AdminListOptions = {}) {
+function adminAuditFilter(options: AdminAuditListOptions) {
   const { query, limit, offset } = page(options);
   const like = search(query);
+  const accountId = (options.accountId || '').trim();
+  const serviceId = (options.serviceId || '').trim();
+  const from = (options.from || '').trim();
+  const to = (options.to || '').trim();
+  const where = `WHERE (? = '' OR ae.action LIKE ? ESCAPE '\\' OR ae.resource_type LIKE ? ESCAPE '\\'
+      OR ae.resource_id LIKE ? ESCAPE '\\' OR ae.correlation_id LIKE ? ESCAPE '\\'
+      OR coalesce(u.email, '') LIKE ? ESCAPE '\\' OR coalesce(a.name, '') LIKE ? ESCAPE '\\')
+    AND (? = '' OR ae.account_id = ? OR EXISTS (SELECT 1 FROM services fs WHERE fs.id = ae.resource_id AND fs.account_id = ?))
+    AND (? = '' OR (ae.resource_type = 'service' AND ae.resource_id = ?))
+    AND (? = '' OR ae.created_at >= ?)
+    AND (? = '' OR ae.created_at <= ?)`;
+  const args = [query, like, like, like, like, like, like, accountId, accountId, accountId, serviceId, serviceId, from, from, to, to];
+  return { where, args, limit, offset };
+}
+
+export function listAdminAudit(db: Database.Database, options: AdminAuditListOptions = {}) {
+  const { where, args, limit, offset } = adminAuditFilter(options);
   const rows = db.prepare(`
     SELECT ae.id, ae.account_id, ae.actor_type, ae.action, ae.resource_type,
            ae.resource_id, ae.ip_address, ae.correlation_id, ae.metadata, ae.created_at,
@@ -202,23 +226,27 @@ export function listAdminAudit(db: Database.Database, options: AdminListOptions 
     FROM audit_events ae
     LEFT JOIN users u ON u.id = ae.actor_user_id
     LEFT JOIN accounts a ON a.id = ae.account_id
-    WHERE (? = '' OR ae.action LIKE ? ESCAPE '\\' OR ae.resource_type LIKE ? ESCAPE '\\'
-      OR ae.resource_id LIKE ? ESCAPE '\\' OR ae.correlation_id LIKE ? ESCAPE '\\'
-      OR coalesce(u.email, '') LIKE ? ESCAPE '\\' OR coalesce(a.name, '') LIKE ? ESCAPE '\\')
+    ${where}
     ORDER BY ae.created_at DESC, ae.id DESC
     LIMIT ? OFFSET ?
-  `).all(query, like, like, like, like, like, like, limit, offset);
+  `).all(...args, limit, offset);
   const total = (db.prepare(`
     SELECT count(*) AS count
     FROM audit_events ae
     LEFT JOIN users u ON u.id = ae.actor_user_id
     LEFT JOIN accounts a ON a.id = ae.account_id
-    WHERE (? = '' OR ae.action LIKE ? ESCAPE '\\' OR ae.resource_type LIKE ? ESCAPE '\\'
-      OR ae.resource_id LIKE ? ESCAPE '\\' OR ae.correlation_id LIKE ? ESCAPE '\\'
-      OR coalesce(u.email, '') LIKE ? ESCAPE '\\' OR coalesce(a.name, '') LIKE ? ESCAPE '\\')
-  `).get(query, like, like, like, like, like, like) as { count: number }).count;
+    ${where}
+  `).get(...args) as { count: number }).count;
 
   return { logs: rows, total, limit, offset };
+}
+
+export function exportAdminAudit(db: Database.Database, options: AdminAuditListOptions = {}, limit = 10_001) {
+  const { where, args } = adminAuditFilter(options);
+  return db.prepare(`SELECT ae.id, ae.account_id, ae.actor_user_id, ae.actor_type, ae.action, ae.resource_type,
+    ae.resource_id, ae.ip_address, ae.correlation_id, ae.created_at
+    FROM audit_events ae LEFT JOIN users u ON u.id = ae.actor_user_id LEFT JOIN accounts a ON a.id = ae.account_id
+    ${where} ORDER BY ae.created_at DESC, ae.id DESC LIMIT ?`).all(...args, limit) as Array<Record<string, unknown>>;
 }
 
 export function listAdminStaff(db: Database.Database, options: AdminListOptions = {}) {

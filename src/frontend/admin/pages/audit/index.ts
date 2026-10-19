@@ -16,6 +16,21 @@ let adminAuditTotal = 0;
 const adminAuditPageSize = 20;
 let adminAuditListenersBound = false;
 
+function filterParams(): Record<string, string> {
+  return {
+    accountId: (document.getElementById('auditAccountFilter') as HTMLInputElement | null)?.value.trim() || '',
+    serviceId: (document.getElementById('auditServiceFilter') as HTMLInputElement | null)?.value.trim() || '',
+    from: (document.getElementById('auditFromFilter') as HTMLInputElement | null)?.value || '',
+    to: (document.getElementById('auditToFilter') as HTMLInputElement | null)?.value || '',
+  };
+}
+
+function updateExportLink(q: string): void {
+  const params = new URLSearchParams({ q, ...filterParams() });
+  const link = document.getElementById('adminAuditExport') as HTMLAnchorElement | null;
+  if (link) link.href = `/api/v1/admin/audit/export?${params}`;
+}
+
 function metadata(value: unknown): string {
   if (!value) return '—';
   try {
@@ -77,6 +92,12 @@ function bindAdminAuditListeners(): void {
       }
     }
   });
+  document.getElementById('applyAuditFilters')?.addEventListener('click', () => void renderAudit(adminAuditQuery, 1));
+  document.getElementById('clearAuditFilters')?.addEventListener('click', () => {
+    ['auditAccountFilter', 'auditServiceFilter', 'auditFromFilter', 'auditToFilter'].forEach((id) => { const input = document.getElementById(id) as HTMLInputElement | null; if (input) input.value = ''; });
+    const search = document.querySelector<HTMLInputElement>('[data-search="audit"]'); if (search) search.value = '';
+    void renderAudit('', 1);
+  });
 }
 
 export async function renderAudit(q = '', page = 1): Promise<void> {
@@ -86,7 +107,10 @@ export async function renderAudit(q = '', page = 1): Promise<void> {
   try {
     adminAuditQuery = q;
     adminAuditPage = Math.max(1, page);
-    const params = new URLSearchParams({ q, limit: String(adminAuditPageSize), offset: String((adminAuditPage - 1) * adminAuditPageSize) });
+    const filters = filterParams();
+    if (filters.from && filters.to && filters.from > filters.to) throw new Error('The start date must be before the end date.');
+    const params = new URLSearchParams({ q, ...filters, limit: String(adminAuditPageSize), offset: String((adminAuditPage - 1) * adminAuditPageSize) });
+    updateExportLink(q);
     const d = await api<{ logs: any[]; total: number }>(`/api/v1/admin/audit?${params}`);
     cachedLogs = d.logs || [];
     adminAuditTotal = Number(d.total || 0);

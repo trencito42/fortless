@@ -138,6 +138,7 @@ import {
   addStaffTicketReply,
   updateTicketStatus,
   listAdminAudit,
+  exportAdminAudit,
   listAdminStaff,
   listAdminOrders,
   getAdminOrderDetail,
@@ -1696,7 +1697,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
     });
 
     it('ADMIN-02: overview and empty operational queues are derived from real database state', () => {
-      registerUser(
+      const user = registerUser(
         { email: 'operations@example.com', password: 'StrongPassword99!', name: 'Operations Owner', ipAddress: '127.0.0.1', userAgent: 'test' }, db
       );
 
@@ -1723,6 +1724,8 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         jobs: [{ job_type: 'EMAIL', status: 'PENDING', subject: 'email_verification → operations@example.com' }],
       });
       expect(listAdminAudit(db, { query: 'user.registration_pending' })).toMatchObject({ total: 1, logs: [{ metadata: expect.any(String) }] });
+      expect(listAdminAudit(db, { accountId: user.account.id, from: '2000-01-01 00:00:00', to: '2100-01-01 00:00:00' })).toMatchObject({ total: 1 });
+      expect(exportAdminAudit(db, { accountId: 'acc_missing' })).toHaveLength(0);
     });
 
     it('ADMIN-03: persisted staff roles deny by default and revocation takes effect immediately', () => {

@@ -2394,6 +2394,19 @@
   var adminAuditTotal = 0;
   var adminAuditPageSize = 20;
   var adminAuditListenersBound = false;
+  function filterParams() {
+    return {
+      accountId: document.getElementById("auditAccountFilter")?.value.trim() || "",
+      serviceId: document.getElementById("auditServiceFilter")?.value.trim() || "",
+      from: document.getElementById("auditFromFilter")?.value || "",
+      to: document.getElementById("auditToFilter")?.value || ""
+    };
+  }
+  function updateExportLink(q) {
+    const params = new URLSearchParams({ q, ...filterParams() });
+    const link = document.getElementById("adminAuditExport");
+    if (link) link.href = `/api/v1/admin/audit/export?${params}`;
+  }
   function metadata(value) {
     if (!value) return "\u2014";
     try {
@@ -2446,6 +2459,16 @@
         }
       }
     });
+    document.getElementById("applyAuditFilters")?.addEventListener("click", () => void renderAudit(adminAuditQuery, 1));
+    document.getElementById("clearAuditFilters")?.addEventListener("click", () => {
+      ["auditAccountFilter", "auditServiceFilter", "auditFromFilter", "auditToFilter"].forEach((id) => {
+        const input = document.getElementById(id);
+        if (input) input.value = "";
+      });
+      const search = document.querySelector('[data-search="audit"]');
+      if (search) search.value = "";
+      void renderAudit("", 1);
+    });
   }
   async function renderAudit(q = "", page = 1) {
     const host = document.querySelector("#auditList");
@@ -2453,7 +2476,10 @@
     try {
       adminAuditQuery = q;
       adminAuditPage = Math.max(1, page);
-      const params = new URLSearchParams({ q, limit: String(adminAuditPageSize), offset: String((adminAuditPage - 1) * adminAuditPageSize) });
+      const filters2 = filterParams();
+      if (filters2.from && filters2.to && filters2.from > filters2.to) throw new Error("The start date must be before the end date.");
+      const params = new URLSearchParams({ q, ...filters2, limit: String(adminAuditPageSize), offset: String((adminAuditPage - 1) * adminAuditPageSize) });
+      updateExportLink(q);
       const d = await api(`/api/v1/admin/audit?${params}`);
       cachedLogs = d.logs || [];
       adminAuditTotal = Number(d.total || 0);

@@ -133,6 +133,7 @@ import {
   addStaffTicketReply,
   updateTicketStatus,
   listAdminAudit,
+  exportAdminAudit,
   listAdminStaff,
   listAdminOrders,
   getAdminOrderDetail,
@@ -3164,19 +3165,19 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/api/v1/admin/audit', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (req, reply) => {
-    const options = parseAdminList(req.query);
-    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
-    return listAdminAudit(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+    const parsed = adminListSchema.extend({ accountId: z.string().trim().max(100).optional().default(''), serviceId: z.string().trim().max(100).optional().default(''), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default(''), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default('') }).safeParse(req.query);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid audit filters.' });
+    const options = parsed.data;
+    return listAdminAudit(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset, accountId: options.accountId, serviceId: options.serviceId, from: options.from ? `${options.from} 00:00:00` : '', to: options.to ? `${options.to} 23:59:59` : '' });
   });
 
   app.get('/api/v1/admin/audit/export', { preHandler: [requireAuth, requireStaffPermission('audit:read'), requireRecentStepUp] }, async (req, reply) => {
     const EXPORT_LIMIT = 10_000;
     const db = getDatabase();
-    const rows = db.prepare(`
-      SELECT id, account_id, actor_user_id, actor_type, action, resource_type,
-             resource_id, ip_address, correlation_id, created_at
-      FROM audit_events ORDER BY created_at DESC, id DESC LIMIT ?
-    `).all(EXPORT_LIMIT + 1) as Array<Record<string, unknown>>;
+    const parsed = z.object({ q: z.string().trim().max(100).optional().default(''), accountId: z.string().trim().max(100).optional().default(''), serviceId: z.string().trim().max(100).optional().default(''), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default(''), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default('') }).safeParse(req.query);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid audit export filters.' });
+    const filters = parsed.data;
+    const rows = exportAdminAudit(db, { query: filters.q, accountId: filters.accountId, serviceId: filters.serviceId, from: filters.from ? `${filters.from} 00:00:00` : '', to: filters.to ? `${filters.to} 23:59:59` : '' }, EXPORT_LIMIT + 1);
     const truncated = rows.length > EXPORT_LIMIT;
     const exported = truncated ? rows.slice(0, EXPORT_LIMIT) : rows;
     const columns = ['id', 'account_id', 'actor_user_id', 'actor_type', 'action', 'resource_type', 'resource_id', 'ip_address', 'correlation_id', 'created_at'];
@@ -3185,7 +3186,7 @@ export function buildServer(): FastifyInstance {
     db.prepare(`
       INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
       VALUES (?, NULL, ?, 'STAFF', 'audit.exported', 'audit', 'export', ?, ?, ?)
-    `).run(generateId('aud'), req.auth!.user.id, req.ip, generateId('cor'), JSON.stringify({ rows: exported.length, truncated }));
+    `).run(generateId('aud'), req.auth!.user.id, req.ip, generateId('cor'), JSON.stringify({ rows: exported.length, truncated, filters }));
     return reply.header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', 'attachment; filename="fortless-audit.csv"')
       .header('X-Fortless-Truncated', String(truncated))
