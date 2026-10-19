@@ -3260,7 +3260,7 @@ ${selectedOr("code")}
     }
     function copyField2(value, label) {
       if (!value) return '<code class="mono muted">Pending</code>';
-      return `<span class="cpf" style="max-width:100%"><code>${esc(value)}</code><button class="ib xs" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy-01", "xs")}</button></span>`;
+      return `<span class="cpf" style="max-width:100%"><span title="${esc(value)}">${esc(value)}</span><button class="ib xs" type="button" data-copy="${esc(value)}" data-copy-label="${esc(label)}" aria-label="Copy ${esc(label)}">${hero("copy-01", "xs")}</button></span>`;
     }
     async function renderManifestTable() {
       const listHost = document.getElementById("fdManifestBody");
@@ -3399,7 +3399,7 @@ ${selectedOr("code")}
           <!-- METRICS GRID -->
           <div class="g g4 k2">
             <!-- TILE 1: DOWNLOAD URL -->
-            <div class="card" data-c="FastDL URL">
+            <div class="card" data-c="FastDL URL" style="min-width:0;overflow:hidden">
               <div class="row nw" style="justify-content:space-between;margin-bottom:6px">
                 <span class="tile acc sm"><svg class="ic" aria-hidden="true"><use href="#i-globe-02"/></svg></span>
                 <span class="faint" style="font-weight:700;font-size:11.5px">DOWNLOAD URL</span>
