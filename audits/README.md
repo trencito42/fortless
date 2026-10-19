@@ -1,15 +1,14 @@
 # Fortless Audit Tracker
 
-Canonical audit workbook: [FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx](./FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx)
+Canonical continuously maintained workbook: [FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx](./FORTLESS_MASTER_SECURITY_UI_BUG_TRACKER.xlsx)
 
-This workbook is the shared register for confirmed findings, risks, acceptance criteria, status history, push history, and coverage.
+Latest audit: [AUDIT_BOUNTY_2026-10-19_b929281.md](./AUDIT_BOUNTY_2026-10-19_b929281.md)
 
-## Important
-
-- The workbook was audited against commit `620368742f1df3fd36778dc1e4e567e404cb021b`.
-- Commit `b9292811a22159a28a7159deee2c7ff27f41a873` landed while the workbook was being uploaded and **has not yet been independently re-audited**. Do not mark issues fixed merely from its commit message.
-- Stable finding IDs must not be recycled.
-- Statuses: `OPEN`, `PARTIAL`, `FIXED_IN_CODE`, `TESTED`, `CLOSED`, `REGRESSION`. Fixes require code inspection and tests before closure.
-- Keep evidence, code locations, commit hashes and acceptance tests for each finding.
-- **XLSX is a binary file**. GitHub cannot automatically merge simultaneous spreadsheet edits. Coordinate changes, pull latest before editing, and push serialized updates to prevent lost work.
-- Recommended workflow: coding agent fixes code; auditor checks latest commit and updates the workbook with verifiable outcomes, preserving prior findings and status history.
+- Reviewed code commit: `b9292811a22159a28a7159deee2c7ff27f41a873`
+- 83 findings, 9 new (NEW-330…338); 21 status changes independently inspected in source
+- Additional tabs: MFA Policy, Release Gates; historical findings and status history retained
+- These are static findings; there was no authorized live pentest or payment/provider E2E.
+- **Statuses:** OPEN, PARTIAL, FIXED_IN_CODE, NEEDS_VERIFICATION, POLICY_DECISION, TESTED, CLOSED, REGRESSION. Do not treat FIXED_IN_CODE as verified at runtime.
+- Keep IDs stable and preserve history. Maintain an explicit evidence and commit trace.
+- **One editor at a time:** XLSX is binary and GitHub cannot merge simultaneous spreadsheet edits. Fetch newest HEAD before updates and use serialized commits, not force pushes.
+- Coding AI fixes production code; auditor checks source and tests and changes the status only with evidence.
