@@ -302,6 +302,10 @@ export function buildServer(): FastifyInstance {
     for (const [name, value] of Object.entries(baseSecurityHeaders(secure))) {
       if (!reply.hasHeader(name)) reply.header(name, value);
     }
+    // NEW-312: redirects and API answers depend on who is asking, so intermediaries and browsers must not reuse them.
+    if (!reply.hasHeader('cache-control') && (reply.statusCode >= 300 && reply.statusCode < 400 || req.url.startsWith('/api/'))) {
+      reply.header('Cache-Control', 'no-store');
+    }
     const type = String(reply.getHeader('content-type') ?? '');
     if (type.startsWith('text/html') && typeof payload === 'string' && !reply.hasHeader('content-security-policy')) {
       reply.header('Content-Security-Policy', contentSecurityPolicy(payload));
@@ -690,7 +694,8 @@ export function buildServer(): FastifyInstance {
   // --- API ROUTES ---
 
   const operationalCapability = (capability: 'payments' | 'provisioning' | 'email'): boolean => {
-    if (capability === 'payments') return config.PAYMENTS_MODE === 'stripe_test' || (config.PAYMENTS_MODE === 'stripe_live' && Boolean(config.STRIPE_SECRET_KEY));
+    // SEC-07: a mode switch alone is not operational; the keys must exist too.
+    if (capability === 'payments') return (config.PAYMENTS_MODE === 'stripe_test' || config.PAYMENTS_MODE === 'stripe_live') && Boolean(config.STRIPE_SECRET_KEY) && Boolean(config.STRIPE_WEBHOOK_SECRET);
     if (capability === 'provisioning') {
       return config.PROVIDER_MODE !== 'disabled'
         && Boolean(config.PTERODACTYL_PANEL_URL)
@@ -723,11 +728,16 @@ export function buildServer(): FastifyInstance {
     };
   });
 
+  // SEC-07: "verified" is only claimed when the operator recorded evidence of a real test run by setting the matching
+  // *_VERIFICATION_TIER. A mode switch or a configured key only ever reads CONFIGURED.
+  const verificationOf = (enabled: boolean, tier: string): string =>
+    !enabled ? 'NOT_STARTED' : (tier === 'SANDBOX_VERIFIED' || tier === 'PRODUCTION_VERIFIED') ? tier : 'CONFIGURED';
+
   app.get('/api/v1/platform/capabilities', async () => ({
     payments: {
       enabled: operationalCapability('payments'),
       mode: config.PAYMENTS_MODE,
-      verification: config.PAYMENTS_MODE === 'stripe_test' ? 'SANDBOX_VERIFIED' : (config.PAYMENTS_MODE === 'stripe_live' ? (config.PROVIDER_VERIFICATION_TIER === 'PRODUCTION_VERIFIED' ? 'PRODUCTION_VERIFIED' : 'CONFIGURED') : 'NOT_STARTED'),
+      verification: verificationOf(operationalCapability('payments'), config.PAYMENTS_VERIFICATION_TIER),
     },
     provisioning: {
       enabled: operationalCapability('provisioning'),
@@ -740,7 +750,7 @@ export function buildServer(): FastifyInstance {
     transactionalEmail: {
       enabled: operationalCapability('email'),
       mode: config.EMAIL_MODE,
-      verification: config.EMAIL_MODE === 'sandbox' ? 'SANDBOX_VERIFIED' : (config.EMAIL_MODE === 'live' ? (config.PROVIDER_VERIFICATION_TIER === 'PRODUCTION_VERIFIED' ? 'PRODUCTION_VERIFIED' : 'CONFIGURED') : 'NOT_STARTED'),
+      verification: verificationOf(operationalCapability('email'), config.EMAIL_VERIFICATION_TIER),
     },
   }));
 

@@ -206,6 +206,21 @@ describe('Installer and icon', () => {
     await expect(tools.installMod(ctx(1), { source: 0, projectId: 'hXiIvTyT' })).resolves.toBeDefined(); // the slot was released
   });
 
+  it('NEW-314: a redirect to a host outside the allowlist is refused before any byte is fetched from it', async () => {
+    seed(1);
+    const ad = new FakeAdapter();
+    const s = stub();
+    const calls: string[] = [];
+    const redirecting = (async (url: string, init?: RequestInit) => {
+      calls.push(String(url));
+      if (String(url).includes('cdn.modrinth.com')) return new Response(null, { status: 302, headers: { location: 'https://evil.example.test/payload.jar' } });
+      return s.fn(url, init);
+    }) as unknown as typeof fetch;
+    const tools = createGameTools({ adapter: ad, db, secret: SECRET, fetchFn: redirecting });
+    await expect(tools.installMod(ctx(1), { source: 0, projectId: 'hXiIvTyT' })).rejects.toMatchObject({ code: 'DOWNLOAD_NOT_ALLOWED' });
+    expect(calls.some((c) => c.includes('evil.example.test'))).toBe(false);
+  });
+
   it('NEW-410: download hosts must be public DNS names, and a profile change is recorded with before and after', () => {
     const base = JSON.parse(JSON.stringify(listProfiles(db)[0] ?? {}));
     const withHost = (host: string) => ({ ...base, installSources: [{ ...base.installSources[0], downloadHosts: [host] }] });

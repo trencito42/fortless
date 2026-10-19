@@ -122,3 +122,21 @@ describe('SEC-10: the application sets its own security headers', () => {
     expect(plain.headers['strict-transport-security']).toBeUndefined(); // plain HTTP in tests
   });
 });
+
+describe('SEC-07: capability claims need keys and recorded evidence', () => {
+  it('reports payments as not operational without keys and never claims verification from a mode switch', async () => {
+    const { config } = await import('../src/config/index.js');
+    const saved = { m: config.PAYMENTS_MODE, k: config.STRIPE_SECRET_KEY, w: config.STRIPE_WEBHOOK_SECRET, t: config.PAYMENTS_VERIFICATION_TIER };
+    const read = async () => (await h.app.inject({ method: 'GET', url: '/api/v1/platform/capabilities' })).json().payments;
+    try {
+      (config as any).PAYMENTS_MODE = 'stripe_test'; (config as any).STRIPE_SECRET_KEY = ''; (config as any).STRIPE_WEBHOOK_SECRET = '';
+      expect(await read()).toMatchObject({ enabled: false, verification: 'NOT_STARTED' });
+      (config as any).STRIPE_SECRET_KEY = 'sk_test_x'; (config as any).STRIPE_WEBHOOK_SECRET = 'whsec_x';
+      expect(await read()).toMatchObject({ enabled: true, verification: 'CONFIGURED' });
+      (config as any).PAYMENTS_VERIFICATION_TIER = 'SANDBOX_VERIFIED';
+      expect(await read()).toMatchObject({ enabled: true, verification: 'SANDBOX_VERIFIED' });
+    } finally {
+      (config as any).PAYMENTS_MODE = saved.m; (config as any).STRIPE_SECRET_KEY = saved.k; (config as any).STRIPE_WEBHOOK_SECRET = saved.w; (config as any).PAYMENTS_VERIFICATION_TIER = saved.t;
+    }
+  });
+});

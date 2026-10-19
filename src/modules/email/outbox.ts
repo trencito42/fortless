@@ -321,6 +321,10 @@ export class SmtpEmailTransportAdapter implements EmailTransportAdapter {
         host: this.host,
         port: this.port,
         secure: this.secure,
+        // SEC-01: certificates are always validated (nodemailer's default; nothing here relaxes it) and a server that does
+        // not offer STARTTLS on a plain port is refused rather than used in clear text.
+        requireTLS: !this.secure,
+        tls: { minVersion: 'TLSv1.2' },
         connectionTimeout: 15_000,
         greetingTimeout: 15_000,
         socketTimeout: 45_000,

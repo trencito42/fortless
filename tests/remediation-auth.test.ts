@@ -119,3 +119,21 @@ describe('NEW-401/NEW-402: email rendering and delivery lease', () => {
     expect(source).toContain('socketTimeout: 45_000');
   });
 });
+
+describe('SEC-01 / SEC-02: mail transport never weakens TLS or falls back silently', () => {
+  it('validates certificates, requires STARTTLS on plain ports and has no sandbox fallback for live mode', async () => {
+    const source = fs.readFileSync(path.resolve('src/modules/email/outbox.ts'), 'utf8');
+    expect(source).not.toMatch(/rejectUnauthorized\s*:\s*false/);
+    expect(source).toContain('requireTLS: !this.secure');
+    expect(source).toContain("minVersion: 'TLSv1.2'");
+    const { SmtpEmailTransportAdapter, getEmailTransport } = await import('../src/modules/email/outbox.js');
+    const { config } = await import('../src/config/index.js');
+    const before = { mode: config.EMAIL_MODE, pass: config.SMTP_PASSWORD };
+    (config as any).EMAIL_MODE = 'live'; (config as any).SMTP_PASSWORD = '';
+    try {
+      const transport = getEmailTransport();
+      expect(transport).toBeInstanceOf(SmtpEmailTransportAdapter);
+      await expect(transport.send({ id: 'e', recipient: 'a@example.test', subject: 's', text: 't', html: 'h', template: 'welcome' })).rejects.toThrow(/credentials/);
+    } finally { (config as any).EMAIL_MODE = before.mode; (config as any).SMTP_PASSWORD = before.pass; }
+  });
+});

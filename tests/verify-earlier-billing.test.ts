@@ -190,3 +190,78 @@ describe('NEW-304: reverse charge needs a tax id that staff verified', () => {
     expect(resolveTaxRate('FR', true, 'FR12345678901').taxRateBasisPoints).toBe(0);
   });
 });
+
+describe('NEW-335: successive partial refunds use the cumulative figure once', () => {
+  it('moves the paid amount to total minus the refunded total, not minus each event', async () => {
+    const { checkout, quote } = await paid();
+    ingest(pi('evt_pay', checkout, quote.totalMinorUnits, { payment_intent: 'pi_335' }));
+    const total = quote.totalMinorUnits;
+    const refund = (id: string, cumulative: number) => ingest({ id, type: 'charge.refunded', created: 1, data: { object: { id: 'ch_335', payment_intent: 'pi_335', amount: total, amount_refunded: cumulative, currency: 'eur', status: 'succeeded' } as any } });
+    refund('evt_r1', 300);
+    refund('evt_r2', 500);
+    const invoice = db.prepare('SELECT status, amount_paid_minor_units p FROM invoices WHERE id = ?').get(checkout.invoiceId) as { status: string; p: number };
+    expect(invoice.p).toBe(total - 500);
+    expect(invoice.status).toBe('PAID');
+    expect((db.prepare('SELECT COALESCE(SUM(amount_minor_units), 0) s FROM refunds').get() as any).s).toBe(500);
+    refund('evt_r3', total);
+    expect((db.prepare('SELECT status FROM invoices WHERE id = ?').get(checkout.invoiceId) as any).status).toBe('CREDITED');
+  });
+});
+
+describe('NEW-337 / NEW-325 / NEW-319: lifecycle events never invent state', () => {
+  it('a termination that fails permanently is not turned into SUSPENDED, and unsuspending does not claim RUNNING', async () => {
+    const { checkout, quote } = await paid();
+    ingest(pi('evt_pay', checkout, quote.totalMinorUnits));
+    const adapter = new MockPterodactylAdapter();
+    await processOutboxQueue(adapter, db);
+    const svc = db.prepare('SELECT id FROM services').get() as { id: string };
+    // permanent termination failure
+    const failing = new MockPterodactylAdapter();
+    (failing as any).terminate = async () => { throw new Error('panel refuses'); };
+    db.prepare("INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status, retry_count) VALUES ('obx_term', 'service.terminate.v1', 'service', ?, '{}', 'PENDING', 4)").run(svc.id);
+    await processOutboxQueue(failing, db);
+    expect((db.prepare("SELECT status FROM outbox_events WHERE id = 'obx_term'").get() as any).status).toBe('DEAD_LETTER');
+    expect((db.prepare('SELECT contract_status c FROM services WHERE id = ?').get(svc.id) as any).c).toBe('ACTIVE');
+    expect((db.prepare("SELECT COUNT(*) c FROM audit_events WHERE action = 'service.terminate_failed'").get() as any).c).toBe(1);
+    // unsuspend
+    db.prepare("UPDATE services SET contract_status = 'SUSPENDED', suspension_reason = 'BILLING' WHERE id = ?").run(svc.id);
+    db.prepare("INSERT INTO outbox_events (id, event_type, aggregate_type, aggregate_id, payload, status) VALUES ('obx_unsusp', 'service.unsuspend.v1', 'service', ?, '{}', 'PENDING')").run(svc.id);
+    await processOutboxQueue(adapter, db);
+    expect((db.prepare('SELECT runtime_state r FROM service_observed_states WHERE service_id = ?').get(svc.id) as any).r).toBe('STOPPED');
+  });
+
+  it('a scheduled cancellation terminates through the provider before it reports done', async () => {
+    const u = user();
+    db.pragma('foreign_keys = OFF');
+    db.prepare("INSERT INTO nodes (id, region_id, provider_instance_id, name, fqdn, max_memory_mb, max_disk_mb) VALUES ('n319', 'reg_fra_1', 'i', 'n', 'n.test', 1000, 1000)").run();
+    db.prepare("INSERT INTO services (id, account_id, order_item_id, provider_type, provider_instance_id, contract_status, node_id, external_id) VALUES ('svc_319', ?, 'oi_319', 'PTERODACTYL', 'p', 'ACTIVE', 'n319', '77')").run(u.account.id);
+    db.prepare(`INSERT INTO subscriptions (id, account_id, service_id, status, billing_interval, current_period_start, current_period_end, next_renewal_date, renewal_price_minor_units)
+      VALUES ('sub_319', ?, 'svc_319', 'CANCEL_SCHEDULED', 'MONTHLY', '2026-01-01', '2026-01-02', '2026-01-02', 1000)`).run(u.account.id);
+    const { setProviderAdapter, getProviderAdapter } = await import('../src/modules/outbox/worker.js');
+    const previous = getProviderAdapter();
+    const spy = new MockPterodactylAdapter();
+    const terminated: string[] = [];
+    const original = spy.terminate.bind(spy);
+    (spy as any).terminate = async (id: string) => { terminated.push(id); return original(id); };
+    setProviderAdapter(spy);
+    try {
+      const result = await processSubscriptionRenewals(db);
+      expect(result.canceledCount).toBe(1);
+      expect(terminated).toContain('77');
+      expect((db.prepare("SELECT contract_status c FROM services WHERE id = 'svc_319'").get() as any).c).toBe('TERMINATED');
+    } finally { setProviderAdapter(previous); }
+  });
+});
+
+describe('NEW-324: renewal invoices carry real tax', () => {
+  it('computes VAT from the billing country instead of zero', async () => {
+    const u = user();
+    db.pragma('foreign_keys = OFF');
+    db.prepare("INSERT INTO billing_profiles (id, account_id, address_line1, city, postal_code, country) VALUES ('bp324', ?, 'S 1', 'Paris', '75001', 'FR')").run(u.account.id);
+    db.prepare(`INSERT INTO subscriptions (id, account_id, service_id, status, billing_interval, current_period_start, current_period_end, next_renewal_date, renewal_price_minor_units)
+      VALUES ('sub_324', ?, 'svc_324', 'ACTIVE', 'MONTHLY', '2026-01-01', '2026-02-01', '2026-02-01', 1000)`).run(u.account.id);
+    await processSubscriptionRenewals(db);
+    const inv = db.prepare('SELECT subtotal_minor_units s, tax_minor_units t, total_minor_units tot, subscription_id sid FROM invoices').get() as any;
+    expect(inv).toMatchObject({ s: 1000, t: 200, tot: 1200, sid: 'sub_324' }); // FR 20 %
+  });
+});

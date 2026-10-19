@@ -148,7 +148,8 @@ export async function processOutboxQueue(
         }
         // Never resurrect a terminated service with a stale unsuspend event.
         db.prepare("UPDATE services SET contract_status = 'ACTIVE', suspension_reason = NULL WHERE id = ? AND contract_status IN ('ACTIVE', 'SUSPENDED')").run(event.aggregate_id);
-        db.prepare("UPDATE service_observed_states SET runtime_state = 'RUNNING' WHERE service_id = ? AND EXISTS (SELECT 1 FROM services WHERE id = ? AND contract_status = 'ACTIVE')").run(event.aggregate_id, event.aggregate_id);
+        // NEW-325: lifting a suspension does not start the process; the runtime sync reports RUNNING once Wings says so.
+        db.prepare("UPDATE service_observed_states SET runtime_state = 'STOPPED', last_checked_at = datetime('now', 'utc') WHERE service_id = ? AND EXISTS (SELECT 1 FROM services WHERE id = ? AND contract_status = 'ACTIVE')").run(event.aggregate_id, event.aggregate_id);
       } else if (event.event_type === 'service.terminate.v1') {
         const extId = service?.external_id || parsedPayload.externalId;
         if (extId) {

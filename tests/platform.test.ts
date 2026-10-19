@@ -4209,7 +4209,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
       expect(svcRow.contract_status).toBe('ACTIVE');
 
       const obsRow = db.prepare('SELECT runtime_state FROM service_observed_states WHERE service_id = ?').get(service.id) as any;
-      expect(obsRow.runtime_state).toBe('RUNNING');
+      expect(obsRow.runtime_state).toBe('STOPPED') // NEW-325: lifting a suspension does not claim a running process;
     });
 
     it('NEW-341: Coupon redemption compensation releases usage on failed/abandoned checkout', () => {

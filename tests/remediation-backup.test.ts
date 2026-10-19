@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/database/schema.js';
+import { config } from '../src/config/index.js';
 import { createDatabaseBackup, verifyAndRestoreBackup, requireBackupKey, sessionSecretFingerprint } from '../src/modules/backup/backup.js';
 import { runScheduledBackup, pruneBackups, cleanStrayBackupFiles } from '../src/modules/backup/scheduler.js';
 import { config } from '../src/config/index.js';
@@ -82,5 +83,40 @@ describe('NEW-375: restore refuses a different SESSION_SECRET unless told otherw
     expect(fs.existsSync(target)).toBe(false);
     const report = await verifyAndRestoreBackup({ backupFilePath: meta.backupFilePath, targetDbPath: target, encryptionKey: KEY, allowSecretMismatch: true });
     expect(report.success).toBe(true);
+  });
+});
+
+describe('NEW-308 / NEW-309 / NEW-313: restore verifies before it replaces, and production needs encryption', () => {
+  it('leaves the existing database untouched when the backup is corrupt or violates foreign keys', async () => {
+    const target = path.join(dir, 'live.db');
+    fs.writeFileSync(target, 'ORIGINAL-LIVE-DATABASE');
+    const good = await createDatabaseBackup({ sourceDb: db, encryptionKey: KEY, targetDir: path.join(dir, 'b') });
+
+    // corrupt ciphertext
+    const bytes = fs.readFileSync(good.backupFilePath);
+    bytes[bytes.length - 20] = bytes[bytes.length - 20]! ^ 0xff;
+    const corrupt = path.join(dir, 'corrupt.enc.db');
+    fs.writeFileSync(corrupt, bytes);
+    await expect(verifyAndRestoreBackup({ backupFilePath: corrupt, targetDbPath: target, encryptionKey: KEY, allowSecretMismatch: true })).rejects.toThrow();
+    expect(fs.readFileSync(target, 'utf8')).toBe('ORIGINAL-LIVE-DATABASE');
+
+    // a database whose rows break foreign keys
+    const broken = new Database(':memory:');
+    broken.exec(SCHEMA_SQL);
+    broken.pragma('foreign_keys = OFF');
+    broken.prepare("INSERT INTO memberships (id, account_id, user_id, role) VALUES ('m', 'no_account', 'no_user', 'OWNER')").run();
+    const fk = await createDatabaseBackup({ sourceDb: broken, encryptionKey: KEY, targetDir: path.join(dir, 'fk') });
+    broken.close();
+    await expect(verifyAndRestoreBackup({ backupFilePath: fk.backupFilePath, targetDbPath: target, encryptionKey: KEY, allowSecretMismatch: true })).rejects.toThrow(/foreign key/i);
+    expect(fs.readFileSync(target, 'utf8')).toBe('ORIGINAL-LIVE-DATABASE');
+    expect(fs.readdirSync(dir).filter((f) => f.startsWith('live.db.tmp-'))).toHaveLength(0);
+  });
+
+  it('refuses an unencrypted backup when the process runs in production', async () => {
+    const before = config.NODE_ENV;
+    (config as any).NODE_ENV = 'production';
+    try {
+      await expect(createDatabaseBackup({ sourceDb: db, targetDir: path.join(dir, 'prod') })).rejects.toThrow(/Encryption key is required/);
+    } finally { (config as any).NODE_ENV = before; }
   });
 });

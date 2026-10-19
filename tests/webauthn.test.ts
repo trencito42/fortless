@@ -107,6 +107,18 @@ describe('WebAuthn with real attestation objects', () => {
     expect(() => verifyAndAuthenticatePasskey(assertion(pk, { origin: 'https://evil.example' }), db)).toThrow(/origin/);
   });
 
+  it('NEW-307/NEW-318: passwordless sign-in needs user verification and a counter that moves forward', () => {
+    const user = seedUser();
+    const pk = newPasskey();
+    register(user, pk);
+    expect(() => verifyAndAuthenticatePasskey(assertion(pk, { flags: 0x01 }), db)).toThrow(/verif/i); // present but not verified
+    expect(verifyAndAuthenticatePasskey(assertion(pk, { counter: 5 }), db)).toBeDefined();
+    expect(() => verifyAndAuthenticatePasskey(assertion(pk, { counter: 5 }), db)).toThrow(/anti-replay/);
+    expect(() => verifyAndAuthenticatePasskey(assertion(pk, { counter: 3 }), db)).toThrow(/anti-replay/);
+    expect(verifyAndAuthenticatePasskey(assertion(pk, { counter: 6 }), db)).toBeDefined();
+    expect((db.prepare('SELECT counter c FROM passkey_credentials').get() as any).c).toBe(6);
+  });
+
   it('WAN-04: a passkey registered before key extraction (raw attestation object) is converted on first use', () => {
     const user = seedUser();
     const pk = newPasskey();

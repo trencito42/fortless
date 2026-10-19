@@ -37,6 +37,8 @@ const configSchema = z.object({
   HOST: z.string().default('127.0.0.1'),
   APP_ORIGIN: z.string().url().default('https://fortless.net'),
   ALLOWED_ORIGINS: z.string().default('https://fortless.net,http://localhost:3021'),
+  PAYMENTS_VERIFICATION_TIER: z.string().default('NOT_STARTED'),
+  EMAIL_VERIFICATION_TIER: z.string().default('NOT_STARTED'),
   AI_BASE_URL: z.string().default(''),
   AI_API_KEY: z.string().default(''),
   AI_MODEL: z.string().default(''),
@@ -80,6 +82,8 @@ export const config: Config = configSchema.parse({
   APP_ORIGIN: process.env['APP_ORIGIN'] || 'https://fortless.net',
   // NEW-394: loopback origins are a development convenience only; production defaults to the public origin.
   ALLOWED_ORIGINS: process.env['ALLOWED_ORIGINS'] || (nodeEnvironment === 'production' ? 'https://fortless.net' : 'https://fortless.net,http://localhost:3021'),
+  PAYMENTS_VERIFICATION_TIER: process.env['PAYMENTS_VERIFICATION_TIER'] || 'NOT_STARTED',
+  EMAIL_VERIFICATION_TIER: process.env['EMAIL_VERIFICATION_TIER'] || 'NOT_STARTED',
   AI_BASE_URL: process.env['AI_BASE_URL'] || '',
   AI_API_KEY: process.env['AI_API_KEY'] || '',
   AI_MODEL: process.env['AI_MODEL'] || '',
