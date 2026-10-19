@@ -1,4 +1,5 @@
 /* Admin composition only. Every reusable primitive comes from petal-app.css. */
+.audit-filters{display:grid;grid-template-columns:2fr 1fr 1fr;grid-template-areas:"search account service" "from to actions";gap:10px;margin-bottom:12px;align-items:end}.audit-filter-search{grid-area:search;min-width:0}.audit-filter-account{grid-area:account}.audit-filter-service{grid-area:service}.audit-filter-from{grid-area:from}.audit-filter-to{grid-area:to}.audit-filter-actions{grid-area:actions;justify-content:flex-end}@media(max-width:760px){.audit-filters{grid-template-columns:1fr;grid-template-areas:"search" "account" "service" "from" "to" "actions"}.audit-filter-actions{justify-content:stretch}.audit-filter-actions .btn{flex:1}}
 html,body,.m,.ap{height:100%;min-height:100%;margin:0}
 .page{display:none;padding:6px 0 60px;max-width:1480px;margin:0 auto}.page.on{display:block;animation:rise .4s var(--ease)}
 .nav{display:flex;flex-direction:column;gap:2px}.nav .nv.act{background:var(--s1);color:var(--ink)}

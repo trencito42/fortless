@@ -227,13 +227,13 @@
 
       <section class="page" id="page-audit">
         <div class="hd"><div class="tx"><h2>Global audit trail</h2><p>Security-relevant events across accounts.</p></div><a class="btn" id="adminAuditExport" href="/api/v1/admin/audit/export"><span class="ic" data-icon="document"></span>Export filtered CSV</a></div>
-        <div class="row wrap" style="gap:10px;margin-bottom:12px;align-items:flex-end">
-          <label class="sch" style="flex:2"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action, actor or resource" data-search="audit" aria-label="Search audit events"></label>
-          <label class="field" style="flex:1;min-width:170px"><span>Account ID</span><div class="inp"><input id="auditAccountFilter" placeholder="acc_…"></div></label>
-          <label class="field" style="flex:1;min-width:170px"><span>Service ID</span><div class="inp"><input id="auditServiceFilter" placeholder="svc_…"></div></label>
-          <label class="field"><span>From</span><div class="inp"><input id="auditFromFilter" type="date"></div></label>
-          <label class="field"><span>To</span><div class="inp"><input id="auditToFilter" type="date"></div></label>
-          <button class="btn pri" id="applyAuditFilters" type="button">Apply</button><button class="btn" id="clearAuditFilters" type="button">Clear</button>
+        <div class="audit-filters">
+          <label class="sch audit-filter-search"><span class="ic" data-icon="search"></span><input type="search" placeholder="Search action, actor or resource" data-search="audit" aria-label="Search audit events"></label>
+          <label class="field audit-filter-account"><span>Account ID</span><div class="inp"><input id="auditAccountFilter" placeholder="acc_…"></div></label>
+          <label class="field audit-filter-service"><span>Service ID</span><div class="inp"><input id="auditServiceFilter" placeholder="svc_…"></div></label>
+          <label class="field audit-filter-from"><span>From</span><div class="inp"><input id="auditFromFilter" type="date"></div></label>
+          <label class="field audit-filter-to"><span>To</span><div class="inp"><input id="auditToFilter" type="date"></div></label>
+          <div class="row audit-filter-actions"><button class="btn pri" id="applyAuditFilters" type="button">Apply</button><button class="btn" id="clearAuditFilters" type="button">Clear</button></div>
         </div><div class="card"><div class="table-scroll"><table class="tbl rsp"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>IP</th><th>Correlation</th><th>Context</th></tr></thead><tbody id="auditList"></tbody></table></div>
         <div class="row wrap" id="adminAuditPaginationRow" style="justify-content:space-between;align-items:center;padding:12px 14px 14px;border-top:1px solid var(--s3);display:none">
           <span class="muted" id="adminAuditPageInfo" style="font-size:12.5px"></span>

@@ -6,6 +6,7 @@ import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/database/schema.js';
 import { createDatabaseBackup, verifyAndRestoreBackup, requireBackupKey, sessionSecretFingerprint } from '../src/modules/backup/backup.js';
 import { runScheduledBackup, pruneBackups, cleanStrayBackupFiles } from '../src/modules/backup/scheduler.js';
+import { config } from '../src/config/index.js';
 
 const KEY = 'k'.repeat(40);
 let dir: string; let db: Database.Database;
@@ -72,7 +73,7 @@ describe('NEW-375: restore refuses a different SESSION_SECRET unless told otherw
   it('records the fingerprint and blocks a mismatching restore', async () => {
     const meta = await createDatabaseBackup({ sourceDb: db, encryptionKey: KEY, targetDir: path.join(dir, 'b') });
     expect(meta.secretFingerprint).toBe(sessionSecretFingerprint());
-    expect(JSON.stringify(meta)).not.toContain(process.env['SESSION_SECRET'] ?? 'never');
+    expect(JSON.stringify(meta)).not.toContain(config.SESSION_SECRET);
     const metaPath = meta.backupFilePath.replace(/\.enc\.db$/, '.meta.json');
     const doctored = { ...JSON.parse(fs.readFileSync(metaPath, 'utf8')), secretFingerprint: 'deadbeefdeadbeef' };
     fs.writeFileSync(metaPath, JSON.stringify(doctored));

@@ -3165,7 +3165,8 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/api/v1/admin/audit', { preHandler: [requireAuth, requireStaffPermission('audit:read')] }, async (req, reply) => {
-    const parsed = adminListSchema.extend({ accountId: z.string().trim().max(100).optional().default(''), serviceId: z.string().trim().max(100).optional().default(''), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default(''), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default('') }).safeParse(req.query);
+    const optionalAuditDate = z.union([z.literal(''), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional().default('');
+    const parsed = adminListSchema.extend({ accountId: z.string().trim().max(100).optional().default(''), serviceId: z.string().trim().max(100).optional().default(''), from: optionalAuditDate, to: optionalAuditDate }).safeParse(req.query);
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid audit filters.' });
     const options = parsed.data;
     return listAdminAudit(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset, accountId: options.accountId, serviceId: options.serviceId, from: options.from ? `${options.from} 00:00:00` : '', to: options.to ? `${options.to} 23:59:59` : '' });
@@ -3174,7 +3175,8 @@ export function buildServer(): FastifyInstance {
   app.get('/api/v1/admin/audit/export', { preHandler: [requireAuth, requireStaffPermission('audit:read'), requireRecentStepUp] }, async (req, reply) => {
     const EXPORT_LIMIT = 10_000;
     const db = getDatabase();
-    const parsed = z.object({ q: z.string().trim().max(100).optional().default(''), accountId: z.string().trim().max(100).optional().default(''), serviceId: z.string().trim().max(100).optional().default(''), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default(''), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default('') }).safeParse(req.query);
+    const optionalAuditDate = z.union([z.literal(''), z.string().regex(/^\d{4}-\d{2}-\d{2}$/)]).optional().default('');
+    const parsed = z.object({ q: z.string().trim().max(100).optional().default(''), accountId: z.string().trim().max(100).optional().default(''), serviceId: z.string().trim().max(100).optional().default(''), from: optionalAuditDate, to: optionalAuditDate }).safeParse(req.query);
     if (!parsed.success) return reply.status(400).send({ error: 'Invalid audit export filters.' });
     const filters = parsed.data;
     const rows = exportAdminAudit(db, { query: filters.q, accountId: filters.accountId, serviceId: filters.serviceId, from: filters.from ? `${filters.from} 00:00:00` : '', to: filters.to ? `${filters.to} 23:59:59` : '' }, EXPORT_LIMIT + 1);
