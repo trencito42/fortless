@@ -7,10 +7,12 @@ import { api } from '../../../core/api/client.js';
 import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { badge } from '../../shell/admin-shell.js';
-import { hero, toast, paginateItems, renderPager } from '../../../petal/index.js';
+import { hero, toast, renderPager } from '../../../petal/index.js';
 
 let activeServiceId: string | null = null;
 let cachedAdminServices: any[] = [];
+let adminServicesTotal = 0;
+let adminServicesQuery = '';
 let adminServicesPage = 1;
 const adminServicesPageSize = 10;
 let adminServicesListenersBound = false;
@@ -32,14 +34,13 @@ function paintAdminServicesList(): void {
     return;
   }
 
-  const pagination = paginateItems(cachedAdminServices, adminServicesPage, adminServicesPageSize);
-  adminServicesPage = pagination.page;
+  const pages = Math.max(1, Math.ceil(adminServicesTotal / adminServicesPageSize));
+  const start = (adminServicesPage - 1) * adminServicesPageSize;
+  if (paginationRow) paginationRow.style.display = adminServicesTotal > adminServicesPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = `Showing ${start + 1}–${start + cachedAdminServices.length} of ${adminServicesTotal}`;
+  if (pagerEl) pagerEl.innerHTML = renderPager(adminServicesPage, pages);
 
-  if (paginationRow) paginationRow.style.display = cachedAdminServices.length > adminServicesPageSize ? 'flex' : 'none';
-  if (infoEl) infoEl.textContent = pagination.info;
-  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-
-  host.innerHTML = pagination.items.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === 'RUNNING' ? 'RUNNING' : 'OTHER'}" data-service-id="${esc(x.id)}" style="cursor:pointer">
+  host.innerHTML = cachedAdminServices.map((x) => `<tr class="h" data-filter-state="${x.runtime_state === 'RUNNING' ? 'RUNNING' : 'OTHER'}" data-service-id="${esc(x.id)}" style="cursor:pointer">
     <td data-l="Service"><b>${esc(x.plan_name || x.product_name)}</b><small class="mono">${esc(x.identifier || x.id)}</small></td>
     <td data-l="Account">${esc(x.account_name)}</td>
     <td data-l="Node"><span class="mono">${esc(x.node_name)}</span><small>${esc(x.region_name)}</small></td>
@@ -60,20 +61,23 @@ function bindAdminServicesListeners(): void {
       const p = Number(btn.dataset.pg);
       if (p && p !== adminServicesPage) {
         adminServicesPage = p;
-        paintAdminServicesList();
+        renderServices(adminServicesQuery, p);
       }
     }
   });
 }
 
-export async function renderServices(q = ''): Promise<void> {
+export async function renderServices(q = '', page = 1): Promise<void> {
   const host = document.querySelector<HTMLElement>('#servicesList');
   if (!host) return;
 
   try {
-    const d = await api<{ services: any[] }>(`/api/v1/admin/services?q=${encodeURIComponent(q)}`);
+    adminServicesQuery = q;
+    adminServicesPage = Math.max(1, page);
+    const offset = (adminServicesPage - 1) * adminServicesPageSize;
+    const d = await api<{ services: any[]; total: number }>(`/api/v1/admin/services?q=${encodeURIComponent(q)}&limit=${adminServicesPageSize}&offset=${offset}`);
     cachedAdminServices = d.services || [];
-    adminServicesPage = 1;
+    adminServicesTotal = Number(d.total || 0);
     paintAdminServicesList();
     bindAdminServicesListeners();
   } catch (e: any) {

@@ -8,10 +8,12 @@ import { esc } from '../../../core/utils/dom.js';
 import { formatDate } from '../../../core/utils/dates.js';
 import { money } from '../../../core/utils/formatting.js';
 import { badge } from '../../shell/admin-shell.js';
-import { hero, paginateItems, renderPager } from '../../../petal/index.js';
+import { hero, renderPager } from '../../../petal/index.js';
 
 let activeAccountId: string | null = null;
 let cachedAccounts: any[] = [];
+let adminAccountsTotal = 0;
+let adminAccountsQuery = '';
 let adminAccountsPage = 1;
 const adminAccountsPageSize = 10;
 let adminAccountsListenersBound = false;
@@ -37,14 +39,13 @@ function paintAccountsList(): void {
     return;
   }
 
-  const pagination = paginateItems(cachedAccounts, adminAccountsPage, adminAccountsPageSize);
-  adminAccountsPage = pagination.page;
+  const pages = Math.max(1, Math.ceil(adminAccountsTotal / adminAccountsPageSize));
+  const start = (adminAccountsPage - 1) * adminAccountsPageSize;
+  if (paginationRow) paginationRow.style.display = adminAccountsTotal > adminAccountsPageSize ? 'flex' : 'none';
+  if (infoEl) infoEl.textContent = `Showing ${start + 1}–${start + cachedAccounts.length} of ${adminAccountsTotal}`;
+  if (pagerEl) pagerEl.innerHTML = renderPager(adminAccountsPage, pages);
 
-  if (paginationRow) paginationRow.style.display = cachedAccounts.length > adminAccountsPageSize ? 'flex' : 'none';
-  if (infoEl) infoEl.textContent = pagination.info;
-  if (pagerEl) pagerEl.innerHTML = renderPager(pagination.page, pagination.pages);
-
-  host.innerHTML = pagination.items.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
+  host.innerHTML = cachedAccounts.map((x) => `<button class="li" data-account-id="${esc(x.id)}">
     <span class="tile sm ${x.status === 'LOCKED' ? 'bad' : x.status === 'FLAGGED_FRAUD' ? 'warn' : ''}">${hero('users')}</span>
     <span class="tx"><b>${esc(x.name)}</b><small>${esc(x.owner_name)} · ${esc(x.owner_email)}</small></span>
     <span class="faint hide-n">${Number(x.member_count)} members · ${Number(x.service_count)} services · ${Number(x.open_ticket_count)} tickets</span>${badge(x.status)}
@@ -62,20 +63,23 @@ function bindAdminAccountsListeners(): void {
       const p = Number(btn.dataset.pg);
       if (p && p !== adminAccountsPage) {
         adminAccountsPage = p;
-        paintAccountsList();
+        renderAccounts(adminAccountsQuery, p);
       }
     }
   });
 }
 
-export async function renderAccounts(q = ''): Promise<void> {
+export async function renderAccounts(q = '', page = 1): Promise<void> {
   const host = document.querySelector<HTMLElement>('#accountsList');
   if (!host) return;
 
   try {
-    const d = await api<{ accounts: any[] }>(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}`);
+    adminAccountsQuery = q;
+    adminAccountsPage = Math.max(1, page);
+    const offset = (adminAccountsPage - 1) * adminAccountsPageSize;
+    const d = await api<{ accounts: any[]; total: number }>(`/api/v1/admin/accounts?q=${encodeURIComponent(q)}&limit=${adminAccountsPageSize}&offset=${offset}`);
     cachedAccounts = d.accounts || [];
-    adminAccountsPage = 1;
+    adminAccountsTotal = Number(d.total || 0);
     paintAccountsList();
     bindAdminAccountsListeners();
   } catch (e: any) {

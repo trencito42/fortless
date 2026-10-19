@@ -1649,6 +1649,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
 
       const result = listAdminAccounts(db, { query: 'alpha', limit: 10 });
       expect(result.accounts).toHaveLength(1);
+      expect(result.total).toBe(1);
       expect(result.accounts[0]).toMatchObject({ owner_email: 'alpha@example.com', member_count: 1 });
       expect(result.accounts[0]).not.toHaveProperty('password_hash');
       expect(result.accounts[0]).not.toHaveProperty('billing_email');
@@ -1668,7 +1669,7 @@ describe('FORTLESS Comprehensive Production Test Suite', () => {
         pendingOutboxEvents: 0,
         capabilities: { payments: 'NOT_CONFIGURED', provisioning: 'MOCK_ONLY' },
       });
-      expect(listAdminServices(db).services).toEqual([]);
+      expect(listAdminServices(db)).toMatchObject({ services: [], total: 0 });
       expect(listAdminTickets(db).tickets).toEqual([]);
       expect(listAdminAudit(db, { query: 'user.registration_pending' }).logs).toHaveLength(1);
     });

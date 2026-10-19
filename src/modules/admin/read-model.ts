@@ -64,8 +64,14 @@ export function listAdminAccounts(db: Database.Database, options: AdminListOptio
     ORDER BY a.created_at DESC, a.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, limit, offset);
+  const total = (db.prepare(`
+    SELECT count(*) AS count
+    FROM accounts a
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR a.name LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+  `).get(query, like, like, like) as { count: number }).count;
 
-  return { accounts: rows, limit, offset };
+  return { accounts: rows, total, limit, offset };
 }
 
 export function listAdminServices(db: Database.Database, options: AdminListOptions = {}) {
@@ -90,8 +96,18 @@ export function listAdminServices(db: Database.Database, options: AdminListOptio
     ORDER BY s.created_at DESC, s.id DESC
     LIMIT ? OFFSET ?
   `).all(query, like, like, like, like, like, limit, offset);
+  const total = (db.prepare(`
+    SELECT count(*) AS count
+    FROM services s
+    JOIN accounts a ON a.id = s.account_id
+    JOIN order_items oi ON oi.id = s.order_item_id
+    JOIN plan_versions pv ON pv.id = oi.plan_version_id
+    JOIN products p ON p.id = pv.product_id
+    WHERE (? = '' OR s.id LIKE ? ESCAPE '\\' OR coalesce(s.identifier, '') LIKE ? ESCAPE '\\'
+      OR a.name LIKE ? ESCAPE '\\' OR p.name LIKE ? ESCAPE '\\' OR pv.name LIKE ? ESCAPE '\\')
+  `).get(query, like, like, like, like, like) as { count: number }).count;
 
-  return { services: rows, limit, offset };
+  return { services: rows, total, limit, offset };
 }
 
 export function listAdminTickets(db: Database.Database, options: AdminListOptions = {}) {
