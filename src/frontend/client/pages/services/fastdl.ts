@@ -90,7 +90,9 @@ export function initFastDl(serviceId: string) {
       status = res;
       return Boolean(res.supported);
     } catch {
-      return false;
+      // A failed status request is not "unsupported": keep the tab so opening it shows the real error and a retry,
+      // instead of the tab silently disappearing.
+      return true;
     }
   }
 

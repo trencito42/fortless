@@ -3256,7 +3256,7 @@ ${selectedOr("code")}
         status = res;
         return Boolean(res.supported);
       } catch {
-        return false;
+        return true;
       }
     }
     function copyField2(value, label) {

@@ -284,3 +284,14 @@ describe('Installer and icon', () => {
     await expect(tools.setIcon(ctx(1), { png: 'not base64!!' })).rejects.toMatchObject({ code: 'INVALID_ICON' });
   });
 });
+
+describe('FastDL egg matching ignores punctuation and spacing', () => {
+  it('resolves common panel spellings of the CS 1.6 egg and still rejects non-Source games', async () => {
+    const { resolveFastDlProfile } = await import('../src/modules/fastdl/profiles.js');
+    for (const name of ['Counter-Strike: 1.6', 'Counter Strike 1.6', 'counter-strike 1.6', 'Counter-Strike  1.6 (GoldSrc)', 'Counter-Strike 1.6 [BasePack]']) {
+      expect(resolveFastDlProfile(name)?.slug, name).toBe('cs-16');
+    }
+    expect(resolveFastDlProfile('Minecraft: Java Edition')).toBeNull();
+    expect(resolveFastDlProfile(null)).toBeNull();
+  });
+});

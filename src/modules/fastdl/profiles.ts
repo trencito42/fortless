@@ -297,11 +297,12 @@ export function resolveFastDlProfile(eggName: string | null | undefined): FastDl
     return null;
   }
 
-  // Exact or alias match
+  // Exact or alias match, ignoring case, punctuation and spacing ("Counter-Strike: 1.6" = "Counter Strike 1.6").
+  const squash = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const squashed = squash(target);
   for (const profile of FASTDL_PROFILES) {
     for (const egg of profile.eggNames) {
-      const alias = egg.toLowerCase();
-      if (target === alias) return profile;
+      if (target === egg.toLowerCase() || squashed === squash(egg)) return profile;
     }
   }
 
@@ -309,7 +310,7 @@ export function resolveFastDlProfile(eggName: string | null | undefined): FastDl
   for (const profile of FASTDL_PROFILES) {
     for (const egg of profile.eggNames) {
       const alias = egg.toLowerCase();
-      if (alias.length >= 4 && (target.includes(alias) || alias.includes(target))) {
+      if (alias.length >= 4 && (target.includes(alias) || alias.includes(target) || squashed.includes(squash(egg)))) {
         return profile;
       }
     }
