@@ -57,7 +57,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     warnings: () => call('warnings', () => {
       const w: D.Warning[] = [];
       for (const v of s.services) {
-        if (v.state === 'error') w.push({ id: `w_${v.id}`, severity: 'error', title: `${v.name} crashed`, detail: v.note ?? 'The process exited unexpectedly.', serviceId: v.id, action: { label: 'Open console', to: `/app/services/${v.id}/console` } });
+        if (v.lifecycle === 'active' && v.state === 'error') w.push({ id: `w_${v.id}`, severity: 'error', title: `${v.name} crashed`, detail: v.note ?? 'The process exited unexpectedly.', serviceId: v.id, action: { label: 'Open console', to: `/app/services/${v.id}/console` } });
         if (v.resources.diskLimitMb && v.resources.diskUsedMb / v.resources.diskLimitMb > 0.85) w.push({ id: `wd_${v.id}`, severity: 'warn', title: `${v.name} is almost out of disk`, detail: 'Over 85% of the disk is used.', serviceId: v.id });
       }
       const od = s.invoices.filter((i) => i.state === 'overdue').length; if (od) w.push({ id: 'w_inv', severity: 'warn', title: `${od} overdue invoice${od > 1 ? 's' : ''}`, detail: 'Services with unpaid invoices are suspended after 7 days.', action: { label: 'Review invoices', to: '/app/billing/invoices' } });
@@ -70,7 +70,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     power: async (id, action) => {
       await call('power', () => find(s.services, id, 'Service'));
       const v = find(s.services, id, 'Service');
-      if (v.state === 'suspended' || v.state === 'installing') throw new ApiError(v.note ?? 'This service cannot be controlled right now.', 'SERVICE_NOT_ACTIVE', 403);
+      if (v.lifecycle !== 'active' || v.state === 'installing') throw new ApiError(v.note ?? 'This service cannot be controlled right now.', 'SERVICE_NOT_ACTIVE', 403);
       v.state = action === 'start' ? 'starting' : action === 'restart' ? 'starting' : 'stopping'; bump();
       setTimeout(() => { v.state = action === 'stop' || action === 'kill' ? 'offline' : 'running'; if (v.state === 'offline') { v.resources.cpuPct = 0; v.resources.ramUsedMb = 0; } else { v.resources.cpuPct = v.resources.cpuPct || 12; v.resources.ramUsedMb = v.resources.ramUsedMb || Math.round(v.resources.ramLimitMb * 0.3); } bump(); }, 1400);
     },
@@ -96,7 +96,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
       if (i.state !== 'open' && i.state !== 'overdue') throw new ApiError('This invoice cannot be paid.', 'INVOICE_NOT_PAYABLE');
       if (m.brand === 'mastercard' && m.last4 === '0087') throw new ApiError('The card was declined by the issuer. Nothing was charged.', 'CARD_DECLINED', 402);
       i.state = 'paid'; i.paidOn = '2026-10-20'; i.paymentMethodId = pm;
-      for (const l of i.lines) { const v = s.services.find((x) => x.id === l.serviceId); if (v?.state === 'suspended') { v.state = 'offline'; v.note = undefined; } const sub = s.subs.find((x) => x.serviceId === l.serviceId); if (sub?.state === 'past-due') sub.state = 'active'; }
+      for (const l of i.lines) { const v = s.services.find((x) => x.id === l.serviceId); if (v?.lifecycle === 'suspended') { v.lifecycle = 'active'; v.note = undefined; } const sub = s.subs.find((x) => x.serviceId === l.serviceId); if (sub?.state === 'past-due') sub.state = 'active'; }
       bump(); return { ok: true as const, receipt: `RCPT-${i.number}` };
     }),
     listSubscriptions: () => call('listSubscriptions', () => s.subs),

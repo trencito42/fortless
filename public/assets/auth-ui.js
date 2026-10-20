@@ -86,6 +86,20 @@
     recoveryInput.addEventListener('input', () => { codeInput.value = recoveryInput.value.trim(); });
   }
 
+
+  if (page === 'complete' && form) {
+    const token = new URLSearchParams(location.search).get('token') || '';
+    post('/api/v1/auth/register/inspect', { token }).then((data) => {
+      form.email.value = data.email;
+      form.hidden = false;
+      form.name.focus();
+    }).catch((error) => {
+      document.getElementById('completeSub').textContent = 'We could not use this link.';
+      show(error.message);
+      document.getElementById('restart').hidden = false;
+    });
+  }
+
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
     alertBox.hidden = true;
@@ -107,11 +121,25 @@
         const next = new URLSearchParams(location.search).get('next');
         location.href = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app';
       } else if (page === 'register') {
-        const data = await post('/api/v1/auth/register', { name: form.name.value, email: form.email.value, password: form.password.value });
+        const email = form.email.value.trim();
+        if (!form.terms.checked) { show('Accept the Terms of Service and Privacy Policy to continue.'); submit.disabled = false; submit.textContent = original; return; }
+        const data = await post('/api/v1/auth/register', { email, acceptTerms: true });
         form.hidden = true;
-        show(data.emailDelivery === 'CONFIGURATION_REQUIRED'
-          ? 'Your account is pending verification. Transactional email is not configured yet, so no message was sent.'
-          : 'Check your inbox to verify the account.', true);
+        document.getElementById('sentEmail').textContent = email;
+        document.getElementById('sent').hidden = false;
+        if (data.emailDelivery === 'CONFIGURATION_REQUIRED') show('Transactional email is not configured yet, so no message was sent.');
+        const resend = document.getElementById('resend');
+        const hint = document.getElementById('resendHint');
+        window.setTimeout(() => { resend.disabled = false; hint.textContent = 'Nothing arrived? Check spam, or send it again.'; }, 60000);
+        resend.addEventListener('click', async () => {
+          resend.disabled = true;
+          try { await post('/api/v1/auth/register', { email, acceptTerms: true }); hint.textContent = 'Sent again. It can take a minute to arrive.'; }
+          catch (error) { hint.textContent = error.message; }
+        });
+      } else if (page === 'complete') {
+        const token = new URLSearchParams(location.search).get('token') || '';
+        await post('/api/v1/auth/register/complete', { token, name: form.name.value, password: form.password.value });
+        location.href = '/app/onboarding';
       } else if (page === 'forgot') {
         await post('/api/v1/auth/forgot-password', { email: form.email.value });
         form.hidden = true;

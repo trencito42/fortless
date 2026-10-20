@@ -50,7 +50,6 @@ function Frame() {
       ]}
     >
       <div className="mx-auto grid w-full min-w-0 max-w-[1280px] grid-cols-[minmax(0,1fr)] gap-5">
-        <p className="rounded-full bg-s3 px-4 py-2 text-[13px] font-semibold text-ink2">React migration preview. Data and enabled actions use your authenticated Fortless account; unavailable backend capabilities are labelled explicitly.</p>
         <Suspense fallback={<div className="grid gap-4" aria-busy="true" aria-label="Loading page"><Skeleton className="h-9 w-full max-w-72" /><Skeleton className="h-48 w-full" /></div>}>
           {Page && hit ? <Page {...hit.params} /> : <NotFoundInline />}
         </Suspense>
@@ -63,10 +62,12 @@ function Frame() {
 function NotFoundInline() { const { navigate } = useRouter(); return <div className="grid justify-items-start gap-3 py-10"><h1 className="font-display text-[28px] font-extrabold tracking-tight">Page not found</h1><p className="text-ink2">There is nothing at this address.</p><Button variant="primary" onClick={() => navigate('/app')}>Go to dashboard</Button></div>; }
 
 const AuthPages = lazy(() => import('./auth/AuthPages'));
+const Onboarding = lazy(() => import('./pages/Onboarding'));
 
 function Switcher() {
   const { path } = useRouter();
   if (SYSTEM_PATHS[path]) return <SystemScreen kind={SYSTEM_PATHS[path]!} />;
+  if (path === '/app/onboarding') return <Suspense fallback={null}><Onboarding /></Suspense>;
   if (path.startsWith('/auth')) return <Suspense fallback={null}><AuthPages /></Suspense>;
   return <Frame />;
 }

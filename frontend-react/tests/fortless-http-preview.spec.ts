@@ -367,14 +367,16 @@ test('suspended services do not trigger error warnings or appear in attention fi
   await page.goto('/app');
   // Needs attention section must NOT be rendered when only suspended services exist
   await expect(page.getByRole('heading', { name: 'Needs attention' })).not.toBeVisible();
-  // Services summary bar reflects suspended services
   await expect(page.getByText('2 suspended')).toBeVisible();
   await expect(page.getByText('Suspended').first()).toBeVisible();
 
   await page.goto('/app/services');
   // Attention segmented filter counter must be 0
   await expect(page.getByRole('radio', { name: /Attention 0/ })).toBeVisible();
-  // Suspended services appear under All with their Suspended status badge
+  // Default filter is Lifecycle is Active, so suspended services are hidden until cleared
+  await expect(page.getByText('No services match')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  // Suspended services appear with their Suspended status badge once filter is cleared
   await expect(page.getByRole('cell', { name: /Minecraft Paper/ }).first()).toBeVisible();
   await expect(page.getByRole('cell', { name: /CS2 Server/ }).first()).toBeVisible();
   // Switching to Attention filter shows no matches

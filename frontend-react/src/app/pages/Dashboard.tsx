@@ -3,12 +3,29 @@ import { cn } from '@/lib/utils/cn';
 import { useApiQuery } from '../data/DataProvider';
 import { Link, useNavigate } from '../router';
 import { PageHeader } from '../components/PageHeader';
-import { ServiceStateBadge, Stat, WorkloadIcon } from '../components/bits';
+import { ServiceStatusBadge, Stat, WorkloadIcon } from '../components/bits';
 import { daysUntil, date, dateTime, mb, money, relative } from '../format';
 import type { ServiceRow } from '../domain/types';
+import { serviceConsumesResources, visibleServices } from '../domain/serviceLifecycle';
 import { ticketStatus, type TicketState as UiTicket } from '@/features';
 
-const counts = (s: ServiceRow[]) => ({ running: s.filter((x) => x.state === 'running').length, stopped: s.filter((x) => x.state === 'offline').length, suspended: s.filter((x) => x.state === 'suspended').length, problem: s.filter((x) => x.state === 'error').length, busy: s.filter((x) => ['starting', 'stopping', 'installing'].includes(x.state)).length });
+export const activeServiceSummary = (services: ServiceRow[]) => {
+  const active = visibleServices(services, 'active');
+  const suspended = services.filter((x) => x.lifecycle === 'suspended').length;
+  return {
+    services,
+    active,
+    counts: {
+      running: active.filter((x) => x.state === 'running').length,
+      stopped: active.filter((x) => x.state === 'offline').length,
+      suspended,
+      problem: active.filter((x) => x.state === 'error').length,
+      busy: active.filter((x) => ['starting', 'stopping', 'installing'].includes(x.state)).length,
+    },
+    ramLimit: active.filter(serviceConsumesResources).reduce((total, service) => total + service.resources.ramLimitMb, 0),
+    diskLimit: active.filter(serviceConsumesResources).reduce((total, service) => total + service.resources.diskLimitMb, 0),
+  };
+};
 
 /** Command center: what needs attention first, then health, money and support. Every block links to where you act on it. */
 export default function Dashboard() {
@@ -22,10 +39,10 @@ export default function Dashboard() {
   const activity = useApiQuery((a) => a.activity());
   const identity = useApiQuery((a) => a.identity());
 
-  const svc = services.status === 'ready' ? services.data : [];
-  const c = counts(svc);
-  const ramLimit = svc.filter((s) => s.state !== 'suspended').reduce((a, s) => a + s.resources.ramLimitMb, 0);
-  const diskLimit = svc.reduce((a, s) => a + s.resources.diskLimitMb, 0);
+  const summary = activeServiceSummary(services.status === 'ready' ? services.data : []);
+  const { services: svc, counts: c, ramLimit, diskLimit } = summary;
+  // The dashboard lists services you can act on. Suspended and terminated ones stay under Servers & instances.
+  const live = svc.filter((s) => s.lifecycle !== 'suspended' && s.lifecycle !== 'terminated');
   const due = invoices.status === 'ready' ? invoices.data.filter((i) => i.state === 'open' || i.state === 'overdue') : [];
   const dueTotal = due.reduce((a, i) => a + i.total.amount, 0);
   const dueCurrencies = [...new Set(due.map((invoice) => invoice.total.currency))];
@@ -116,16 +133,16 @@ export default function Dashboard() {
             <CardHeader level={2} title={<span id="svc-h">Your services</span>} actions={<Button size="sm" variant="secondary" onClick={() => nav('/app/services')}>View all</Button>} />
             {services.status === 'loading' ? <div role="status" aria-label="Loading services" className="grid gap-2"><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /><Skeleton className="h-14 w-full" /></div>
               : services.status === 'error' ? <Notice tone="bad" action={<Button size="sm" variant="secondary" onClick={services.reload}>Retry</Button>}>{services.error}</Notice>
-              : svc.length === 0 ? <EmptyState icon="server" title="No services yet" description="Deploy your first server in a few minutes." action={<Button variant="primary" onClick={() => nav('/app/deploy')}>Deploy a service</Button>} />
+              : live.length === 0 ? <EmptyState icon="server" title={svc.length ? 'No active services' : 'No services yet'} description="Deploy your first server in a few minutes." action={<Button variant="primary" onClick={() => nav('/app/deploy')}>Deploy a service</Button>} />
               : (
-                <ul className="grid divide-y divide-ink/10">
-                  {svc.slice(0, 6).map((s) => (
+                <ul className="grid gap-1">
+                  {live.slice(0, 6).map((s) => (
                     <li key={s.id}>
                       <Link to={`/app/services/${s.id}`} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 py-3 hover:bg-s2 sm:grid-cols-[auto_minmax(0,1fr)_minmax(8rem,12rem)_auto] sm:px-2 sm:-mx-2 sm:rounded-md">
                         <WorkloadIcon workload={s.workload} />
                         <div className="min-w-0"><p className="truncate font-bold">{s.name}</p><p className="truncate text-[13px] text-ink3">{s.engine} · {s.regionName}</p></div>
                         <div className="hidden text-[13px] font-semibold text-ink3 sm:block">{s.note ?? `${mb(s.resources.ramLimitMb)} RAM allocated`}</div>
-                        <div className="col-start-2 sm:col-start-auto"><ServiceStateBadge state={s.state} /></div>
+                        <div className="col-start-2 sm:col-start-auto"><ServiceStatusBadge service={s} /></div>
                       </Link>
                     </li>
                   ))}
@@ -145,7 +162,7 @@ export default function Dashboard() {
           <Card as="section" aria-labelledby="ren-h">
             <CardHeader level={2} title={<span id="ren-h">Upcoming renewals</span>} />
             {subs.status === 'loading' ? <Skeleton className="h-28 w-full" /> : subs.status === 'error' ? <Notice tone="bad" action={<Button size="sm" variant="secondary" onClick={subs.reload}>Retry</Button>}>{subs.error}</Notice> : renewals.length === 0 ? <p className="text-ink3">No renewals in the next 30 days.</p> : (
-              <ul className="grid divide-y divide-ink/10">
+              <ul className="grid gap-1">
                 {renewals.map((r) => { const dd = daysUntil(r.renewsOn!); return (
                   <li key={r.id} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0"><p className="truncate font-bold">{r.serviceName}</p><p className="text-[13px] text-ink3">{date(r.renewsOn!)} · {dd <= 0 ? 'today' : `in ${dd} days`}</p></div>
@@ -159,7 +176,7 @@ export default function Dashboard() {
           <Card as="section" aria-labelledby="tk-h">
             <CardHeader level={2} title={<span id="tk-h">Recent tickets</span>} actions={<Button size="sm" variant="secondary" onClick={() => nav('/app/support/new')}>New</Button>} />
             {tickets.status === 'loading' ? <Skeleton className="h-28 w-full" /> : tickets.status === 'error' ? <Notice tone="bad">{tickets.error}</Notice> : (
-              <ul className="grid divide-y divide-ink/10">
+              <ul className="grid gap-1">
                 {tickets.data.slice(0, 3).map((t) => { const st = ticketStatus[(t.state === 'awaiting-customer' ? 'waiting' : t.state) as UiTicket]; return (
                   <li key={t.id}>
                     <Link to={`/app/support/${t.id}`} className="grid gap-1 py-2.5 hover:text-accent-ink">

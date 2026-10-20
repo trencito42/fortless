@@ -45,6 +45,13 @@
   --con-warn: #f0b232;
   --con-bad: #ff7b80;
   --overlay: rgb(8 14 24 / 0.42);
+  /* Marketing site: night panels stay dark in both themes, brand is the saturated blue used for big moments. */
+  --night: #0b1a2b;
+  --night2: #132740;
+  --night3: #1d3558;
+  --night-ink: #e9eff9;
+  --night-dim: #93a6c2;
+  --brand: #2f6bff;
 
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Tight Variable", "Inter Tight", "Helvetica Neue", Arial, sans-serif;
   --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -183,6 +190,12 @@
   --color-con-warn: var(--con-warn);
   --color-con-bad: var(--con-bad);
   --color-overlay: var(--overlay);
+  --color-night: var(--night);
+  --color-night2: var(--night2);
+  --color-night3: var(--night3);
+  --color-night-ink: var(--night-ink);
+  --color-night-dim: var(--night-dim);
+  --color-brand: var(--brand);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --radius-xs: var(--r-xs);
@@ -191,6 +204,8 @@
   --radius-lg: var(--r-lg);
   --radius-xl: var(--r-xl);
   --ease-petal: var(--ease);
+  /* Springy overshoot using the modern linear() easing function. Used for pop-ins, tilts and toggles. */
+  --ease-spring: linear(0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%, 1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%, 1.129 32.8%, 1.051 39.6%, 1.017 43.1%, 0.991, 0.977 51%, 0.974 53.8%, 0.975 57.1%, 0.997 69.8%, 1.003 76.9%, 1.004 83.8%, 1);
   --breakpoint-xs: 360px;
   --breakpoint-sm: 480px;
   --breakpoint-md: 768px;
@@ -252,3 +267,51 @@
 @keyframes fl-ping { from { opacity: 0.6; transform: scale(1); } to { opacity: 0; transform: scale(3); } }
 @keyframes fl-sheet { from { transform: translateY(100%); } to { transform: none; } }
 @keyframes fl-shimmer { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }
+
+
+/* ---- Marketing site motion. Everything here is switched off under prefers-reduced-motion. ---- */
+.rv { opacity: 0; transform: translate3d(0, 28px, 0); transition: opacity 800ms var(--ease), transform 800ms var(--ease); transition-delay: calc(var(--d, 0) * 1ms); }
+.rv[data-in] { opacity: 1; transform: none; }
+.ln { display: block; overflow: hidden; padding-bottom: 0.1em; margin-bottom: -0.1em; }
+.ln > span { display: block; transform: translate3d(0, 110%, 0); transition: transform 1000ms var(--ease); transition-delay: calc(var(--i, 0) * 90ms + var(--d, 0) * 1ms); }
+[data-in] .ln > span, .ln[data-in] > span { transform: none; }
+@keyframes site-step { from { opacity: 0; transform: translate3d(0, 22px, 0); } to { opacity: 1; transform: none; } }
+@keyframes site-pop { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: scale(1); } }
+.site-step { animation: site-step 600ms var(--ease) both; }
+.site-pop { animation: site-pop 700ms var(--ease-spring) both; }
+@keyframes site-blink { 50% { opacity: 0; } }
+@keyframes site-pulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.4); opacity: 0; } }
+@keyframes site-float { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, -10px, 0); } }
+.site-caret { animation: site-blink 1s steps(1) infinite; }
+.site-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 999px; background: currentColor; animation: site-pulse 2s var(--ease) infinite; }
+.site-float { animation: site-float 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .rv { opacity: 1; transform: none; transition: none; }
+  .ln > span { transform: none; transition: none; }
+  .site-caret, .site-pulse::after, .site-float, .site-step, .site-pop { animation: none; }
+}
+
+/* Auth split layout: form panel + brand art (the f1 mark as pattern and big shapes). Shapes drift with the pointer using eased transforms. */
+.auth-art { position: relative; isolation: isolate; overflow: hidden; background: #081522; color: #fff; display: flex; align-items: flex-end; border-radius: 24px; padding: clamp(28px, 5vw, 72px); --px: 0; --py: 0; }
+.auth-art .pat { position: absolute; inset: -10%; z-index: -3; opacity: 0.08; background-image: var(--mark-w); background-size: 104px 104px; transform: rotate(-9deg) scale(1.15) translate3d(calc(var(--px) * -10px), calc(var(--py) * -8px), 0); transition: transform 900ms var(--ease); }
+.auth-art .shape { position: absolute; z-index: -2; aspect-ratio: 1; mask: var(--mark) center/contain no-repeat; -webkit-mask: var(--mark) center/contain no-repeat; transition: transform 900ms var(--ease); will-change: transform; }
+.auth-art .s-lime { right: -12%; top: -22%; width: min(55vw, 720px); background: var(--lime); transform: rotate(-11deg) translate3d(calc(var(--px) * 26px), calc(var(--py) * 20px), 0); animation: auth-drift-a 14s ease-in-out infinite; }
+.auth-art .s-blue { right: 28%; top: 12%; width: min(36vw, 470px); background: #2a5fe8; opacity: 0.76; transform: rotate(10deg) translate3d(calc(var(--px) * -34px), calc(var(--py) * -24px), 0); animation: auth-drift-b 17s ease-in-out infinite; }
+.auth-art .s-dark { left: -4%; bottom: -26%; width: min(42vw, 560px); background: #0b1a2b; opacity: 0.9; transform: rotate(8deg) translate3d(calc(var(--px) * 14px), calc(var(--py) * 12px), 0); }
+@keyframes auth-drift-a { 0%, 100% { rotate: 0deg; } 50% { rotate: 3deg; } }
+@keyframes auth-drift-b { 0%, 100% { rotate: 0deg; } 50% { rotate: -4deg; } }
+@keyframes auth-in { from { opacity: 0; transform: translate3d(0, 14px, 0); } }
+.auth-in { animation: auth-in 700ms var(--ease) both; }
+.auth-in > * { animation: auth-in 700ms var(--ease) both; animation-delay: calc(var(--i, 0) * 60ms + 80ms); }
+@media (prefers-reduced-motion: reduce) { .auth-art .s-lime, .auth-art .s-blue, .auth-in, .auth-in > * { animation: none; } .auth-art .pat, .auth-art .shape { transition: none; } }
+
+/* Success tick: a ring draws, fills, and the check is drawn inside it. Final state is shown at once under prefers-reduced-motion. */
+.ok-check { animation: ok-pop 600ms var(--ease-spring) both; }
+.ok-check .ring { stroke-dasharray: 276; stroke-dashoffset: 276; animation: ok-ring 420ms var(--ease) 60ms forwards; }
+.ok-check .disc { fill-opacity: 0; animation: ok-fill 220ms ease-out 380ms forwards; }
+.ok-check .tick { stroke-dasharray: 52; stroke-dashoffset: 52; animation: ok-tick 300ms var(--ease) 430ms forwards; }
+@keyframes ok-ring { to { stroke-dashoffset: 0; } }
+@keyframes ok-fill { to { fill-opacity: 1; } }
+@keyframes ok-tick { to { stroke-dashoffset: 0; } }
+@keyframes ok-pop { 0% { transform: scale(0.88); } 60% { transform: scale(1.05); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .ok-check, .ok-check .ring, .ok-check .disc, .ok-check .tick { animation: none; } .ok-check .ring, .ok-check .tick { stroke-dashoffset: 0; } .ok-check .disc { fill-opacity: 1; } }

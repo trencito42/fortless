@@ -22,7 +22,8 @@ export const plans: D.Plan[] = [
 
 const res = (cpu: number, ram: number, ramL: number, disk: number, diskL: number) => ({ cpuPct: cpu, ramUsedMb: ram, ramLimitMb: ramL, diskUsedMb: disk, diskLimitMb: diskL });
 
-export const services: D.ServiceRow[] = [
+type FixtureService = Omit<D.ServiceRow, 'lifecycle' | 'state'> & { state: D.ServiceState | 'suspended' };
+const fixtureServices: FixtureService[] = [
   { id: 'svc_survival', name: 'Survival EU', workload: 'minecraft', engine: 'Paper 1.21.8', state: 'running', provider: 'PTERODACTYL', regionId: 'fra', regionName: 'Frankfurt', planId: 'flame', planName: 'Flame', address: 'survival.fortless.gg:25565', players: { online: 14, max: 40 }, resources: res(62, 2860, 4096, 6120, 20480), price: eur(900), renewsOn: d('11-02'), createdAt: d('02-14'), tags: ['production'] },
   { id: 'svc_creative', name: 'Creative Build', workload: 'minecraft', engine: 'Fabric 0.16 / 1.21.8', state: 'offline', provider: 'PTERODACTYL', regionId: 'ams', regionName: 'Amsterdam', planId: 'spark', planName: 'Spark', address: 'creative.fortless.gg:25566', players: { online: 0, max: 10 }, resources: res(0, 0, 1024, 3010, 5120), price: eur(300), renewsOn: d('10-29'), createdAt: d('05-03') },
   { id: 'svc_cs16', name: 'CS 1.6 Classic', workload: 'cs16', engine: 'ReHLDS 3.14', state: 'running', provider: 'PTERODACTYL', regionId: 'buc', regionName: 'Bucharest', planId: 'spark', planName: 'Spark', address: '185.12.4.20:27015', players: { online: 18, max: 24 }, resources: res(35, 420, 1024, 1400, 5120), price: eur(300), renewsOn: d('11-08'), createdAt: d('03-21'), tags: ['public'] },
@@ -32,6 +33,11 @@ export const services: D.ServiceRow[] = [
   { id: 'svc_scraper', name: 'Price Scraper', workload: 'python', engine: 'Python 3.13', state: 'suspended', provider: 'PTERODACTYL', regionId: 'fra', regionName: 'Frankfurt', planId: 'spark', planName: 'Spark', resources: res(0, 0, 1024, 900, 5120), price: eur(300), createdAt: d('08-04'), note: 'Suspended: invoice INV-2026-0141 is overdue.' },
   { id: 'svc_vps', name: 'Build VPS', workload: 'nodejs', engine: 'Ubuntu 24.04', state: 'running', provider: 'PROXMOX', regionId: 'buc', regionName: 'Bucharest', planId: 'blaze', planName: 'Blaze', resources: res(18, 1900, 8192, 14000, 51200), price: eur(1800), renewsOn: d('12-01'), createdAt: d('01-09'), tags: ['vm'] },
 ];
+export const services: D.ServiceRow[] = fixtureServices.map((service) => ({
+  ...service,
+  lifecycle: service.state === 'suspended' ? 'suspended' : 'active',
+  state: service.state === 'suspended' ? 'offline' : service.state,
+}));
 
 const line = (id: string, description: string, cents: number, serviceId?: string): D.InvoiceLineItem => ({ id, description, serviceId, amount: eur(cents) });
 const inv = (n: string, state: D.InvoiceState, issued: string, due: string | undefined, paid: string | undefined, lines: D.InvoiceLineItem[]): D.InvoiceRecord => {
@@ -187,7 +193,7 @@ export function usageSeries(serviceId: string, range: D.UsageSeries['range']): D
   const end = Date.parse(NOW);
   const points = Array.from({ length: n }, (_, i) => {
     const t = end - (n - 1 - i) * step; const w = Math.sin((i + seed) / 7) * 0.5 + Math.sin((i + seed) / 3.1) * 0.25 + 0.75;
-    const on = svc && svc.state !== 'offline' && svc.state !== 'suspended';
+    const on = svc && svc.state !== 'offline' && svc.lifecycle !== 'suspended';
     return { t, cpu: on ? Math.round(Math.max(1, (svc!.resources.cpuPct || 20) * w)) : 0, ramMb: on ? Math.round((svc!.resources.ramUsedMb || 300) * (0.8 + w * 0.2)) : 0, netInMbps: on ? +(w * 2.4).toFixed(2) : 0, netOutMbps: on ? +(w * 5.1).toFixed(2) : 0, diskMb: svc?.resources.diskUsedMb ?? 0 };
   });
   return { serviceId, range, points, bandwidth: { usedGb: Math.round(seed % 380) + 40, limitGb: plans.find((p) => p.id === svc?.planId)?.bandwidthGb ?? 250 } };

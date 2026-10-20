@@ -1420,6 +1420,26 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       `);
     },
   },
+  {
+    version: 65,
+    name: 'email-first registration requests',
+    up(db) {
+      // A registration starts as an address plus recorded acceptance of the Terms. No user exists until the mailbox is
+      // proven and the person chooses a name and password; the token is stored only as a SHA-256 digest.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS registration_requests (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL,
+          terms_accepted_at TEXT NOT NULL,
+          ip_address TEXT,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_registration_requests_email ON registration_requests(email, created_at);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

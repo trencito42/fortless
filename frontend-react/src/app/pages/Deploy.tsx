@@ -92,6 +92,7 @@ export default function Deploy() {
   const regionsRes = useApiQuery((a) => a.regions());
   const catalogRes = useApiQuery((a) => a.deploymentCatalog());
   const preset = search.get('workload');
+  const presetPlan = search.get('plan');
   const [v, setV] = useState<V>(INITIAL);
   const [checkoutNotice, setCheckoutNotice] = useState<string>();
   const submitting = useRef(false);
@@ -100,6 +101,8 @@ export default function Deploy() {
   const regions = regionsRes.status === 'ready' ? regionsRes.data : [];
   const catalog = useMemo(() => catalogRes.status === 'ready' ? Object.fromEntries(catalogRes.data.map((item) => [item.id, item])) : {}, [catalogRes]);
   useEffect(() => { if (preset && !v.workload && catalog[preset]) setV((current) => ({ ...current, ...defaultsFor(catalog, preset, catalog[preset]!.defaultMode) })); }, [catalog, preset, v.workload]);
+  // A plan id from the public site is only used when it is one of the plans the catalog currently publishes.
+  useEffect(() => { if (presetPlan && v.workload && !v.planId && plans.some((p) => p.id === presetPlan)) setV((c) => ({ ...c, planId: presetPlan })); }, [presetPlan, plans, v.workload, v.planId]);
   const patch = (p: Partial<V>) => setV((x) => ({ ...x, ...p }));
   const cat = v.workload ? catalog[v.workload] : null;
   const planOf = plans.find((p) => p.id === v.planId);

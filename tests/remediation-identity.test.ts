@@ -104,8 +104,9 @@ describe('NEW-403: tax country is server-side', () => {
 
 describe('NEW-362: no account enumeration through registration or sign-in', () => {
   it('answers a registration for an existing address exactly like a new one', async () => {
-    const fresh = await h.call('POST', '/api/v1/auth/register', null, { name: 'Fresh', email: 'enum-fresh@example.com', password: 'Password12345!' });
-    const again = await h.call('POST', '/api/v1/auth/register', null, { name: 'Fresh', email: 'enum-fresh@example.com', password: 'Password12345!' });
+    registerUser({ email: 'enum-existing@example.com', password: 'Password12345!', name: 'Existing', ipAddress: '127.0.0.1', userAgent: 't' }, h.db);
+    const fresh = await h.call('POST', '/api/v1/auth/register', null, { email: 'enum-fresh@example.com', acceptTerms: true });
+    const again = await h.call('POST', '/api/v1/auth/register', null, { email: 'enum-existing@example.com', acceptTerms: true });
     expect(again.statusCode).toBe(fresh.statusCode);
     expect(Object.keys(again.json()).sort()).toEqual(Object.keys(fresh.json()).sort());
     expect(JSON.stringify(again.json())).not.toMatch(/already|exists/i);

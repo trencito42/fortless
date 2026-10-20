@@ -12,12 +12,11 @@ import type { MenuEntry } from '../actions/menu-types';
 import type { MobileTab, NavGroup, NavUser } from './nav-types';
 import { breadcrumbsFor, filterNav, findNav } from './nav-utils';
 
-export function LogoMark({ size = 28 }: { size?: number }) {
+/** The Fortless mark (public/assets/fortless-icon.svg). Filled with currentColor, so it follows the surrounding text color in light and dark. */
+export function LogoMark({ size = 28, className }: { size?: number; className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" width={size} height={size} aria-hidden="true">
-      <rect x="3" y="5" width="26" height="6.5" rx="3.25" className="fill-accent" />
-      <rect x="3" y="13" width="26" height="6.5" rx="3.25" className="fill-accent" opacity=".62" />
-      <rect x="3" y="21" width="17" height="6.5" rx="3.25" className="fill-accent" opacity=".34" />
+    <svg viewBox="0 0 1021 989" width={size} height={Math.round((size * 989) / 1021)} aria-hidden="true" className={className ?? 'text-ink'} fill="currentColor">
+      <path d="m213 71.25l-71.49 71.26c0.47 238.96 0.33 251.64-1.08 252.99-1.37 1.3-10.65 1.5-71 1.5h-69.43l0.5 194.5c123.89 0.49 140.17 0.83 140.73 1.78 0.41 0.67 0.75 89.98 0.75 198.47l0.02 197.25h198v-397l239.5-0.5 0.5-194.5c-183.67 0-237.67-0.23-238.5-0.5-1.32-0.44-1.5-10.92-1.5-86.25l-0.01-85.75 30.09-29.5h282.92v599l-169.5 0.5-0.5 194.5h538l-0.5-194.5-169.5-0.5v-794h-566.51z" />
     </svg>
   );
 }

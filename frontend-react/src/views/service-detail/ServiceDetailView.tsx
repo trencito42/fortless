@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Breadcrumbs, Button, EmptyState, Notice, SegmentedControl, Skeleton, StatusBadge } from '@/design-system';
 import { ServerPowerToolbar, serverStatus, type PowerAction } from '@/features';
 import { useResource } from '../shared/useResource';
-import { gateFor, tabsFor } from './access';
+import { gateFor, lifecycleReason, tabsFor } from './access';
 import { ServiceProvider, useService, type ServiceCtx } from './context';
 import { useLiveChannel } from './live';
 import { liveToState, mapService } from './mappers';
@@ -53,12 +53,16 @@ function Header({ onNavigateServices, platform }: { onNavigateServices?: () => v
   const [power, setPower] = useState<string>();
   const state = liveToState(live.powerState) ?? summary.state;
   const st = serverStatus[state];
+  const lifecycle = detail.contractStatus === 'ACTIVE' ? null : {
+    label: detail.contractStatus === 'PAST_DUE' ? 'Past due' : detail.contractStatus[0] + detail.contractStatus.slice(1).toLowerCase(),
+    tone: detail.contractStatus === 'PAST_DUE' || detail.contractStatus === 'SUSPENDED' ? 'warn' as const : detail.contractStatus === 'TERMINATED' ? 'bad' as const : 'neutral' as const,
+  };
   const caps = detail.providerCapabilities;
   const showPower = caps ? caps.power : detail.providerType !== 'CPANEL';
   const providerOff = platform ? !platform.provisioning.enabled : false;
   const allowed = { start: can('control.start'), restart: can('control.restart'), stop: can('control.stop'), kill: can('control.stop') };
   const anyControl = allowed.start || allowed.restart || allowed.stop;
-  const why = providerOff ? 'The infrastructure provider is not configured, so power controls are off.' : !anyControl ? 'Your access level cannot control power.' : undefined;
+  const why = lifecycleReason(detail) ?? (providerOff ? 'The infrastructure provider is not configured, so power controls are off.' : !anyControl ? 'Your access level cannot control power.' : undefined);
   const run = useCallback(async (a: PowerAction) => {
     setPower(undefined);
     const r = await ports.service.power(id, a.toUpperCase() as 'START' | 'STOP' | 'RESTART' | 'KILL');
@@ -69,7 +73,7 @@ function Header({ onNavigateServices, platform }: { onNavigateServices?: () => v
       <Breadcrumbs crumbs={[{ id: 'services', label: 'Services', current: false }, { id: 'svc', label: summary.name, current: true }]} onNavigate={() => onNavigateServices?.()} />
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 grid gap-2">
-          <div><StatusBadge tone={st.tone} live={st.live}>{st.label}</StatusBadge></div>
+          <div>{lifecycle ? <StatusBadge tone={lifecycle.tone}>{lifecycle.label}</StatusBadge> : <StatusBadge tone={st.tone} live={st.live}>{st.label}</StatusBadge>}</div>
           <h1 className="font-display text-[28px] leading-tight font-extrabold tracking-tight [overflow-wrap:anywhere]">{summary.name}</h1>
           <p className="text-ink3">{summary.nodeName} ({summary.regionName}) · {summary.identifier ? `Provider ID ${summary.identifier}` : 'Provisioning'}</p>
         </div>

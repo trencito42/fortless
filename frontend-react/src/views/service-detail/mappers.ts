@@ -8,9 +8,7 @@ import type { ServiceSummary } from './model';
 
 /** Pure DTO -> kit-props functions. No I/O, no React, unit-testable. This is the only place wire shapes meet the design system. */
 
-export function runtimeToState(rs: C.RuntimeState | undefined, contract: C.ContractStatus): ServerState {
-  if (contract === 'SUSPENDED' || contract === 'PAST_DUE') return 'suspended';
-  if (contract === 'CANCELLED' || contract === 'TERMINATED') return 'offline';
+export function runtimeToState(rs: C.RuntimeState | undefined, _contract?: C.ContractStatus): ServerState {
   switch (rs) { case 'RUNNING': return 'running'; case 'STOPPED': case 'OFFLINE': return 'offline'; case 'INSTALLING': return 'installing'; case 'ERROR': return 'error'; default: return 'unknown'; }
 }
 /** Wings `status` event / usage state, which is more current than the stored runtime. */
@@ -20,7 +18,7 @@ export function liveToState(s: string | null | undefined): ServerState | null {
 
 export function mapService(d: C.ServiceDetailDto): ServiceSummary {
   return {
-    id: d.id, name: d.planName || d.id, state: runtimeToState(d.observedState?.runtimeState, d.contractStatus), contractStatus: d.contractStatus,
+    id: d.id, name: d.planName || d.id, state: runtimeToState(d.observedState?.runtimeState), contractStatus: d.contractStatus,
     nodeName: d.nodeName, nodeFqdn: d.nodeFqdn, regionName: d.regionName, regionCode: d.regionCode, providerType: d.providerType, identifier: d.identifier,
     createdAt: d.createdAt, accessKind: d.access.kind, sharedBy: d.access.sharedBy,
     limits: d.desiredConfig ? { memoryMb: d.desiredConfig.memoryLimitMb, cpuPct: d.desiredConfig.cpuLimitPct, diskMb: d.desiredConfig.diskLimitMb } : null,

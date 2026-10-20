@@ -102,4 +102,35 @@ describe('React customer read-only HTTP contracts', () => {
       delete process.env.FORTLESS_REACT_CUSTOMER_UI;
     }
   });
+
+  it('serves the public React site only when the flag is on, without a session, and leaves the legacy pages otherwise', async () => {
+    const off = await h.call('GET', '/', null);
+    expect(off.statusCode).toBe(200);
+    expect(off.body).not.toContain('id="root"');
+    expect((await h.call('GET', '/login', null)).body).toContain('data-auth-page="login"'); // flag off: the Fastify page answers
+    expect((await h.call('GET', '/games/minecraft', null)).statusCode).toBe(404);
+
+    process.env.FORTLESS_REACT_CUSTOMER_UI = 'true';
+    try {
+      for (const route of ['/', '/status', '/games/minecraft']) {
+        const res = await h.call('GET', route, null);
+        expect(res.statusCode, route).toBe(200);
+        expect(res.headers['content-type']).toMatch(/^text\/html/);
+        expect(res.body, route).toContain('id="root"');
+      }
+      // Sign-in pages are the React interface too; the guards in front of them do not change.
+      for (const route of ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email', '/complete-registration']) {
+        const res = await h.call('GET', route, null);
+        expect(res.statusCode, route).toBe(200);
+        expect(res.body, route).toContain('id="root"');
+      }
+      const signedIn = h.user('react_public_login');
+      expect((await h.call('GET', '/login', signedIn.token)).statusCode).toBe(302);
+      const mfa = await h.call('GET', '/mfa/challenge', null);
+      expect(mfa.statusCode).toBe(302);
+      expect(mfa.headers['location']).toBe('/login');
+    } finally {
+      delete process.env.FORTLESS_REACT_CUSTOMER_UI;
+    }
+  });
 });

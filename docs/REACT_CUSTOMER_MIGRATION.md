@@ -92,3 +92,19 @@ Open `http://127.0.0.1:4174/app` through an SSH tunnel. For a real authenticated
 6. **Detailed Cutover Plan:** Documented in [`docs/REACT_CUSTOMER_CUTOVER_PLAN.md`](file:///home/fortless/worktrees/react-customer-ui/docs/REACT_CUSTOMER_CUTOVER_PLAN.md).
 7. **Security Review:** Documented in [`docs/REACT_CUSTOMER_SECURITY_REVIEW.md`](file:///home/fortless/worktrees/react-customer-ui/docs/REACT_CUSTOMER_SECURITY_REVIEW.md).
 
+
+## Public site, email-first registration and onboarding (2026-10-21) `[MOCK_ONLY]` / local verification only
+
+Not deployed and not enabled in production. Work is uncommitted in this worktree.
+
+- Public React site: `/`, `/status`, `/games/minecraft` (`frontend-react/src/site/`, chosen in `main.tsx`). No roadmap page. Status reads `GET /api/v1/status` and shows an explicit "unavailable" state if the feed fails; game plans and prices read `GET /api/v1/catalog/plans` only. Sign-in and registration stay on the Fastify pages (`/login`, `/register`); there is no React auth implementation behind the site links. The Fastify server does not yet serve these React routes: that needs an owner-approved change.
+- Email-first registration (migration 65, `registration_requests`): `POST /api/v1/auth/register {email, acceptTerms:true}` mails a one-time link (24 h, digest-only storage, 60 s / 5 per hour cooldown, identical answer for existing addresses). `/complete-registration?token=` calls `POST /api/v1/auth/register/inspect` and `POST /api/v1/auth/register/complete {token,name,password}`, which creates the verified user, workspace and OWNER membership, records the Terms acceptance time in the audit event and starts the session. The old name+password shape is rejected. `registerUser()` remains for internal and test use. Legacy `PENDING_VERIFICATION` users still verify through `/verify-email`.
+- Onboarding (`/app/onboarding`): greets by name, never asks for it again. Saved on the server: email notification preferences, invitation, and name only when the account has none. Kept in this browser only: interests, experience level, progress and the "finished" marker (no backend field exists; nothing is gated on it).
+- Verified: `tests/email-first-registration.test.ts` (7), full Vitest 512/512, strict typecheck, ESLint on changed files, and a Chromium run of the whole flow against an isolated Fastify instance with a throw-away database (18 checks, no console errors).
+
+### Update: sign-in pages are React too (2026-10-21)
+
+- `frontend-react/src/auth/AuthApp.tsx` renders `/login`, `/register`, `/complete-registration`, `/verify-email`, `/forgot-password`, `/reset-password` and `/mfa/challenge`. It only draws the interface and calls the same Fastify endpoints as before (`/api/v1/auth/*`, CSRF header, cookies, passkeys, MFA); there is no second auth implementation. The old static pages stay as the rollback when `FORTLESS_REACT_CUSTOMER_UI` is off.
+- With the flag on, Fastify serves the React shell for `/`, `/status`, `/games/:slug` and those auth routes. The guards are unchanged: a signed-in visitor on `/login` is redirected to `/app`, and `/mfa/challenge` still requires a pending MFA session.
+- Still on Fastify and not migrated: `/legal/*`, `/oidc/*`, the legacy `/app` fallback and `/admin`.
+- Local preview: `FORTLESS_REACT_AUTH_PAGES=1` makes Vite serve the auth pages itself and proxy only `/api`. Verified with Chromium against an isolated backend (13 checks: email-first sign-up, link, name and password, onboarding greeting, sign-in with `?next=`, inline errors, generic forgot-password, invalid links) and Vitest 513/513.

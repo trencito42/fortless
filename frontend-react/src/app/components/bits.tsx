@@ -2,10 +2,16 @@ import type { ReactNode } from 'react';
 import { StatusBadge, Icon, type IconName } from '@/design-system';
 import { cn } from '@/lib/utils/cn';
 import { serverStatus, type ServerState } from '@/features';
-import type { ServiceState, Workload } from '../domain/types';
+import type { ServiceRow, ServiceState, Workload } from '../domain/types';
+import { SERVICE_LIFECYCLE_PRESENTATION } from '../domain/serviceLifecycle';
 import { pct } from '../format';
 
 export const ServiceStateBadge = ({ state }: { state: ServiceState }) => { const s = serverStatus[state as ServerState]; return <StatusBadge tone={s.tone} live={s.live}>{s.label}</StatusBadge>; };
+export const ServiceStatusBadge = ({ service }: { service: Pick<ServiceRow, 'state' | 'lifecycle'> }) => {
+  if (service.lifecycle === 'active') return <ServiceStateBadge state={service.state} />;
+  const status = SERVICE_LIFECYCLE_PRESENTATION[service.lifecycle];
+  return <StatusBadge tone={status.tone}>{status.label}</StatusBadge>;
+};
 
 export const WORKLOAD_ICON: Record<Workload, IconName> = { minecraft: 'layers-01', cs16: 'flag-01', cs2: 'flag-01', 'discord-bot': 'discord', nodejs: 'code', python: 'terminal', database: 'database' };
 export const WorkloadIcon = ({ workload, size = 20 }: { workload: Workload; size?: number }) => <span className="grid size-9 shrink-0 place-items-center rounded-md bg-s3 text-ink2"><Icon name={WORKLOAD_ICON[workload]} size={size} /></span>;

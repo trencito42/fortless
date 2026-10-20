@@ -32,7 +32,7 @@ export default defineConfig({
   },
 });
 
-function fortlessProxy() {
+function fortlessProxy(): Record<string, { target: string; changeOrigin: boolean; headers: Record<string, string> }> {
   const target = process.env['FORTLESS_PREVIEW_BACKEND'] ?? 'http://127.0.0.1:3021';
   const origin = process.env['FORTLESS_PREVIEW_ORIGIN'] ?? 'https://fortless.net';
   const route = {
@@ -43,6 +43,8 @@ function fortlessProxy() {
     // origin only on the preview-to-backend hop.
     headers: { origin },
   };
+  // FORTLESS_REACT_AUTH_PAGES=1 lets Vite serve the React sign-in pages itself; only the API is proxied.
+  if (process.env['FORTLESS_REACT_AUTH_PAGES'] === '1') return { '/api': route, '/oidc': route, '/favicon.svg': route };
   return {
     '/api': route,
     '/login': route,

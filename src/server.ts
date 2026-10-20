@@ -35,12 +35,14 @@ import { z } from 'zod';
 import { config } from './config/index.js';
 import { getDatabase } from './database/index.js';
 import {
-  registerUser,
+  requestRegistration,
+  inspectRegistration,
+  completeRegistration,
+  RegistrationInputError,
   loginUser,
   authenticateSession,
   listUserWorkspaces,
   switchWorkspace,
-  EmailAlreadyRegisteredError,
   SESSION_TTL_HOURS,
   STEP_UP_TTL_MS,
   STEP_UP_TTL_MINUTES,
@@ -432,6 +434,14 @@ export function buildServer(): FastifyInstance {
     const html = fs.readFileSync(indexPath, 'utf8');
     return reply.type('text/html').header('Cache-Control', 'no-store, private').send(html);
   };
+  // Public marketing pages of the React build. Only reachable when FORTLESS_REACT_CUSTOMER_UI is on; otherwise the legacy pages answer.
+  const servePublicReactSite = async (_req: FastifyRequest, reply: FastifyReply) => {
+    const indexPath = path.join(reactDistDir, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      return reply.status(503).type('text/plain').send('React site build not found. Run npm run build in frontend-react.');
+    }
+    return reply.type('text/html').header('Cache-Control', 'no-cache').send(fs.readFileSync(indexPath, 'utf8'));
+  };
   if (fs.existsSync(assetDir)) {
     for (const file of fs.readdirSync(assetDir)) {
       const filePath = path.join(assetDir, file);
@@ -451,6 +461,7 @@ export function buildServer(): FastifyInstance {
   };
 
   app.get('/', async (req, reply) => {
+    if (isReactCustomerUiEnabled()) return servePublicReactSite(req, reply);
     const indexPath = path.join(publicDir, 'index.html');
     if (fs.existsSync(indexPath)) {
       const html = renderHtml('index.html').replace('__AUTH_STATE__', req.auth ? 'true' : 'false');
@@ -527,8 +538,11 @@ export function buildServer(): FastifyInstance {
 
   registerOidcRoutes(app);
 
+  app.get('/onboarding', async (_req, reply) => reply.redirect('/app/onboarding'));
+
   app.get('/login', async (req, reply) => {
     if (req.auth) return reply.redirect('/app');
+    if (isReactCustomerUiEnabled()) return servePublicReactSite(req, reply);
     const loginPath = path.join(publicDir, 'login.html');
     if (fs.existsSync(loginPath)) {
       return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('login.html'));
@@ -540,6 +554,7 @@ export function buildServer(): FastifyInstance {
     if (req.auth) return reply.redirect('/app');
     const token = req.cookies['fortless_session'];
     if (!token || !hasPendingMfaSession(token)) return reply.redirect('/login');
+    if (isReactCustomerUiEnabled()) return servePublicReactSite(req, reply);
     const filePath = path.join(publicDir, 'mfa-challenge.html');
     if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('mfa-challenge.html'));
     return reply.status(503).send('MFA challenge is unavailable.');
@@ -547,6 +562,7 @@ export function buildServer(): FastifyInstance {
 
   app.get('/register', async (req, reply) => {
     if (req.auth) return reply.redirect('/app');
+    if (isReactCustomerUiEnabled()) return servePublicReactSite(req, reply);
     const regPath = path.join(publicDir, 'register.html');
     if (fs.existsSync(regPath)) {
       return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('register.html'));
@@ -554,8 +570,9 @@ export function buildServer(): FastifyInstance {
     return reply.redirect('/app');
   });
 
-  for (const page of ['forgot-password', 'reset-password', 'verify-email']) {
-    app.get(`/${page}`, async (_req, reply) => {
+  for (const page of ['forgot-password', 'reset-password', 'verify-email', 'complete-registration']) {
+    app.get(`/${page}`, async (req, reply) => {
+      if (isReactCustomerUiEnabled()) return servePublicReactSite(req, reply);
       const filePath = path.join(publicDir, `${page}.html`);
       if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml(`${page}.html`));
       return reply.redirect('/login');
@@ -563,12 +580,18 @@ export function buildServer(): FastifyInstance {
   }
 
   app.get('/status', async (req, reply) => {
+    if (isReactCustomerUiEnabled()) return servePublicReactSite(req, reply);
     const filePath = path.join(publicDir, 'status.html');
     if (fs.existsSync(filePath)) {
       const html = renderHtml('status.html').replace('__AUTH_STATE__', req.auth ? 'true' : 'false');
       return reply.type('text/html').header('Cache-Control', 'private, no-cache').send(html);
     }
     return reply.status(404).send('Not Found');
+  });
+
+  app.get('/games/:slug', async (req, reply) => {
+    if (!isReactCustomerUiEnabled()) return reply.status(404).type('text/plain').send('Not Found');
+    return servePublicReactSite(req, reply);
   });
 
   app.get('/api/v1/status', async (_req, reply) => {
@@ -879,43 +902,41 @@ export function buildServer(): FastifyInstance {
     },
   }));
 
-  // Auth: Register
-  const registerSchema = z.object({
-    email: z.string().email(),
-    password: z.string().min(12).max(128),
-    name: z.string().min(2),
-  });
+  // Auth: Register. Email-first: an address plus acceptance of the Terms/Privacy Policy gets a one-time link; the account is
+  // only created when the link is used and the person chooses a name and password (see /complete-registration).
+  const registerSchema = z.object({ email: z.string().email().max(254), acceptTerms: z.literal(true) }).strict();
+  const registrationEmailDelivery = () => ((config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox') ? 'QUEUED' : 'CONFIGURATION_REQUIRED');
 
   app.post('/api/v1/auth/register', async (req, reply) => {
     const parse = registerSchema.safeParse(req.body);
     if (!parse.success) {
-      return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
+      const accepted = (req.body as { acceptTerms?: unknown } | null)?.acceptTerms === true;
+      return reply.status(400).send({ error: accepted ? 'Enter a valid email address.' : 'Accept the Terms of Service and Privacy Policy to continue.' });
     }
+    // The answer is the same whether or not the address already has an account (NEW-362).
+    requestRegistration({ email: parse.data.email, acceptTerms: true, ipAddress: req.ip || '127.0.0.1' });
+    return reply.status(202).send({ requiresEmailVerification: true, emailDelivery: registrationEmailDelivery() });
+  });
 
+  const registrationTokenSchema = z.object({ token: z.string().min(32).max(256) });
+  app.post('/api/v1/auth/register/inspect', async (req, reply) => {
+    const parse = registrationTokenSchema.safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'This link is invalid or has expired. Start again to get a new one.' });
+    try { return reply.header('Cache-Control', 'no-store').send(inspectRegistration(parse.data.token)); }
+    catch (err: unknown) { return reply.status(400).send({ error: (err as Error).message }); }
+  });
+
+  app.post('/api/v1/auth/register/complete', async (req, reply) => {
+    const parse = registrationTokenSchema.extend({ name: z.string().max(100), password: z.string().max(128) }).safeParse(req.body);
+    if (!parse.success) return reply.status(400).send({ error: 'Enter your name and a password.' });
     try {
-      const result = registerUser({
-        email: parse.data.email,
-        password: parse.data.password,
-        name: parse.data.name,
-        ipAddress: req.ip || '127.0.0.1',
-        userAgent: req.headers['user-agent'] || 'unknown',
-      });
-
-      const emailDelivery = (config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox')
-        ? 'QUEUED'
-        : 'CONFIGURATION_REQUIRED';
-
-      void result;
-      return reply.status(201).send({ requiresEmailVerification: true, emailDelivery });
+      const deviceId = resolveDeviceId(req, reply);
+      const result = completeRegistration({ ...parse.data, ipAddress: req.ip || '127.0.0.1', userAgent: req.headers['user-agent'] || 'unknown', deviceId });
+      reply.setCookie('fortless_session', result.token, { path: '/', httpOnly: true, secure: secureCookies, sameSite: 'lax', maxAge: 14 * 24 * 60 * 60 });
+      return reply.status(201).send({ user: result.user, account: result.account, next: '/app/onboarding' });
     } catch (err: unknown) {
-      // NEW-362: an address that already has an account gets the same answer as a new one.
-      if (err instanceof EmailAlreadyRegisteredError) {
-        return reply.status(201).send({
-          requiresEmailVerification: true,
-          emailDelivery: (config.EMAIL_MODE === 'live' || config.EMAIL_MODE === 'sandbox') ? 'QUEUED' : 'CONFIGURATION_REQUIRED',
-        });
-      }
-      return reply.status(400).send({ error: (err as Error).message });
+      if (err instanceof RegistrationInputError) return reply.status(400).send({ error: err.message });
+      throw err;
     }
   });
 

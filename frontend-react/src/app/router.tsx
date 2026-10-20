@@ -10,10 +10,17 @@ const Ctx = createContext<RouterCtx | null>(null);
 
 const read = (): RouteState => ({ path: location.pathname.replace(/\/+$/, '') || '/', search: new URLSearchParams(location.search) });
 
+/** The customer app, the sign-in pages and the public site are separate entries chosen at page load, so moving between them is a full page load. */
+const envOf = (p: string) => (/^\/(app|auth|system)(\/|$)/.test(p) ? 'app'
+  : /^\/(login|register|forgot-password|reset-password|verify-email|complete-registration|mfa)(\/|$)/.test(p) ? 'auth'
+  : /^\/(legal|oidc|api)(\/|$)/.test(p) ? 'server' : 'site');
+const crossesEnv = (to: string) => { const target = envOf(to.split(/[?#]/)[0]!); return target === 'server' || target !== envOf(location.pathname); };
+
 export function RouterProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<RouteState>(read);
   useEffect(() => { const on = () => setState(read()); addEventListener('popstate', on); return () => removeEventListener('popstate', on); }, []);
   const navigate = useCallback((to: string, opts?: { replace?: boolean }) => {
+    if (crossesEnv(to)) { location.assign(to); return; }
     if (opts?.replace) history.replaceState(null, '', to); else history.pushState(null, '', to);
     setState(read());
     window.scrollTo?.({ top: 0 });
@@ -52,7 +59,7 @@ export function Link({ to, onClick, children, ...rest }: Omit<AnchorHTMLAttribut
       href={to}
       onClick={(e) => {
         onClick?.(e);
-        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || rest.target === '_blank') return;
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || rest.target === '_blank' || crossesEnv(to)) return;
         e.preventDefault();
         navigate(to);
       }}

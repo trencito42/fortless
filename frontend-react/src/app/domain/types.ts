@@ -9,7 +9,9 @@ export interface Money { amount: number; currency: Currency }
 export type Workload = 'minecraft' | 'cs16' | 'cs2' | 'discord-bot' | 'nodejs' | 'python' | 'database';
 export const WORKLOAD_LABEL: Record<Workload, string> = { minecraft: 'Minecraft', cs16: 'Counter-Strike 1.6', cs2: 'Counter-Strike 2', 'discord-bot': 'Discord bot', nodejs: 'Node.js app', python: 'Python app', database: 'Database' };
 
-export type ServiceState = 'running' | 'offline' | 'starting' | 'stopping' | 'installing' | 'suspended' | 'error';
+/** Observed infrastructure state. Commercial lifecycle is deliberately modelled separately. */
+export type ServiceState = 'running' | 'offline' | 'starting' | 'stopping' | 'installing' | 'error' | 'unknown';
+export type ServiceLifecycle = 'active' | 'past-due' | 'suspended' | 'cancelled' | 'terminated';
 export type ProviderType = 'PTERODACTYL' | 'PROXMOX' | 'CPANEL';
 
 export interface ServiceRow {
@@ -19,6 +21,7 @@ export interface ServiceRow {
   /** Engine or runtime, for example "Paper 1.21.8", "ReHLDS 3.14", "Node.js 22". */
   engine: string;
   state: ServiceState;
+  lifecycle: ServiceLifecycle;
   provider: ProviderType;
   regionId: string;
   regionName: string;

@@ -48,16 +48,26 @@ function workloadFor(service: WireService): D.Workload {
   return 'nodejs';
 }
 
-function serviceState(service: WireService): D.ServiceState {
-  const contract = text(service.contract_status, 'ACTIVE').toUpperCase();
-  if (contract === 'SUSPENDED' || contract === 'PAST_DUE') return 'suspended';
-  if (contract === 'CANCELLED' || contract === 'TERMINATED') return 'offline';
-  const runtime = text(service.runtime_state, 'UNKNOWN').toUpperCase();
+export function mapServiceLifecycle(value: unknown): D.ServiceLifecycle {
+  switch (text(value, 'ACTIVE').toUpperCase()) {
+    case 'ACTIVE': return 'active';
+    case 'PAST_DUE': return 'past-due';
+    case 'SUSPENDED': return 'suspended';
+    case 'CANCELLED': return 'cancelled';
+    case 'TERMINATED': return 'terminated';
+    default: throw new ApiError('Service contract_status is invalid in the server response.', 'INVALID_RESPONSE', 502);
+  }
+}
+
+export function mapServiceRuntimeState(value: unknown): D.ServiceState {
+  const runtime = text(value, 'UNKNOWN').toUpperCase();
   if (runtime === 'ERROR') return 'error';
   if (runtime === 'RUNNING') return 'running';
+  if (runtime === 'STARTING') return 'starting';
+  if (runtime === 'STOPPING') return 'stopping';
   if (runtime === 'INSTALLING') return 'installing';
-  if (contract !== 'ACTIVE') return 'offline';
-  return 'offline';
+  if (runtime === 'STOPPED' || runtime === 'OFFLINE') return 'offline';
+  return 'unknown';
 }
 
 function serviceName(service: WireService): string {
@@ -205,13 +215,15 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     const services = array(payload['services'], 'services') as WireService[];
     return services.map((service, index) => {
       requiredText(service.id, `services[${index}].id`);
-      const state = serviceState(service);
+      const state = mapServiceRuntimeState(service.runtime_state);
+      const lifecycle = mapServiceLifecycle(service.contract_status);
       return {
         id: service.id,
         name: serviceName(service),
         workload: workloadFor(service),
         engine: text(service.plan_name, 'Runtime details unavailable'),
         state,
+        lifecycle,
         provider: service.provider_type === 'CPANEL' ? 'CPANEL' : service.provider_type === 'VPS' ? 'PROXMOX' : 'PTERODACTYL',
         regionId: text(service.node_id, 'unknown'),
         regionName: text(service.node_name, 'Region unavailable'),
@@ -226,7 +238,10 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
           diskLimitMb: Number(service.disk_limit_mb ?? 0),
         },
         createdAt: iso(service.created_at),
-        note: state === 'suspended' ? text(service.suspension_reason, 'Service controls are unavailable.') : undefined,
+        note: lifecycle === 'past-due' ? 'Payment is past due. Power controls are unavailable.'
+          : lifecycle === 'suspended' ? text(service.suspension_reason, 'This service is suspended. Power controls are unavailable.')
+            : lifecycle === 'cancelled' ? 'This service is cancelled. Power controls are unavailable.'
+              : lifecycle === 'terminated' ? 'This service is terminated. Power controls are unavailable.' : undefined,
       };
     });
   };
@@ -361,7 +376,7 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     warnings: async () => {
       const [services, invoices] = await Promise.all([listServices(), listInvoices()]);
       return [
-        ...services.filter((service) => service.state === 'error').map<D.Warning>((service) => ({ id: `service-${service.id}`, severity: 'error', title: `${service.name} needs attention`, detail: service.note ?? 'The service encountered a technical error.', serviceId: service.id, action: { label: 'View service', to: `/app/services/${service.id}` } })),
+        ...services.filter((service) => service.lifecycle === 'active' && service.state === 'error').map<D.Warning>((service) => ({ id: `service-${service.id}`, severity: 'error', title: `${service.name} needs attention`, detail: service.note ?? 'The service encountered a technical error.', serviceId: service.id, action: { label: 'View service', to: `/app/services/${service.id}` } })),
         ...invoices.filter((invoice) => invoice.state === 'overdue').map<D.Warning>((invoice) => ({ id: `invoice-${invoice.id}`, severity: 'warn', title: `Invoice ${invoice.number} is overdue`, detail: 'Review the authoritative invoice record before taking action.', action: { label: 'Review invoices', to: '/app/billing/invoices' } })),
       ];
     },

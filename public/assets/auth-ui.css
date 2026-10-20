@@ -105,21 +105,19 @@ a {
   letter-spacing: -0.04em;
 }
 .brand-mark {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: var(--ink);
+  display: block;
+  width: 30px;
+  height: 29px;
 }
 .brand-mark img {
   display: none;
 }
 .brand-mark::before {
   content: "";
-  width: 21px;
-  height: 21px;
-  background: var(--s1);
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--ink);
   mask: url("/assets/fortless-icon.svg") center/contain no-repeat;
   -webkit-mask: url("/assets/fortless-icon.svg") center/contain no-repeat;
 }
@@ -130,9 +128,7 @@ a {
 }
 .eyebrow {
   display: inline-flex;
-  padding: 5px 9px;
-  border-radius: 99px;
-  background: var(--accent-bg);
+  padding: 0;
   color: var(--accent);
   font-size: 11px;
   font-weight: 750;
@@ -354,7 +350,6 @@ h1 {
   right: -12%;
   top: -22%;
   background: var(--lime);
-  filter: drop-shadow(0 24px 80px rgba(185, 255, 61, 0.16));
 }
 .auth-art::after {
   right: 28%;
@@ -479,15 +474,9 @@ h1 {
   :root:not([data-theme="light"]) .auth-main {
     background: #111925;
   }
-  :root:not([data-theme="light"]) .inp {
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
-  }
 }
 :root[data-theme="dark"] .auth-main {
   background: #111925;
-}
-:root[data-theme="dark"] .inp {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
 }
 @media (prefers-reduced-motion: no-preference) {
   .auth-card {
@@ -499,4 +488,72 @@ h1 {
       transform: translateY(8px);
     }
   }
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 2px 0 18px;
+  font-size: 13.5px;
+  color: var(--ink2);
+  cursor: pointer;
+}
+.check input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.check .box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 7px;
+  background: var(--s3);
+  color: transparent;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.check .box svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.check input:checked + .box {
+  background: var(--accent);
+  color: #fff;
+}
+.check input:focus-visible + .box {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.inp.locked {
+  opacity: 0.75;
+}
+.sent h2 {
+  margin: 0 0 8px;
+  font: 800 22px/1.15 var(--font);
+  letter-spacing: -0.035em;
+}
+.sent p {
+  color: var(--ink2);
+  margin: 0 0 18px;
+}
+.sent strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.sent .hint {
+  margin: 10px 0 0;
+}
+.btn.ghost {
+  background: var(--s2);
+  color: var(--ink);
 }

@@ -4,9 +4,10 @@ import { useApi, useApiQuery } from '../data/DataProvider';
 import { ApiError } from '../data/api';
 import { useNavigate } from '../router';
 import { PageHeader } from '../components/PageHeader';
-import { ServiceStateBadge, WorkloadIcon } from '../components/bits';
+import { ServiceStatusBadge, WorkloadIcon } from '../components/bits';
 import { mb, money, date } from '../format';
 import { WORKLOAD_LABEL, type ServiceRow } from '../domain/types';
+import { serviceCanUsePower, serviceConsumesResources } from '../domain/serviceLifecycle';
 
 import { serverStatus, type ServerState } from '@/features';
 
@@ -14,12 +15,25 @@ type Quick = 'all' | 'running' | 'stopped' | 'attention';
 type Sort = 'name' | 'state' | 'ram' | 'renews';
 const NEEDS = new Set(['error']);
 
-const valueOf = (s: ServiceRow, f: string): unknown => ({ state: s.state, workload: s.workload, provider: s.provider, region: s.regionId, plan: s.planId, ram: s.resources.ramLimitMb, tag: (s.tags ?? []).join(' ') } as Record<string, unknown>)[f];
+const DEFAULT_RULES: FilterRule[] = [
+  { id: 'rule-lifecycle', field: 'lifecycle', op: 'is', value: 'active' },
+];
+
+const valueOf = (s: ServiceRow, f: string): unknown => ({
+  lifecycle: s.lifecycle,
+  state: s.state,
+  workload: s.workload,
+  provider: s.provider,
+  region: s.regionId,
+  plan: s.planId,
+  ram: s.resources.ramLimitMb,
+  tag: (s.tags ?? []).join(' '),
+} as Record<string, unknown>)[f];
 
 /** Why a power action is unavailable for a row, or null when it is allowed. Legitimate provider limits are explained, not hidden. */
 const powerBlock = (s: ServiceRow): string | null => {
+  if (!serviceCanUsePower(s)) return s.note ?? `This service is ${s.lifecycle.replace('-', ' ')}.`;
   if (s.provider !== 'PTERODACTYL') return 'Power controls are not supported for this provider.';
-  if (s.state === 'suspended') return s.note ?? 'This service is suspended.';
   if (s.state === 'installing') return 'This service is still being installed.';
   return null;
 };
@@ -29,16 +43,29 @@ export default function Services() {
   const api = useApi();
   const res = useApiQuery((a) => a.listServices());
   const [quick, setQuick] = useState<Quick>('all');
-  const [rules, setRules] = useState<FilterRule[]>([]);
+  const [rules, setRules] = useState<FilterRule[]>(DEFAULT_RULES);
   const [showFilters, setShowFilters] = useState(false);
   const [sort, setSort] = useState<Sort>('name');
   const [view, setView] = useState<'table' | 'cards'>('table');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState<string>();
+
   const fields = useMemo<FilterField[]>(() => {
     const services = res.status === 'ready' ? res.data : [];
     const options = (pairs: Array<[string, string]>) => [...new Map(pairs).entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }));
     return [
+      {
+        id: 'lifecycle',
+        label: 'Lifecycle',
+        type: 'select',
+        options: [
+          { value: 'active', label: 'Active' },
+          { value: 'suspended', label: 'Suspended' },
+          { value: 'past-due', label: 'Past due' },
+          { value: 'cancelled', label: 'Cancelled' },
+          { value: 'terminated', label: 'Terminated' },
+        ],
+      },
       { id: 'state', label: 'Status', type: 'select', options: options(services.map((s) => [s.state, serverStatus[s.state as ServerState]?.label ?? s.state])) },
       { id: 'workload', label: 'Workload', type: 'select', options: options(services.map((s) => [s.workload, WORKLOAD_LABEL[s.workload]])) },
       { id: 'provider', label: 'Provider', type: 'select', options: options(services.map((s) => [s.provider, s.provider === 'PTERODACTYL' ? 'Game & app hosting' : s.provider === 'PROXMOX' ? 'Virtual machine' : 'Web hosting'])) },
@@ -54,17 +81,29 @@ export default function Services() {
     try { await api.power(s.id, a); } catch (e) { setError(`Could not ${a} ${s.name}: ${e instanceof ApiError || e instanceof Error ? e.message : 'the request failed.'}`); } finally { setBusy(undefined); }
   };
 
-  const rows = useMemo(() => {
+  const baseRows = useMemo(() => {
     if (res.status !== 'ready') return [];
-    let r = res.data;
+    return applyFilters(res.data, rules, fields, valueOf);
+  }, [res, rules, fields]);
+
+  const counts = useMemo(() => {
+    if (res.status !== 'ready') return null;
+    return {
+      all: baseRows.length,
+      running: baseRows.filter((s) => s.state === 'running').length,
+      stopped: baseRows.filter((s) => s.state === 'offline').length,
+      attention: baseRows.filter((s) => NEEDS.has(s.state)).length,
+    };
+  }, [res, baseRows]);
+
+  const rows = useMemo(() => {
+    let r = baseRows;
     if (quick === 'running') r = r.filter((s) => s.state === 'running');
     if (quick === 'stopped') r = r.filter((s) => s.state === 'offline');
     if (quick === 'attention') r = r.filter((s) => NEEDS.has(s.state));
-    r = applyFilters(r, rules, fields, valueOf);
-    const order = { error: 0, installing: 1, starting: 2, stopping: 2, running: 3, offline: 4, suspended: 5 } as Record<string, number>;
+    const order = { error: 0, installing: 1, starting: 2, stopping: 2, running: 3, offline: 4, unknown: 5 } as Record<string, number>;
     return [...r].sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name) : sort === 'state' ? (order[a.state] ?? 9) - (order[b.state] ?? 9) : sort === 'ram' ? b.resources.ramLimitMb - a.resources.ramLimitMb : (a.renewsOn ?? '9').localeCompare(b.renewsOn ?? '9'));
-  }, [res, quick, rules, sort, fields]);
-  const counts = res.status === 'ready' ? { running: res.data.filter((s) => s.state === 'running').length, stopped: res.data.filter((s) => s.state === 'offline').length, attention: res.data.filter((s) => NEEDS.has(s.state)).length } : null;
+  }, [baseRows, quick, sort]);
 
   const entries = (s: ServiceRow): MenuEntry[] => {
     const block = powerBlock(s); const vm = s.provider === 'PROXMOX';
@@ -101,9 +140,9 @@ export default function Services() {
         <WorkloadIcon workload={s.workload} />
         <span className="min-w-0"><span className="block truncate font-bold hover:text-accent-ink">{s.name}</span><span className="block truncate text-[13px] text-ink3">{WORKLOAD_LABEL[s.workload]} · {s.engine}</span></span>
       </button>); } },
-    { accessorKey: 'state', header: 'Status', cell: (c) => <div className="grid gap-1"><ServiceStateBadge state={c.row.original.state} />{c.row.original.note ? <span className="max-w-[22ch] text-[12.5px] leading-snug text-ink3">{c.row.original.note}</span> : null}</div> },
+    { accessorKey: 'state', header: 'Status', cell: (c) => <div className="grid gap-1"><ServiceStatusBadge service={c.row.original} />{c.row.original.lifecycle === 'active' && c.row.original.note ? <span className="max-w-[22ch] text-[12.5px] leading-snug text-ink3">{c.row.original.note}</span> : null}</div> },
     { id: 'where', header: 'Region', accessorFn: (s) => s.regionName, cell: (c) => <span>{c.row.original.regionName}<span className="block text-[13px] text-ink3">{c.row.original.planName}</span></span> },
-    { id: 'usage', header: 'Allocated resources', enableSorting: false, cell: (c) => { const s = c.row.original; return <span className="text-ink3">{mb(s.resources.ramLimitMb)} RAM · {mb(s.resources.diskLimitMb)} disk</span>; } },
+    { id: 'usage', header: 'Allocated resources', enableSorting: false, cell: (c) => { const s = c.row.original; return <span className="text-ink3">{serviceConsumesResources(s) ? `${mb(s.resources.ramLimitMb)} RAM · ${mb(s.resources.diskLimitMb)} disk` : 'No active allocation'}</span>; } },
     { id: 'players', header: 'Players', accessorFn: (s) => s.players?.online ?? -1, meta: { numeric: true, hideOnMobile: true }, cell: (c) => (c.row.original.players ? `${c.row.original.players.online} / ${c.row.original.players.max}` : '—') },
     { id: 'renews', header: 'Renews', accessorFn: (s) => s.renewsOn ?? '', cell: (c) => (c.row.original.renewsOn ? <span>{date(c.row.original.renewsOn)}{c.row.original.price ? <span className="block text-[13px] text-ink3">{money(c.row.original.price)}</span> : null}</span> : '—') },
     { id: 'actions', header: () => <span className="sr-only">Actions</span>, enableSorting: false, enableHiding: false, meta: { actions: true }, cell: (c) => quickActions(c.row.original) },
@@ -115,7 +154,7 @@ export default function Services() {
       {error ? <Notice tone="bad" title="Action failed" action={<Button size="sm" variant="secondary" onClick={() => setError(undefined)}>Dismiss</Button>}>{error}</Notice> : null}
 
       <div className="flex flex-wrap items-center gap-3">
-        <SegmentedControl<Quick> aria-label="Show" value={quick} onValueChange={setQuick} options={[{ value: 'all', label: counts ? `All ${res.status === 'ready' ? res.data.length : ''}` : 'All' }, { value: 'running', label: counts ? `Running ${counts.running}` : 'Running' }, { value: 'stopped', label: counts ? `Stopped ${counts.stopped}` : 'Stopped' }, { value: 'attention', label: counts ? `Attention ${counts.attention}` : 'Attention' }]} />
+        <SegmentedControl<Quick> aria-label="Runtime status" value={quick} onValueChange={setQuick} options={[{ value: 'all', label: counts ? `All ${baseRows.length}` : 'All' }, { value: 'running', label: counts ? `Running ${counts.running}` : 'Running' }, { value: 'stopped', label: counts ? `Stopped ${counts.stopped}` : 'Stopped' }, { value: 'attention', label: counts ? `Attention ${counts.attention}` : 'Attention' }]} />
         <Button variant={showFilters || rules.length ? 'subtle' : 'secondary'} leadingIcon="filter" aria-expanded={showFilters} onClick={() => setShowFilters((v) => !v)}>Filters{rules.length ? ` (${rules.length})` : ''}</Button>
         <div className="ml-auto flex flex-wrap items-center gap-3">
           <Select label="Sort by" hideLabel className="w-44" value={sort} onValueChange={(v) => v && setSort(v as Sort)} options={[{ value: 'name', label: 'Sort: name' }, { value: 'state', label: 'Sort: needs attention first' }, { value: 'ram', label: 'Sort: memory' }, { value: 'renews', label: 'Sort: next renewal' }]} />
@@ -135,9 +174,9 @@ export default function Services() {
               <Card className="grid h-full gap-3">
                 <div className="flex items-start justify-between gap-2">
                   <button type="button" className="flex min-w-0 items-center gap-3 text-left" onClick={() => nav(`/app/services/${s.id}`)}><WorkloadIcon workload={s.workload} /><span className="min-w-0"><span className="block truncate font-bold">{s.name}</span><span className="block truncate text-[13px] text-ink3">{s.engine}</span></span></button>
-                  <ServiceStateBadge state={s.state} />
+                  <ServiceStatusBadge service={s} />
                 </div>
-                <p className="text-[13px] text-ink3">{s.note ?? `${mb(s.resources.ramLimitMb)} RAM · ${mb(s.resources.diskLimitMb)} disk · ${s.regionName}`}</p>
+                <p className="text-[13px] text-ink3">{s.lifecycle === 'active' && s.note ? s.note : serviceConsumesResources(s) ? `${mb(s.resources.ramLimitMb)} RAM · ${mb(s.resources.diskLimitMb)} disk · ${s.regionName}` : `No active allocation · ${s.regionName}`}</p>
                 <div className="mt-auto flex items-center justify-between gap-2"><span className="text-[13px] font-semibold text-ink3">{s.regionName} · {s.planName}</span>{quickActions(s)}</div>
               </Card>
             </li>

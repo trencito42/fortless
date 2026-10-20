@@ -278,6 +278,88 @@ export function registerUser(
   }, db);
 }
 
+/** Thrown for input the person can fix. Messages are safe to show. */
+export class RegistrationInputError extends Error {}
+
+/**
+ * Step 1 of email-first registration: remember the address and that the Terms were accepted, and mail a one-time link.
+ * Nothing here reveals whether the address already has an account: the caller answers every request the same way, and an
+ * address that is already registered gets a request row that is consumed on arrival and no email.
+ */
+export function requestRegistration(
+  data: { email: string; acceptTerms: boolean; ipAddress: string },
+  db: Database.Database = getDatabase()
+): void {
+  if (data.acceptTerms !== true) throw new RegistrationInputError('Accept the Terms of Service and Privacy Policy to continue.');
+  const email = data.email.trim().toLowerCase();
+  runInTransaction((trx) => {
+    const recent = trx.prepare("SELECT 1 FROM registration_requests WHERE email = ? AND created_at >= datetime('now', '-60 seconds')").get(email);
+    const hour = trx.prepare("SELECT count(*) AS c FROM registration_requests WHERE email = ? AND created_at >= datetime('now', '-1 hour')").get(email) as { c: number };
+    if (recent || hour.c >= 5) return;
+    const exists = Boolean(trx.prepare('SELECT 1 FROM users WHERE email = ?').get(email));
+    trx.prepare("UPDATE registration_requests SET consumed_at = datetime('now', 'utc') WHERE email = ? AND consumed_at IS NULL").run(email);
+    const rawToken = generateOpaqueToken();
+    trx.prepare(`INSERT INTO registration_requests (id, email, terms_accepted_at, ip_address, expires_at, consumed_at)
+      VALUES (?, ?, datetime('now', 'utc'), ?, datetime('now', '+24 hours'), ${exists ? "datetime('now', 'utc')" : 'NULL'})`)
+      .run(tokenDigest(rawToken), email, data.ipAddress);
+    if (exists) return;
+    queueEmail(trx, {
+      recipient: email,
+      template: 'email_verification',
+      payload: { verifyUrl: `${config.APP_ORIGIN}/complete-registration?token=${rawToken}` },
+    });
+  }, db);
+}
+
+function openRegistration(trx: Database.Database, token: string): { id: string; email: string; terms_accepted_at: string } {
+  const row = trx.prepare(`SELECT id, email, terms_accepted_at FROM registration_requests
+    WHERE id = ? AND consumed_at IS NULL AND expires_at > datetime('now', 'utc')`).get(tokenDigest(token)) as { id: string; email: string; terms_accepted_at: string } | undefined;
+  if (!row || trx.prepare('SELECT 1 FROM users WHERE email = ?').get(row.email)) {
+    throw new RegistrationInputError('This link is invalid or has expired. Start again to get a new one.');
+  }
+  return row;
+}
+
+/** Lets the completion page show which address it is finishing, and fail early on a bad link. Consumes nothing. */
+export function inspectRegistration(token: string, db: Database.Database = getDatabase()): { email: string } {
+  return runInTransaction((trx) => ({ email: openRegistration(trx, token).email }), db);
+}
+
+/**
+ * Step 2: the mailbox is proven (they followed the link) and the same person now picks a name and password, so a session
+ * can safely be issued; nobody else chose these credentials. Creates the user, workspace and OWNER membership.
+ */
+export function completeRegistration(
+  data: { token: string; name: string; password: string; ipAddress: string; userAgent: string; deviceId?: string },
+  db: Database.Database = getDatabase()
+): SessionResult {
+  const name = data.name.trim();
+  if (name.length < 2 || name.length > 100) throw new RegistrationInputError('Enter your name (2 to 100 characters).');
+  const passwordError = validatePassword(data.password);
+  if (passwordError) throw new RegistrationInputError(passwordError);
+  const passwordHash = hashPassword(data.password);
+  return runInTransaction((trx) => {
+    const req = openRegistration(trx, data.token);
+    const userId = generateId('usr');
+    const accountId = generateId('acc');
+    trx.prepare(`INSERT INTO users (id, email, password_hash, name, status, email_verified_at, is_staff)
+      VALUES (?, ?, ?, ?, 'ACTIVE', datetime('now', 'utc'), 0)`).run(userId, req.email, passwordHash, name);
+    trx.prepare(`INSERT INTO accounts (id, name, owner_user_id, billing_email, status) VALUES (?, ?, ?, ?, 'ACTIVE')`)
+      .run(accountId, `${name}'s Workspace`, userId, req.email);
+    trx.prepare(`INSERT INTO memberships (id, account_id, user_id, role) VALUES (?, ?, ?, 'OWNER')`).run(generateId('mem'), accountId, userId);
+    trx.prepare("UPDATE registration_requests SET consumed_at = datetime('now', 'utc') WHERE email = ? AND consumed_at IS NULL").run(req.email);
+    trx.prepare(`INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id, metadata)
+      VALUES (?, ?, ?, 'USER', 'user.registered', 'user', ?, ?, ?, ?)`)
+      .run(generateId('aud'), accountId, userId, userId, data.ipAddress, generateId('cor'), JSON.stringify({ emailVerified: true, termsAcceptedAt: req.terms_accepted_at }));
+    const sessionToken = createSessionForUser(userId, data.ipAddress, data.userAgent, true, trx, data.deviceId);
+    const user = trx.prepare('SELECT id, email, email_verified_at, name, status, is_staff, created_at, updated_at FROM users WHERE id = ?').get(userId) as User;
+    const account = trx.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId) as Account;
+    createNotification({ accountId, userId, type: 'ACCOUNT_ACTIVATED', title: 'Account Activated', message: 'Welcome to Fortless! Your account is ready.', linkUrl: '/app/onboarding' }, trx);
+    queueEmail(trx, { recipient: req.email, template: 'welcome', payload: { name } });
+    return { user, account, token: sessionToken };
+  }, db);
+}
+
 export function verifyEmail(
   token: string, context: { ipAddress: string; userAgent: string; deviceId?: string; issueSession?: boolean }, db: Database.Database = getDatabase()
 ): SessionResult {
