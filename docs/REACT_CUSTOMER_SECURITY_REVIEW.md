@@ -1,5 +1,7 @@
 # FORTLESS — React Customer UI Security Hardening & Zero-Trust Review
 
+> 2026-10-20 addendum: checkout now reconciles tenant-scoped server state before retry; price preview is non-persistent; checkout origins are configured/allowlisted; Quick Setup no longer asserts EULA acceptance. Provider sandbox verification remains blocked externally.
+
 **Target Surface:** Fastify REST API Boundaries & React Customer Frontend  
 **Date:** 2026-10-20  
 **Branch:** `feat/react-customer-ui`  

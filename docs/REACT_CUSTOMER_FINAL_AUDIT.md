@@ -1,5 +1,7 @@
 # FORTLESS — React Customer UI Final Architectural Audit & Implementation Matrix
 
+> Release-gate update (2026-10-20): **NOT READY — BLOCKERS REMAIN.** Earlier completion claims below predate the final checkout/browser gate. See `REACT_CUSTOMER_GO_NO_GO.md` for current evidence and blockers.
+
 **Date:** 2026-10-20  
 **Repository:** `trencito42/fortless`  
 **Branch:** `feat/react-customer-ui`  

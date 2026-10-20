@@ -1,5 +1,7 @@
 # React customer migration
 
+> Final gate: purchase-intention reconciliation, non-persistent preview, EULA mapping, redirect allowlists and currency-safe billing are implemented. Real Fastify/SQLite/Chromium smoke passes 2/2. Full workbench Playwright and external/staging gates remain incomplete; see `REACT_CUSTOMER_GO_NO_GO.md`.
+
 Updated: 2026-10-20. This log covers the isolated first iteration only. No production route or process was changed.
 
 ## Safety and architecture

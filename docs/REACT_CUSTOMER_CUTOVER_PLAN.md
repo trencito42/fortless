@@ -1,5 +1,7 @@
 # FORTLESS — React Customer UI Production Cutover & Rollback Plan
 
+> Gate status (2026-10-20): do not cut over. Resolve `REACT_CUSTOMER_GO_NO_GO.md`. Root `npm run build` now includes React; both checkout-origin allowlists are required. No exact rollback duration is promised.
+
 **Target Application:** FORTLESS Customer Portal (`/app`)  
 **Feature Branch:** `feat/react-customer-ui`  
 **Target Environments:** Staging / Production (`/home/fortless/htdocs/fortless.net`)  
