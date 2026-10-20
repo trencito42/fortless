@@ -11,8 +11,9 @@ export class ApiError extends Error {
 
 export interface DomainSearchResult { name: string; tld: string; available: boolean; premium?: boolean; price?: D.Money; renewPrice?: D.Money }
 export interface PayResult { ok: true; receipt: string }
-export interface CheckoutInput { quoteId: string; regionId: string; deploymentSpec: DeploySpec; acceptedTerms: boolean; idempotencyKey?: string }
+export interface CheckoutInput { quoteId: string; regionId: string; deploymentSpec: DeploySpec; acceptedTerms: boolean; idempotencyKey: string }
 export interface CheckoutResult { orderId: string; invoiceId?: string; paymentAttemptId?: string; checkoutUrl: string }
+export interface CheckoutStatus { status: 'NOT_FOUND' | 'IN_PROGRESS' | 'FAILED' | 'COMPLETED'; result?: CheckoutResult }
 export interface ServiceFilters { q?: string }
 export interface CatalogField { key: string; label: string; type: 'text' | 'number' | 'select' | 'secret' | 'switch'; default: string; required?: boolean; options?: { value: string; label: string }[]; help?: string; secret?: boolean; min?: number; max?: number }
 export interface CatalogEngine { id: string; label: string; description: string; versions: string[]; recommended?: boolean }
@@ -40,11 +41,13 @@ export interface CustomerApi {
   regions(): Promise<D.Region[]>;
   plans(): Promise<D.Plan[]>;
   deploymentCatalog(): Promise<WorkloadCatalog[]>;
-  quote(spec: DeploySpec): Promise<DeployQuote>;
+  previewQuote(spec: DeploySpec, signal?: AbortSignal): Promise<DeployQuote>;
+  quote(spec: DeploySpec, signal?: AbortSignal): Promise<DeployQuote>;
   cart(): Promise<D.CartItem[]>;
   addToCart(item: Omit<D.CartItem, 'id'>): Promise<D.CartItem>;
   removeFromCart(id: string): Promise<void>;
   checkout(input: CheckoutInput): Promise<CheckoutResult>;
+  checkoutStatus(idempotencyKey: string): Promise<CheckoutStatus>;
   listOrders(): Promise<D.OrderRecord[]>;
   // billing
   listInvoices(): Promise<D.InvoiceRecord[]>;

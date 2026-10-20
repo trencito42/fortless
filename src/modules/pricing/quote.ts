@@ -111,7 +111,8 @@ export function createQuote(
   isB2B = false,
   taxId?: string,
   couponCodeOrDb?: string | Database.Database,
-  explicitDb?: Database.Database
+  explicitDb?: Database.Database,
+  persist = true
 ): QuoteSnapshot {
   let couponCode: string | undefined = undefined;
   let db: Database.Database;
@@ -278,13 +279,14 @@ export function createQuote(
 
   const signature = signQuoteData(quoteData);
 
-  // Persist to database
-  db.prepare(`
+  // Pricing previews use this exact calculation path but deliberately do not
+  // create checkout-capable database rows. Only the final order quote persists.
+  if (persist) db.prepare(`
     INSERT INTO quotes (id, account_id, currency, subtotal_minor_units, tax_minor_units, total_minor_units, tax_calculation_snapshot, valid_until, status)
     VALUES (?, ?, 'EUR', ?, ?, ?, ?, ?, 'OPEN')
   `).run(quoteId, accountId, subtotal, taxAmount, totalAmount, JSON.stringify(snapshotMeta), validUntil);
 
-  for (const line of lines) {
+  if (persist) for (const line of lines) {
     db.prepare(`
       INSERT INTO quote_lines (id, quote_id, plan_version_id, quantity, unit_price_minor_units, total_minor_units, interval, region_id, setup_fee_minor_units)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)

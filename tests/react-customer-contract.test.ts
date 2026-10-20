@@ -42,6 +42,32 @@ describe('React customer read-only HTTP contracts', () => {
     expect(forbidden.headers['content-type']).toMatch(/^application\/json/);
   });
 
+  it('calculates authoritative price previews without persisting checkout quotes', async () => {
+    const owner = h.user('react_preview_owner');
+    const before = (h.db.prepare('SELECT count(*) AS count FROM quotes').get() as { count: number }).count;
+    const response = await h.call('POST', '/api/v1/quotes/preview', owner.token, {
+      items: [{ planVersionId: 'plv_mc_4gb', quantity: 1, interval: 'MONTHLY', regionId: 'reg_fra_1' }],
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toMatch(/^application\/json/);
+    expect(response.json()).toMatchObject({ currency: 'EUR', totalMinorUnits: expect.any(Number), lines: [expect.any(Object)] });
+    expect((h.db.prepare('SELECT count(*) AS count FROM quotes').get() as { count: number }).count).toBe(before);
+  });
+
+  it('isolates checkout-intent reconciliation by account and enforces billing RBAC', async () => {
+    const ownerA = h.user('intent_a');
+    const ownerB = h.user('intent_b');
+    const viewer = h.user('intent_viewer', { role: 'VIEWER' });
+    h.db.prepare(`INSERT INTO idempotency_records (account_id, scope, idempotency_key, request_hash, status, response_payload, expires_at)
+      VALUES (?, 'checkout', 'purchase_1', 'hash', 'COMPLETED', ?, datetime('now', '+1 hour'))`).run(ownerA.accountId, JSON.stringify({ orderId: 'ord_a', invoiceId: 'inv_a', paymentAttemptId: 'pay_a', checkoutUrl: '/app/orders/ord_a' }));
+
+    const own = await h.call('GET', '/api/v1/checkout-intents/purchase_1', ownerA.token);
+    expect(own.statusCode).toBe(200);
+    expect(own.json()).toMatchObject({ status: 'COMPLETED', result: { orderId: 'ord_a' } });
+    expect((await h.call('GET', '/api/v1/checkout-intents/purchase_1', ownerB.token)).json()).toEqual({ status: 'NOT_FOUND' });
+    expect((await h.call('GET', '/api/v1/checkout-intents/purchase_1', viewer.token)).statusCode).toBe(403);
+  });
+
   it('preserves legacy customer app by default and protects /app with authentication', async () => {
     delete process.env.FORTLESS_REACT_CUSTOMER_UI;
     const unauthenticated = await h.call('GET', '/app', null);

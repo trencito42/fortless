@@ -25,7 +25,7 @@ export default function Invoices() {
   ];
   return (
     <div className="grid gap-5">
-      <PageHeader title="Invoices" description="Every invoice for this account. Paying uses your default card." crumbs={[{ label: 'Billing', to: '/app/billing' }, { label: 'Invoices' }]} />
+      <PageHeader title="Invoices" description="Authoritative invoice records for this account. Direct invoice payment is not currently available." crumbs={[{ label: 'Billing', to: '/app/billing' }, { label: 'Invoices' }]} />
       <CapabilityNote area="billing" />
       <DataTable
         data={rows} columns={columns} getRowId={(i) => i.id} caption="Invoices" loading={res.status === 'loading'} error={res.status === 'error' ? res.error : undefined} onRetry={res.reload} pageSize={10}

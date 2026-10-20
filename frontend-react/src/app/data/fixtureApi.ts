@@ -78,6 +78,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     regions: () => call('regions', () => F.regions),
     plans: () => call('plans', () => F.plans),
     deploymentCatalog: () => call('deploymentCatalog', () => Object.entries(CATALOG).map(([id, item]) => ({ id, label: item.label, blurb: item.blurb, icon: item.icon, defaultMode: 'quick' as const, engines: item.engines, presets: item.presets.map(({ recommendedPlan: _recommendedPlan, ...preset }) => preset), addons: item.addons.map(({ price: _price, planned: _planned, ...addon }) => addon), fields: item.fields }))),
+    previewQuote: (spec) => call('previewQuote', () => quoteFor(spec)),
     quote: (spec) => call('quote', () => quoteFor(spec)),
     cart: () => call('cart', () => s.cart),
     addToCart: (item) => call('addToCart', () => { const c = { ...item, id: nid('cart') }; s.cart.push(c); bump(); return c; }),
@@ -86,6 +87,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
       if (!input.acceptedTerms) throw new ApiError('Accept the terms of service to continue.', 'TERMS_REQUIRED');
       return { orderId: 'ord_test', invoiceId: 'inv_test', checkoutUrl: '/app?checkout=test' };
     }),
+    checkoutStatus: () => call('checkoutStatus', () => ({ status: 'NOT_FOUND' as const })),
     listOrders: () => call('listOrders', () => s.orders),
     listInvoices: () => call('listInvoices', () => s.invoices),
     getInvoice: (id) => call('getInvoice', () => find(s.invoices, id, 'Invoice')),

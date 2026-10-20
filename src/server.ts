@@ -114,7 +114,7 @@ import {
 } from './modules/content/content.js';
 import { PterodactylHttpAdapter, ProviderError } from './modules/provisioning/adapter.js';
 import { VERIFIED_TAX_ID_TYPE, createQuote } from './modules/pricing/quote.js';
-import { processCheckout } from './modules/checkout/checkout.js';
+import { getCheckoutIntentStatus, processCheckout } from './modules/checkout/checkout.js';
 import { verifyStripeSignature, ingestPSPWebhook, processStaffRefund, retryPspInboxEvent } from './modules/payments/webhooks.js';
 import {
   getServiceDetail,
@@ -1494,7 +1494,7 @@ export function buildServer(): FastifyInstance {
     couponCode: z.string().optional(),
   });
 
-  app.post('/api/v1/quotes', { preHandler: [requireAuth] }, async (req, reply) => {
+  const handleCustomerQuote = async (req: FastifyRequest, reply: FastifyReply, persist: boolean) => {
     const parse = quoteSchema.safeParse(req.body);
     if (!parse.success) {
       return reply.status(400).send({ error: 'Validation Error', details: parse.error.format() });
@@ -1518,13 +1518,20 @@ export function buildServer(): FastifyInstance {
         (profile?.country || 'DE').toUpperCase(),
         verifiedVat,
         verifiedVat ? profile!.tax_id! : undefined,
-        parse.data.couponCode
+        parse.data.couponCode,
+        undefined,
+        persist
       );
-      return reply.status(201).send(quote);
+      return reply.status(persist ? 201 : 200).send(quote);
     } catch (err: unknown) {
       return reply.status(422).send({ error: (err as Error).message });
     }
-  });
+  };
+
+  // Read-only, authoritative price calculation. It intentionally creates no
+  // rows in quotes/quote_lines and therefore cannot be used for checkout.
+  app.post('/api/v1/quotes/preview', { preHandler: [requireAuth] }, (req, reply) => handleCustomerQuote(req, reply, false));
+  app.post('/api/v1/quotes', { preHandler: [requireAuth] }, (req, reply) => handleCustomerQuote(req, reply, true));
 
   // Admin Catalog: List Products
   app.get('/api/v1/admin/catalog/products', { preHandler: [requireAuth, requireStaffPermission('catalog:read')] }, async () => {
@@ -1798,6 +1805,12 @@ export function buildServer(): FastifyInstance {
     customOptions: z.record(z.string(), z.unknown()).optional(),
   });
 
+  app.get('/api/v1/checkout-intents/:key', { preHandler: [requireAuth, requireRole('OWNER', 'BILLING_MANAGER')] }, async (req, reply) => {
+    const key = (req.params as { key?: string }).key;
+    if (!key || key.length > 200) return reply.status(400).send({ error: 'Invalid checkout intention key.' });
+    return reply.send(getCheckoutIntentStatus(req.auth!.account.id, key));
+  });
+
   app.post('/api/v1/checkout', { preHandler: [requireAuth, requireRole('OWNER', 'BILLING_MANAGER')] }, async (req, reply) => {
     if (!operationalCapability('payments')) return reply.status(503).send({ error: 'Checkout is not configured.', code: 'PAYMENTS_NOT_CONFIGURED' });
     const idempotencyKey = (req.headers['idempotency-key'] as string) || req.body && (req.body as any).idempotencyKey;
@@ -1826,8 +1839,11 @@ export function buildServer(): FastifyInstance {
 
       return reply.status(201).send(result);
     } catch (err: unknown) {
-      console.error('[Checkout] Error:', (err as Error).message, (err as Error).stack?.split('\n')[1]);
-      return reply.status(422).send({ error: (err as Error).message });
+      const message = (err as Error).message;
+      console.error('[Checkout] Error:', message, (err as Error).stack?.split('\n')[1]);
+      if (message.includes('already currently processing')) return reply.status(409).send({ error: message, code: 'CHECKOUT_IN_PROGRESS' });
+      if (message.includes('different request payload')) return reply.status(409).send({ error: message, code: 'IDEMPOTENCY_CONFLICT' });
+      return reply.status(422).send({ error: message });
     }
   });
 

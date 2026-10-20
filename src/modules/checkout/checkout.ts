@@ -18,6 +18,28 @@ export interface CheckoutResult {
   isIdempotentReplay?: boolean;
 }
 
+export type CheckoutIntentStatus =
+  | { status: 'NOT_FOUND' | 'IN_PROGRESS' | 'FAILED' }
+  | { status: 'COMPLETED'; result: CheckoutResult };
+
+export function getCheckoutIntentStatus(accountId: string, idempotencyKey: string, db: Database.Database = getDatabase()): CheckoutIntentStatus {
+  const row = db.prepare(`SELECT status, response_payload FROM idempotency_records
+    WHERE account_id = ? AND scope = 'checkout' AND idempotency_key = ?`).get(accountId, idempotencyKey) as
+    { status: 'IN_PROGRESS' | 'COMPLETED' | 'FAILED'; response_payload: string | null } | undefined;
+  if (!row) return { status: 'NOT_FOUND' };
+  if (row.status === 'COMPLETED' && row.response_payload) return { status: 'COMPLETED', result: JSON.parse(row.response_payload) as CheckoutResult };
+  return { status: row.status === 'COMPLETED' ? 'FAILED' : row.status };
+}
+
+export function assertTrustedCheckoutUrl(raw: string): string {
+  const parsed = new URL(raw, config.APP_ORIGIN);
+  const allowed = new Set([new URL(config.APP_ORIGIN).origin, ...config.CHECKOUT_ALLOWED_ORIGINS.split(',').map((value) => value.trim()).filter(Boolean)]);
+  if (!['http:', 'https:'].includes(parsed.protocol) || !allowed.has(parsed.origin)) {
+    throw new Error('Payment provider returned an untrusted checkout URL.');
+  }
+  return parsed.toString();
+}
+
 export async function processCheckout(
   data: {
     accountId: string;
@@ -338,7 +360,7 @@ export async function processCheckout(
       db.prepare('UPDATE payment_attempts SET psp_session_id = ? WHERE id = ?')
         .run(session.id, txResult.paymentAttemptId);
 
-      checkoutUrl = session.url;
+      checkoutUrl = assertTrustedCheckoutUrl(session.url);
     }
 
     const result: CheckoutResult = {

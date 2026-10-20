@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Checkbox, CheckboxCardGroup, DescriptionList, FormWizard, Notice, NumberField, RadioCardGroup, SegmentedControl, Select, StatusBadge, Switch, TextField, type ChoiceOption, type WizardStep } from '@/design-system';
 import { useApi, useApiQuery } from '../data/DataProvider';
 import { useNavigate, useRouter } from '../router';
 import { PageHeader } from '../components/PageHeader';
 import type { BillingCycle, Plan } from '../domain/types';
 import { mb, money } from '../format';
-import type { CatalogField, DeployQuote, WorkloadCatalog } from '../data/api';
+import { ApiError, type CatalogField, type CheckoutResult, type DeployQuote, type DeploySpec, type WorkloadCatalog } from '../data/api';
 
 interface V {
   workload: string; mode: 'quick' | 'custom'; engine: string; version: string; preset: string; addons: string[];
@@ -35,11 +35,13 @@ function Summary({ v, plans, catalog }: { v: V; plans: Plan[]; catalog: Record<s
   const api = useApi();
   const plan = plans.find((p) => p.id === v.planId);
   const [quote, setQuote] = useState<DeployQuote>();
+  const [quoteError, setQuoteError] = useState<string>();
   useEffect(() => {
-    if (!v.workload || !plan) { setQuote(undefined); return; }
-    let live = true;
+    if (!v.workload || !plan) { setQuote(undefined); setQuoteError(undefined); return; }
+    const controller = new AbortController();
+    setQuote(undefined); setQuoteError(undefined);
     const timer = setTimeout(() => {
-      api.quote({
+      api.previewQuote({
         workload: v.workload,
         mode: v.mode,
         name: v.settings.name ?? '',
@@ -51,13 +53,13 @@ function Summary({ v, plans, catalog }: { v: V; plans: Plan[]; catalog: Record<s
         planId: v.planId,
         regionId: v.regionId,
         cycle: v.cycle,
-      }).then(
-        (q) => { if (live) setQuote(q); },
-        () => { if (live) setQuote(undefined); }
+      }, controller.signal).then(
+        (q) => { if (!controller.signal.aborted) setQuote(q); },
+        (error: unknown) => { if (!controller.signal.aborted) setQuoteError(error instanceof Error ? error.message : 'Price preview failed.'); }
       );
     }, 250);
     return () => {
-      live = false;
+      controller.abort();
       clearTimeout(timer);
     };
   }, [api, v.workload, v.planId, v.cycle, v.addons, v.mode, v.engine, v.version, v.preset, v.regionId, v.settings, plan]);
@@ -77,7 +79,7 @@ function Summary({ v, plans, catalog }: { v: V; plans: Plan[]; catalog: Record<s
           <p className="flex justify-between gap-3"><span className="text-ink2">{quote.taxLabel ?? 'Tax'}</span><span className="font-semibold tabular-nums">{money(quote.tax)}</span></p>
           <p className="flex justify-between gap-3 pt-1 text-[16px] font-extrabold"><span>Due today</span><span className="tabular-nums">{money(quote.dueToday)}</span></p>
         </div>
-      ) : <p className="text-[13.5px] text-ink3">Choose a plan to see the price.</p>}
+      ) : quoteError ? <Notice tone="bad" title="Price unavailable">{quoteError}</Notice> : <p className="text-[13.5px] text-ink3">{plan ? 'Calculating the authoritative price…' : 'Choose a plan to see the price.'}</p>}
     </aside>
   );
 }
@@ -91,6 +93,9 @@ export default function Deploy() {
   const catalogRes = useApiQuery((a) => a.deploymentCatalog());
   const preset = search.get('workload');
   const [v, setV] = useState<V>(INITIAL);
+  const [checkoutNotice, setCheckoutNotice] = useState<string>();
+  const submitting = useRef(false);
+  const intention = useRef<{ fingerprint: string; key: string; quoteId: string; result?: CheckoutResult } | undefined>(undefined);
   const plans = useMemo(() => (plansRes.status === 'ready' ? plansRes.data : []), [plansRes]);
   const regions = regionsRes.status === 'ready' ? regionsRes.data : [];
   const catalog = useMemo(() => catalogRes.status === 'ready' ? Object.fromEntries(catalogRes.data.map((item) => [item.id, item])) : {}, [catalogRes]);
@@ -99,6 +104,15 @@ export default function Deploy() {
   const cat = v.workload ? catalog[v.workload] : null;
   const planOf = plans.find((p) => p.id === v.planId);
   const need = (cond: unknown, key: string, msg: string) => (cond ? undefined : { [key]: msg });
+
+  const specFor = (x: V): DeploySpec => ({ workload: x.workload, mode: x.mode, name: x.settings.name ?? `${catalog[x.workload]?.label ?? 'Fortless'} server`, engine: x.engine, version: x.version, preset: x.preset, addons: x.addons, settings: x.settings, secrets: x.secrets, planId: x.planId, regionId: x.regionId, cycle: x.cycle });
+  const fingerprint = JSON.stringify(specFor(v));
+  useEffect(() => {
+    if (intention.current && intention.current.fingerprint !== fingerprint) {
+      intention.current = undefined;
+      setCheckoutNotice(undefined);
+    }
+  }, [fingerprint]);
 
   const steps: WizardStep<V>[] = [
     { id: 'workload', title: 'What do you want to run?', label: 'Workload', validate: (x) => need(x.workload, 'workload', 'Choose what you want to run.'),
@@ -182,16 +196,39 @@ export default function Deploy() {
   ];
 
   const submit = async (x: V) => {
-    if (!x.workload) return;
-    const spec = { workload: x.workload, mode: x.mode, name: x.settings.name ?? `${catalog[x.workload]?.label ?? 'Fortless'} server`, engine: x.engine, version: x.version, preset: x.preset, addons: x.addons, settings: x.settings, secrets: x.secrets, planId: x.planId, regionId: x.regionId, cycle: x.cycle };
-    const quote = await api.quote(spec);
-    const checkout = await api.checkout({ quoteId: quote.id, regionId: x.regionId, deploymentSpec: spec, acceptedTerms: x.terms });
-    location.assign(checkout.checkoutUrl);
+    if (!x.workload || submitting.current) return;
+    submitting.current = true; setCheckoutNotice(undefined);
+    const spec = specFor(x); const currentFingerprint = JSON.stringify(spec);
+    try {
+      let active = intention.current?.fingerprint === currentFingerprint ? intention.current : undefined;
+      if (active?.result) { location.assign(active.result.checkoutUrl); return; }
+      if (active) {
+        const authoritative = await api.checkoutStatus(active.key);
+        if (authoritative.status === 'COMPLETED' && authoritative.result) {
+          active.result = authoritative.result; location.assign(authoritative.result.checkoutUrl); return;
+        }
+        if (authoritative.status === 'IN_PROGRESS') {
+          setCheckoutNotice('Checkout is still being created. No duplicate order was submitted; try again shortly to reconcile it.'); return;
+        }
+        // FAILED or NOT_FOUND is an authoritative safe point for a same-key retry.
+      } else {
+        const quote = await api.quote(spec);
+        active = { fingerprint: currentFingerprint, key: `checkout-intent-${crypto.randomUUID()}`, quoteId: quote.id };
+        intention.current = active;
+      }
+      const result = await api.checkout({ quoteId: active.quoteId, regionId: x.regionId, deploymentSpec: spec, acceptedTerms: x.terms, idempotencyKey: active.key });
+      active.result = result;
+      location.assign(result.checkoutUrl);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 400 || error.status === 404 || error.status === 422)) intention.current = undefined;
+      setCheckoutNotice(error instanceof Error ? `${error.message} No second order will be created automatically.` : 'Checkout outcome is unknown. No second order will be created automatically.');
+    } finally { submitting.current = false; }
   };
 
   return (
     <div className="grid gap-6">
       <PageHeader title="Deploy a new server" description="Configure the server, review the authoritative price, then continue to secure checkout." crumbs={[{ label: 'Servers & instances', to: '/app/services' }, { label: 'Deploy' }]} />
+      {checkoutNotice ? <Notice tone="warn" title="Checkout not completed">{checkoutNotice}</Notice> : null}
       {
         plansRes.status === 'loading' || regionsRes.status === 'loading' || catalogRes.status === 'loading' ? <p role="status" className="text-ink3">Loading deployment catalog…</p> :
         plansRes.status === 'error' ? <Notice tone="bad" title="Could not load plans" action={<Button size="sm" variant="secondary" onClick={plansRes.reload}>Retry</Button>}>{plansRes.error}</Notice> :

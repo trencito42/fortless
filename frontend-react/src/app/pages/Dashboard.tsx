@@ -42,7 +42,7 @@ export default function Dashboard() {
           <ButtonGroup aria-label="Quick actions">
             <Button variant="primary" leadingIcon="add-01" onClick={() => nav('/app/deploy')}>Deploy</Button>
             <Button variant="secondary" leadingIcon="message-01" onClick={() => nav('/app/support/new')}>New ticket</Button>
-            <Button variant="secondary" leadingIcon="credit-card" onClick={() => nav('/app/billing/invoices')}>Pay invoice</Button>
+            <Button variant="secondary" leadingIcon="invoice-01" onClick={() => nav('/app/billing/invoices')}>View invoices</Button>
           </ButtonGroup>
         }
       />

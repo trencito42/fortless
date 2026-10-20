@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/database/schema.js';
 import { runMigrations } from '../src/database/migrations.js';
 import { seedInitialCatalog } from '../src/modules/catalog/catalog.js';
 import { registerUser } from '../src/modules/identity/auth.js';
 import { createQuote } from '../src/modules/pricing/quote.js';
-import { processCheckout } from '../src/modules/checkout/checkout.js';
+import { assertTrustedCheckoutUrl, getCheckoutIntentStatus, processCheckout } from '../src/modules/checkout/checkout.js';
 import { ingestPSPWebhook, type StripeWebhookPayload } from '../src/modules/payments/webhooks.js';
 import { processOutboxQueue } from '../src/modules/outbox/worker.js';
 import { MockPterodactylAdapter } from '../src/modules/provisioning/adapter.js';
@@ -51,6 +52,21 @@ function settle(checkout: { paymentAttemptId: string; orderId: string }, amount:
 }
 
 describe('P0 billing remediation', () => {
+  it('rejects checkout redirects outside configured provider origins', () => {
+    expect(() => assertTrustedCheckoutUrl('https://evil.example/checkout')).toThrow(/untrusted checkout URL/);
+    expect(assertTrustedCheckoutUrl('https://checkout.stripe.test/session')).toBe('https://checkout.stripe.test/session');
+  });
+  it('blocks an in-progress duplicate server-side and exposes an authoritative status', async () => {
+    const u = user();
+    const quote = createQuote(u.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 1 }], 'DE', false, undefined, db);
+    const key = 'intent_concurrent';
+    const requestHash = crypto.createHash('sha256').update(JSON.stringify({ accountId: u.account.id, quoteId: quote.id, regionId: 'reg_fra_1', customOptions: {} })).digest('hex');
+    db.prepare(`INSERT INTO idempotency_records (account_id, scope, idempotency_key, request_hash, status, expires_at)
+      VALUES (?, 'checkout', ?, ?, 'IN_PROGRESS', datetime('now', '+1 hour'))`).run(u.account.id, key, requestHash);
+    await expect(processCheckout({ accountId: u.account.id, quoteId: quote.id, idempotencyKey: key, regionId: 'reg_fra_1' }, db)).rejects.toThrow(/already currently processing/);
+    expect(getCheckoutIntentStatus(u.account.id, key, db)).toEqual({ status: 'IN_PROGRESS' });
+    expect((db.prepare('SELECT count(*) AS count FROM orders').get() as { count: number }).count).toBe(0);
+  });
   it('NEW-345/NEW-340: checkout refuses multi-service orders and bills tax and discount through Stripe', async () => {
     const u = user();
     const many = createQuote(u.account.id, [{ planVersionId: 'plv_mc_4gb', quantity: 2 }], 'DE', false, undefined, db);

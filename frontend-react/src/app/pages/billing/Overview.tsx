@@ -14,19 +14,20 @@ export default function BillingOverview() {
   const subs = useApiQuery((a) => a.listSubscriptions());
   return (
     <div className="grid gap-6">
-      <PageHeader title="Billing" description="What you owe, what renews next, and how you pay." actions={<ButtonGroup aria-label="Billing actions"><Button variant="primary" leadingIcon="credit-card" onClick={() => nav('/app/billing/invoices')}>Pay invoices</Button><Button variant="secondary" onClick={() => nav('/app/billing/plans')}>Plans & pricing</Button></ButtonGroup>} />
+      <PageHeader title="Billing" description="Invoices, renewals and authoritative account balances." actions={<ButtonGroup aria-label="Billing actions"><Button variant="primary" leadingIcon="invoice-01" onClick={() => nav('/app/billing/invoices')}>View invoices</Button><Button variant="secondary" onClick={() => nav('/app/billing/plans')}>Plans & pricing</Button></ButtonGroup>} />
       <CapabilityNote area="billing" />
       <ResourceView res={invoices} reload={invoices.reload} label="Loading billing">
         {(inv) => {
-          const due = inv.filter((i) => i.state === 'open' || i.state === 'overdue'); const total = due.reduce((a, i) => a + i.total.amount, 0);
+          const due = inv.filter((i) => i.state === 'open' || i.state === 'overdue');
+          const balances = [...due.reduce((groups, invoice) => groups.set(invoice.total.currency, (groups.get(invoice.total.currency) ?? 0) + invoice.total.amount), new Map<string, number>())].map(([currency, amount]) => money({ amount, currency: currency as 'EUR' | 'USD' | 'RON' }));
           const overdue = due.filter((i) => i.state === 'overdue');
           return (
             <>
-              {overdue.length ? <Notice tone="bad" title={`${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`} action={<Button size="sm" variant="secondary" onClick={() => nav('/app/billing/invoices')}>Pay now</Button>}>Services with unpaid invoices are suspended after 7 days. Pay to keep them running.</Notice> : null}
+              {overdue.length ? <Notice tone="bad" title={`${overdue.length} overdue invoice${overdue.length > 1 ? 's' : ''}`} action={<Button size="sm" variant="secondary" onClick={() => nav('/app/billing/invoices')}>Review invoices</Button>}>Direct payment of an existing invoice is not available in this portal. Contact support before the due date.</Notice> : null}
               <section aria-label="Summary" className="grid gap-3 sm:grid-cols-3">
-                <Card><Stat label="Balance due" value={money({ amount: total, currency: 'EUR' })} tone={overdue.length ? 'bad' : due.length ? 'warn' : undefined} hint={due.length ? `${due.length} open invoice${due.length > 1 ? 's' : ''}` : 'Nothing to pay'} /></Card>
+                <Card><Stat label="Balance due" value={balances.length ? balances.join(' + ') : 'None'} tone={overdue.length ? 'bad' : due.length ? 'warn' : undefined} hint={due.length ? `${due.length} open invoice${due.length > 1 ? 's' : ''}${balances.length > 1 ? ' in multiple currencies' : ''}` : 'No open invoices'} /></Card>
                 <Card>{subs.status === 'ready' ? <Stat label="Active subscriptions" value={subs.data.filter((s) => s.state === 'active').length} hint={`${subs.data.filter((s) => s.state === 'cancel-scheduled').length} ending, ${subs.data.filter((s) => s.state === 'past-due').length} past due`} /> : <Stat label="Active subscriptions" value="…" />}</Card>
-                <Card><Stat label="Payment method" value="Stripe Checkout" hint="Saved methods are managed by the payment provider" /></Card>
+                <Card><Stat label="New orders" value="Stripe Checkout" hint="Saved payment methods are not exposed by the backend" /></Card>
               </section>
               <div className="grid items-start gap-4 lg:grid-cols-2">
                 <Card pad="lg" className="grid gap-3">

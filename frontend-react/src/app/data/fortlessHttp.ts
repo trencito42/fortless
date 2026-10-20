@@ -1,5 +1,5 @@
 import type * as D from '../domain/types';
-import { ApiError, type CustomerApi, type DeploySpec, type DomainSearchResult, type WorkloadCatalog } from './api';
+import { ApiError, type CustomerApi, type DeployQuote, type DeploySpec, type DomainSearchResult, type WorkloadCatalog } from './api';
 import type { ObservableCustomerApi } from './DataProvider';
 
 type Json = Record<string, unknown>;
@@ -112,7 +112,7 @@ const deploymentSpec = (spec: DeploySpec): Record<string, unknown> => ({
   workloadId: spec.workload, setupMode: spec.mode.toUpperCase(), softwareId: spec.engine,
   softwareVersion: spec.version, presetId: spec.preset, selectedAddons: spec.addons,
   environmentVariables: { ...spec.settings, ...spec.secrets }, serverProperties: spec.settings,
-  eulaAccepted: spec.settings['eulaAccepted'] === 'true' || spec.mode === 'quick',
+  eulaAccepted: spec.settings['eulaAccepted'] === 'true',
   serverName: spec.name, planVersionId: spec.planId, regionId: spec.regionId,
 });
 
@@ -160,6 +160,45 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
   };
 
   const unsupported = (..._args: unknown[]): Promise<never> => Promise.reject(new ApiError('This action is not available in the React preview yet.', 'NOT_WIRED', 501));
+
+  const mapQuote = (payload: Json): DeployQuote => {
+    const c = currency(payload['currency']);
+    const taxEvidence = payload['taxEvidence'] as Record<string, unknown> | undefined;
+    let taxLabel: string | undefined;
+    if (taxEvidence && typeof taxEvidence['taxRateBasisPoints'] === 'number') {
+      const bps = taxEvidence['taxRateBasisPoints'] as number;
+      const jurisdiction = typeof taxEvidence['jurisdiction'] === 'string' ? taxEvidence['jurisdiction'] : 'Tax';
+      taxLabel = bps > 0 ? `${jurisdiction} ${bps / 100}%` : `${jurisdiction} 0% (Reverse charge)`;
+    }
+    return {
+      id: requiredText(payload['id'], 'quote.id'),
+      lines: array(payload['lines'], 'quote.lines').map((line) => ({ label: text(line['planVersionId'], 'Hosting plan'), amount: { amount: number(line['totalMinorUnits'], 'quote.line.totalMinorUnits'), currency: c } })),
+      tax: { amount: number(payload['taxMinorUnits'], 'quote.taxMinorUnits'), currency: c },
+      taxLabel,
+      total: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c },
+      dueToday: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c },
+    };
+  };
+
+  const requestQuote = async (spec: DeploySpec, preview: boolean, signal?: AbortSignal) => {
+    const validated = deploymentSpec(spec);
+    await request('/api/v1/deploy/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validated), signal });
+    const payload = await request<Json>(preview ? '/api/v1/quotes/preview' : '/api/v1/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ planVersionId: spec.planId, quantity: 1, interval: spec.cycle === 'yearly' ? 'ANNUAL' : 'MONTHLY', regionId: spec.regionId, customOptions: { deploymentSpec: validated, serverName: spec.name } }] }), signal });
+    return mapQuote(payload);
+  };
+
+  const trustedCheckoutUrl = (raw: unknown): string => {
+    const checkoutUrl = requiredText(raw, 'checkout.checkoutUrl');
+    try {
+      const parsed = new URL(checkoutUrl, window.location.origin);
+      const configured = String(import.meta.env['VITE_CHECKOUT_ALLOWED_ORIGINS'] ?? '').split(',').map((value) => value.trim()).filter(Boolean);
+      const allowed = new Set([window.location.origin, ...configured]);
+      if (!['http:', 'https:'].includes(parsed.protocol) || !allowed.has(parsed.origin)) throw new Error('Untrusted origin');
+      return parsed.toString();
+    } catch {
+      throw new ApiError('Invalid checkout redirection URL.', 'INVALID_CHECKOUT_URL', 502);
+    }
+  };
 
   const listServices = async (): Promise<D.ServiceRow[]> => {
     const payload = await request<Json>('/api/v1/services');
@@ -365,27 +404,8 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
       }));
     },
     plans,
-    quote: async (spec: DeploySpec) => {
-      const validated = deploymentSpec(spec);
-      await request('/api/v1/deploy/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validated) });
-      const payload = await request<Json>('/api/v1/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ planVersionId: spec.planId, quantity: 1, interval: spec.cycle === 'yearly' ? 'ANNUAL' : 'MONTHLY', regionId: spec.regionId, customOptions: { deploymentSpec: validated, serverName: spec.name } }] }) });
-      const c = currency(payload['currency']);
-      const taxEvidence = payload['taxEvidence'] as Record<string, unknown> | undefined;
-      let taxLabel: string | undefined = undefined;
-      if (taxEvidence && typeof taxEvidence['taxRateBasisPoints'] === 'number') {
-        const bps = taxEvidence['taxRateBasisPoints'] as number;
-        const jurisdiction = typeof taxEvidence['jurisdiction'] === 'string' ? taxEvidence['jurisdiction'] : 'Tax';
-        taxLabel = bps > 0 ? `${jurisdiction} ${bps / 100}%` : `${jurisdiction} 0% (Reverse charge)`;
-      }
-      return {
-        id: requiredText(payload['id'], 'quote.id'),
-        lines: array(payload['lines'], 'quote.lines').map((line) => ({ label: text(line['planVersionId'], 'Hosting plan'), amount: { amount: number(line['totalMinorUnits'], 'quote.line.totalMinorUnits'), currency: c } })),
-        tax: { amount: number(payload['taxMinorUnits'], 'quote.taxMinorUnits'), currency: c },
-        taxLabel,
-        total: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c },
-        dueToday: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c },
-      };
-    },
+    previewQuote: (spec, signal) => requestQuote(spec, true, signal),
+    quote: (spec, signal) => requestQuote(spec, false, signal),
     listOrders: async () => {
       const payload = await request<Json>('/api/v1/orders');
       const orders = array(payload['orders'], 'orders');
@@ -542,27 +562,32 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     checkout: async (input) => {
       if (!input.acceptedTerms) throw new ApiError('Accept the terms of service to continue.', 'TERMS_REQUIRED', 400);
       const validated = deploymentSpec(input.deploymentSpec);
-      const idempotencyKey = input.idempotencyKey ?? `checkout-${input.quoteId}`;
+      const idempotencyKey = input.idempotencyKey;
       const payload = await request<Json>('/api/v1/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify({ quoteId: input.quoteId, regionId: input.regionId, customOptions: { deploymentSpec: validated, serverName: input.deploymentSpec.name } }),
       });
-      const checkoutUrl = requiredText(payload['checkoutUrl'], 'checkout.checkoutUrl');
-      try {
-        const parsed = new URL(checkoutUrl, window.location.origin);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          throw new Error('Invalid protocol');
-        }
-      } catch {
-        throw new ApiError('Invalid checkout redirection URL.', 'INVALID_CHECKOUT_URL', 502);
-      }
+      const checkoutUrl = trustedCheckoutUrl(payload['checkoutUrl']);
       return {
         orderId: requiredText(payload['orderId'], 'checkout.orderId'),
         invoiceId: typeof payload['invoiceId'] === 'string' ? payload['invoiceId'] : undefined,
         paymentAttemptId: typeof payload['paymentAttemptId'] === 'string' ? payload['paymentAttemptId'] : undefined,
         checkoutUrl,
       };
+    },
+    checkoutStatus: async (idempotencyKey) => {
+      const payload = await request<Json>(`/api/v1/checkout-intents/${enc(idempotencyKey)}`);
+      const status = requiredText(payload['status'], 'checkout status');
+      if (status === 'NOT_FOUND' || status === 'IN_PROGRESS' || status === 'FAILED') return { status };
+      if (status !== 'COMPLETED') throw new ApiError('Checkout status is invalid.', 'INVALID_RESPONSE', 502);
+      const result = record(payload['result'], 'checkout result');
+      return { status, result: {
+        orderId: requiredText(result['orderId'], 'checkout.orderId'),
+        invoiceId: typeof result['invoiceId'] === 'string' ? result['invoiceId'] : undefined,
+        paymentAttemptId: typeof result['paymentAttemptId'] === 'string' ? result['paymentAttemptId'] : undefined,
+        checkoutUrl: trustedCheckoutUrl(result['checkoutUrl']),
+      } };
     },
     cart: async () => [], addToCart: unsupported, removeFromCart: unsupported, payInvoice: unsupported, changeCycle: unsupported,
     listPaymentMethods: async () => [], addPaymentMethod: unsupported, removePaymentMethod: unsupported, setDefaultPaymentMethod: unsupported,
