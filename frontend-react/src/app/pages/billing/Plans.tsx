@@ -30,7 +30,7 @@ export default function Plans() {
                   { label: 'CPU', values: Object.fromEntries(plans.map((p) => [p.id, `${p.cpuPct / 100} vCPU`])) },
                   { label: 'Storage (NVMe)', values: Object.fromEntries(plans.map((p) => [p.id, mb(p.diskMb)])) },
                   { label: 'Player slots', values: Object.fromEntries(plans.map((p) => [p.id, p.slots ? String(p.slots) : '–'])) },
-                  { label: 'Bandwidth', values: Object.fromEntries(plans.map((p) => [p.id, `${p.bandwidthGb} GB`])) },
+                  { label: 'Bandwidth', values: Object.fromEntries(plans.map((p) => [p.id, p.bandwidthGb === undefined ? 'Not specified' : `${p.bandwidthGb} GB`])) },
                   { label: 'Dedicated IP', values: Object.fromEntries(plans.map((p) => [p.id, p.features.some((f) => f.includes('Dedicated IP'))])) },
                   { label: 'Priority support', values: Object.fromEntries(plans.map((p) => [p.id, p.features.some((f) => f.includes('Priority'))])) },
                 ]} />

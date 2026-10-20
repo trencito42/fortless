@@ -61,7 +61,7 @@ export interface ComparisonRow { label: string; values: Record<string, string | 
 /** Side-by-side plan table. A real table so screen readers get row and column headers; scrolls inside its own container on phones. */
 export function PlanComparison({ plans, rows, caption = 'Plan comparison' }: { plans: { id: string; name: string }[]; rows: ComparisonRow[]; caption?: string }) {
   return (
-    <div className="relative overflow-x-auto rounded-lg bg-s1" tabIndex={0} role="region" aria-label={caption}>
+    <div className="relative overflow-x-auto rounded-lg bg-s1" role="region" aria-label={caption}>
       <table className="w-full min-w-[34rem] text-left text-[14px]">
         <caption className="sr-only">{caption}</caption>
         <thead><tr><td className="p-3" />{plans.map((p) => <th key={p.id} scope="col" className="p-3 text-[14px] font-extrabold">{p.name}</th>)}</tr></thead>

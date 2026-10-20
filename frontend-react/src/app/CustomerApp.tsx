@@ -9,7 +9,7 @@ import { SystemScreen, type SystemKind } from './shell/SystemScreens';
 import { routes, type AppRoute } from './routes';
 
 const lazyCache = new Map<AppRoute['load'], ComponentType<Record<string, string>>>();
-const resolve = (r: AppRoute) => { let C = lazyCache.get(r.load); if (!C) { C = lazy(r.load) as unknown as ComponentType<Record<string, string>>; lazyCache.set(r.load, C); } return C; };
+const resolve = (r: AppRoute) => { let C = lazyCache.get(r.load); if (!C) { C = lazy(async () => ({ default: (await r.load()).default as ComponentType<Record<string, string>> })); lazyCache.set(r.load, C); } return C; };
 
 const SYSTEM_PATHS: Record<string, SystemKind> = { '/system/403': 'forbidden', '/system/404': 'not-found', '/system/500': 'error', '/system/maintenance': 'maintenance', '/system/unavailable': 'unavailable', '/system/session-expired': 'session-expired' };
 
@@ -43,7 +43,7 @@ function Frame() {
       actions={<IconButton label={theme.resolved === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} icon={theme.resolved === 'dark' ? 'sun-03' : 'moon-01'} variant="ghost" onClick={theme.toggle} />}
     >
       <div className="mx-auto grid w-full min-w-0 max-w-[1280px] grid-cols-[minmax(0,1fr)] gap-5">
-        <p className="rounded-full bg-s3 px-4 py-2 text-[13px] font-semibold text-ink2">React migration preview. Read-only dashboard data comes from your authenticated Fortless account; unwired actions are explicitly unavailable.</p>
+        <p className="rounded-full bg-s3 px-4 py-2 text-[13px] font-semibold text-ink2">React migration preview. Data and enabled actions use your authenticated Fortless account; unavailable backend capabilities are labelled explicitly.</p>
         <Suspense fallback={<div className="grid gap-4" aria-busy="true" aria-label="Loading page"><Skeleton className="h-9 w-full max-w-72" /><Skeleton className="h-48 w-full" /></div>}>
           {Page && hit ? <Page {...hit.params} /> : <NotFoundInline />}
         </Suspense>

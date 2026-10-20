@@ -21,7 +21,7 @@ function Column({ label, values, current, onPick }: { label: string; values: num
     opts[Math.max(0, Math.min(opts.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus();
   };
   return (
-    <div ref={ref} role="listbox" aria-label={label} onKeyDown={onKey} className="grid max-h-56 w-16 content-start gap-0.5 overflow-y-auto pr-1">
+    <div ref={ref} role="listbox" aria-label={label} tabIndex={-1} onKeyDown={onKey} className="grid max-h-56 w-16 content-start gap-0.5 overflow-y-auto pr-1">
       {values.map((v) => (
         <button key={v} type="button" role="option" aria-selected={v === current} tabIndex={v === current || (current === null && v === values[0]) ? 0 : -1} onClick={() => onPick(v)}
           className={cn('h-9 rounded-md text-[14px] font-semibold tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-accent', v === current ? 'bg-accent text-on-accent' : 'text-ink hover:bg-s2')}>{pad(v)}</button>

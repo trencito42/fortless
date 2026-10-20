@@ -5,12 +5,9 @@ import { PageHeader } from '../../components/PageHeader';
 import { CapabilityNote } from '../../components/CapabilityNote';
 
 const TOPICS = [
-  { id: 'service-state', label: 'Server status', description: 'A server crashed, was suspended, or finished installing.' },
+  { id: 'service', label: 'Server status', description: 'A server crashed, was suspended, or finished installing.' },
   { id: 'billing', label: 'Invoices and payments', description: 'New invoices, failed payments and receipts.' },
-  { id: 'renewals', label: 'Renewals', description: 'Reminders before a service or domain renews.' },
   { id: 'support', label: 'Support replies', description: 'The team answered one of your tickets.' },
-  { id: 'announcements', label: 'Announcements', description: 'Maintenance windows and incidents that affect you.' },
-  { id: 'security', label: 'Security alerts', description: 'New sign-ins and changes to your security settings.', locked: ['email' as const] },
 ];
 
 export default function Notifications() {

@@ -1,5 +1,6 @@
 import type * as D from '../domain/types';
 import * as F from '../fixtures/data';
+import { CATALOG } from '../fixtures/catalog';
 import { ApiError, type CustomerApi, type DeploySpec, type DomainSearchResult } from './api';
 
 export interface FixtureOptions {
@@ -47,7 +48,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     const price = spec.cycle === 'yearly' ? plan.priceYearly : plan.priceMonthly;
     const lines = [{ label: `${plan.name} (${spec.cycle})`, amount: price }, ...(spec.addons.length ? [{ label: `${spec.addons.length} addon${spec.addons.length > 1 ? 's' : ''}`, amount: eur(0) }] : [])];
     const sub = total(lines.map((l) => l.amount)); const t = tax(sub);
-    return { lines, tax: t, total: eur(sub.amount + t.amount), dueToday: eur(sub.amount + t.amount) };
+    return { id: 'quote_test', lines, tax: t, total: eur(sub.amount + t.amount), dueToday: eur(sub.amount + t.amount) };
   };
 
   const api: CustomerApi = {
@@ -76,18 +77,14 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     usage: (id, range) => call('usage', () => F.usageSeries(find(s.services, id, 'Service').id, range)),
     regions: () => call('regions', () => F.regions),
     plans: () => call('plans', () => F.plans),
+    deploymentCatalog: () => call('deploymentCatalog', () => Object.entries(CATALOG).map(([id, item]) => ({ id, label: item.label, blurb: item.blurb, icon: item.icon, defaultMode: 'quick' as const, engines: item.engines, presets: item.presets.map(({ recommendedPlan: _recommendedPlan, ...preset }) => preset), addons: item.addons.map(({ price: _price, planned: _planned, ...addon }) => addon), fields: item.fields }))),
     quote: (spec) => call('quote', () => quoteFor(spec)),
     cart: () => call('cart', () => s.cart),
     addToCart: (item) => call('addToCart', () => { const c = { ...item, id: nid('cart') }; s.cart.push(c); bump(); return c; }),
     removeFromCart: (id) => call('removeFromCart', () => { s.cart = s.cart.filter((c) => c.id !== id); bump(); }),
     checkout: (input) => call('checkout', () => {
-      if (!s.cart.length) throw new ApiError('Your cart is empty.', 'CART_EMPTY');
       if (!input.acceptedTerms) throw new ApiError('Accept the terms of service to continue.', 'TERMS_REQUIRED');
-      const m = find(s.methods, input.paymentMethodId, 'Payment method');
-      if (m.brand === 'mastercard' && m.last4 === '0087') throw new ApiError('The card was declined by the issuer. Try another payment method. Nothing was charged.', 'CARD_DECLINED', 402);
-      const sub = total(s.cart.map((c) => c.price)); const t = tax(sub);
-      const o: D.OrderRecord = { id: nid('ord'), number: `ORD-2026-${String(413 + s.orders.length).padStart(4, '0')}`, placedOn: '2026-10-20', state: 'provisioning', items: s.cart.map((c) => ({ title: c.title, detail: c.detail })), total: eur(sub.amount + t.amount) };
-      s.orders.unshift(o); s.cart = []; bump(); return o;
+      return { orderId: 'ord_test', invoiceId: 'inv_test', checkoutUrl: '/app?checkout=test' };
     }),
     listOrders: () => call('listOrders', () => s.orders),
     listInvoices: () => call('listInvoices', () => s.invoices),
@@ -142,6 +139,11 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     closeTicket: (id) => call('closeTicket', () => { find(s.tickets, id, 'Ticket').state = 'closed'; bump(); }),
     profile: () => call('profile', () => s.account),
     saveProfile: (p) => call('saveProfile', () => { if (p.email && !/^\S+@\S+\.\S+$/.test(p.email)) throw new ApiError('Enter a valid email address.', 'EMAIL'); s.account = { ...s.account, ...p, emailVerified: p.email && p.email !== s.account.email ? false : s.account.emailVerified }; bump(); return s.account; }),
+    changePassword: () => call('changePassword', () => undefined),
+    beginMfaEnrollment: () => call('beginMfaEnrollment', () => ({ secret: 'TESTONLYSECRET', uri: 'otpauth://totp/Fortless:test?secret=TESTONLYSECRET&issuer=Fortless' })),
+    confirmMfaEnrollment: () => call('confirmMfaEnrollment', () => ['test-code']),
+    completeMfaStepUp: () => call('completeMfaStepUp', () => undefined),
+    regenerateRecoveryCodes: () => call('regenerateRecoveryCodes', () => ['test-code']),
     sessions: () => call('sessions', () => s.sessions),
     revokeSession: (id) => call('revokeSession', () => { if (find(s.sessions, id, 'Session').current) throw new ApiError('Sign out from the account menu to end this session.', 'CURRENT'); s.sessions = s.sessions.filter((x) => x.id !== id); bump(); }),
     passkeys: () => call('passkeys', () => s.passkeys),

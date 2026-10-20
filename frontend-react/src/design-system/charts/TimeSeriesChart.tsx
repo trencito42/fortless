@@ -61,7 +61,7 @@ export function TimeSeriesChart<T extends Record<string, unknown>>({ kind = 'are
     </>
   );
   return (
-    <div role="group" aria-roledescription="chart" aria-label={`${label}. Use the left and right arrow keys to read values.`} tabIndex={0} onKeyDown={onKey} onBlur={() => setIdx(null)} className="relative h-full w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent">
+    <button type="button" aria-roledescription="chart" aria-label={`${label}. Use the left and right arrow keys to read values.`} onKeyDown={onKey} onBlur={() => setIdx(null)} className="relative block h-full w-full rounded-md border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent">
     <span className="sr-only" aria-live="polite">{spoken}</span>
     <ResponsiveContainer width="100%" height="100%">
       {kind === 'bar' ? (
@@ -81,7 +81,7 @@ export function TimeSeriesChart<T extends Record<string, unknown>>({ kind = 'are
         </AreaChart>
       )}
     </ResponsiveContainer>
-    </div>
+    </button>
   );
 }
 

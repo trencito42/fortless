@@ -1,21 +1,19 @@
 import { useMemo } from 'react';
 import { Button, EmptyState, Skeleton } from '@/design-system';
-import { ServiceDetailView, createDemoPorts, type TabId } from '@/views/service-detail';
+import { ServiceDetailView, createFortlessHttpPorts, type TabId } from '@/views/service-detail';
 import { useApiQuery } from '../data/DataProvider';
 import { useNavigate } from '../router';
 import type { ServiceRow } from '../domain/types';
 
 const TABS = new Set(['overview', 'console', 'players', 'files', 'game', 'fastdl', 'databases', 'schedules', 'backups', 'network', 'startup', 'settings', 'users', 'allocation', 'activity']);
 
-/** Service Detail inside the customer app. The row comes from the data adapter; the detail ports are the demo adapter derived from it. Production swaps in createFortlessHttpPorts. */
+/** Service Detail inside the customer app. All data and operations go through Fortless; fixtures remain workbench/test-only. */
 function Detail({ row, tab }: { row: ServiceRow; tab?: string }) {
   const nav = useNavigate();
-  const ports = useMemo(() => createDemoPorts({
-    workload: row.workload, latency: 150,
-    runtime: row.state === 'running' ? 'RUNNING' : 'OFFLINE',
-    contract: row.state === 'suspended' ? 'SUSPENDED' : 'ACTIVE',
-    plan: { name: row.name, memoryMb: row.resources.ramLimitMb, cpuPct: 200, diskMb: row.resources.diskLimitMb },
-  }), [row]);
+  const ports = useMemo(() => createFortlessHttpPorts({
+    baseUrl: import.meta.env.VITE_FORTLESS_API_ORIGIN ?? '',
+    onSessionExpired: () => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`),
+  }), []);
   const active = (tab && TABS.has(tab) ? tab : 'overview') as TabId;
   return (
     <ServiceDetailView

@@ -1,16 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import { useResource } from '@/views/shared/useResource';
 import type { CustomerApi } from './api';
-import { createFixtureApi, type FixtureOptions } from './fixtureApi';
 
 export type ObservableCustomerApi = CustomerApi & { subscribe(fn: () => void): () => void; version(): number };
 type Api = ObservableCustomerApi;
 const Ctx = createContext<Api | null>(null);
 
-/** Provides the data adapter. Pass `api` to use a real adapter; otherwise a fixture adapter is created (prototype). */
-export function DataProvider({ children, api, fixtureOptions }: { children: ReactNode; api?: Api; fixtureOptions?: FixtureOptions }) {
-  const value = useMemo(() => api ?? createFixtureApi(fixtureOptions), [api, fixtureOptions]);
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+/** Production provider. Tests and workbenches must pass their fixture adapter explicitly. */
+export function DataProvider({ children, api }: { children: ReactNode; api: Api }) {
+  return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }
 
 export function useApi(): CustomerApi {

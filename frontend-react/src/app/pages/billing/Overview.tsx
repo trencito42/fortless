@@ -12,7 +12,6 @@ export default function BillingOverview() {
   const nav = useNavigate();
   const invoices = useApiQuery((a) => a.listInvoices());
   const subs = useApiQuery((a) => a.listSubscriptions());
-  const methods = useApiQuery((a) => a.listPaymentMethods());
   return (
     <div className="grid gap-6">
       <PageHeader title="Billing" description="What you owe, what renews next, and how you pay." actions={<ButtonGroup aria-label="Billing actions"><Button variant="primary" leadingIcon="credit-card" onClick={() => nav('/app/billing/invoices')}>Pay invoices</Button><Button variant="secondary" onClick={() => nav('/app/billing/plans')}>Plans & pricing</Button></ButtonGroup>} />
@@ -27,7 +26,7 @@ export default function BillingOverview() {
               <section aria-label="Summary" className="grid gap-3 sm:grid-cols-3">
                 <Card><Stat label="Balance due" value={money({ amount: total, currency: 'EUR' })} tone={overdue.length ? 'bad' : due.length ? 'warn' : undefined} hint={due.length ? `${due.length} open invoice${due.length > 1 ? 's' : ''}` : 'Nothing to pay'} /></Card>
                 <Card>{subs.status === 'ready' ? <Stat label="Active subscriptions" value={subs.data.filter((s) => s.state === 'active').length} hint={`${subs.data.filter((s) => s.state === 'cancel-scheduled').length} ending, ${subs.data.filter((s) => s.state === 'past-due').length} past due`} /> : <Stat label="Active subscriptions" value="…" />}</Card>
-                <Card>{methods.status === 'ready' ? <Stat label="Default payment method" value={methods.data.find((m) => m.isDefault) ? `•••• ${methods.data.find((m) => m.isDefault)!.last4}` : 'None'} hint={methods.data.length ? `${methods.data.length} saved` : 'Add a card to renew automatically'} /> : <Stat label="Default payment method" value="…" />}</Card>
+                <Card><Stat label="Payment method" value="Stripe Checkout" hint="Saved methods are managed by the payment provider" /></Card>
               </section>
               <div className="grid items-start gap-4 lg:grid-cols-2">
                 <Card pad="lg" className="grid gap-3">

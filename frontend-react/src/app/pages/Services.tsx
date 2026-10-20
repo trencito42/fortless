@@ -15,7 +15,12 @@ const NEEDS = new Set(['error', 'suspended']);
 const valueOf = (s: ServiceRow, f: string): unknown => ({ workload: s.workload, provider: s.provider, region: s.regionId, plan: s.planId, ram: s.resources.ramLimitMb, tag: (s.tags ?? []).join(' ') } as Record<string, unknown>)[f];
 
 /** Why a power action is unavailable for a row, or null when it is allowed. Legitimate provider limits are explained, not hidden. */
-const powerBlock = (_s: ServiceRow): string | null => 'Power controls are not wired in this read-only migration slice.';
+const powerBlock = (s: ServiceRow): string | null => {
+  if (s.provider !== 'PTERODACTYL') return 'Power controls are not supported for this provider.';
+  if (s.state === 'suspended') return s.note ?? 'This service is suspended.';
+  if (s.state === 'installing') return 'This service is still being installed.';
+  return null;
+};
 
 export default function Services() {
   const nav = useNavigate();

@@ -9,15 +9,21 @@ export class ApiError extends Error {
   constructor(message: string, readonly code: string = 'ERROR', readonly status = 400) { super(message); this.name = 'ApiError'; }
 }
 
-export interface DomainSearchResult { name: string; tld: string; available: boolean; premium?: boolean; price: D.Money; renewPrice: D.Money }
+export interface DomainSearchResult { name: string; tld: string; available: boolean; premium?: boolean; price?: D.Money; renewPrice?: D.Money }
 export interface PayResult { ok: true; receipt: string }
-export interface CheckoutInput { paymentMethodId: string; billingCycleNote?: string; acceptedTerms: boolean }
+export interface CheckoutInput { quoteId: string; regionId: string; deploymentSpec: DeploySpec; acceptedTerms: boolean }
+export interface CheckoutResult { orderId: string; invoiceId?: string; paymentAttemptId?: string; checkoutUrl: string }
 export interface ServiceFilters { q?: string }
+export interface CatalogField { key: string; label: string; type: 'text' | 'number' | 'select' | 'secret' | 'switch'; default: string; required?: boolean; options?: { value: string; label: string }[]; help?: string; secret?: boolean; min?: number; max?: number }
+export interface CatalogEngine { id: string; label: string; description: string; versions: string[]; recommended?: boolean }
+export interface CatalogPreset { id: string; label: string; description: string }
+export interface CatalogAddon { id: string; label: string; description: string }
+export interface WorkloadCatalog { id: string; label: string; blurb: string; icon: string; defaultMode: 'quick' | 'custom'; engines: CatalogEngine[]; presets: CatalogPreset[]; addons: CatalogAddon[]; fields: CatalogField[] }
 export interface DeploySpec {
-  workload: D.Workload; mode: 'quick' | 'custom'; name: string; engine: string; version: string; preset?: string; addons: string[];
-  settings: Record<string, string>; planId: string; regionId: string; cycle: D.BillingCycle;
+  workload: string; mode: 'quick' | 'custom'; name: string; engine: string; version: string; preset?: string; addons: string[];
+  settings: Record<string, string>; secrets?: Record<string, string>; planId: string; regionId: string; cycle: D.BillingCycle;
 }
-export interface DeployQuote { lines: { label: string; amount: D.Money }[]; tax: D.Money; total: D.Money; dueToday: D.Money }
+export interface DeployQuote { id: string; lines: { label: string; amount: D.Money }[]; tax: D.Money; total: D.Money; dueToday: D.Money }
 
 export interface CustomerApi {
   identity(): Promise<D.CustomerIdentity>;
@@ -32,11 +38,12 @@ export interface CustomerApi {
   // catalog + deploy + cart + orders
   regions(): Promise<D.Region[]>;
   plans(): Promise<D.Plan[]>;
+  deploymentCatalog(): Promise<WorkloadCatalog[]>;
   quote(spec: DeploySpec): Promise<DeployQuote>;
   cart(): Promise<D.CartItem[]>;
   addToCart(item: Omit<D.CartItem, 'id'>): Promise<D.CartItem>;
   removeFromCart(id: string): Promise<void>;
-  checkout(input: CheckoutInput): Promise<D.OrderRecord>;
+  checkout(input: CheckoutInput): Promise<CheckoutResult>;
   listOrders(): Promise<D.OrderRecord[]>;
   // billing
   listInvoices(): Promise<D.InvoiceRecord[]>;
@@ -70,6 +77,11 @@ export interface CustomerApi {
   // account
   profile(): Promise<D.Profile>;
   saveProfile(p: Partial<D.Profile>): Promise<D.Profile>;
+  changePassword(currentPassword: string, newPassword: string): Promise<void>;
+  beginMfaEnrollment(password: string): Promise<{ secret: string; uri: string }>;
+  confirmMfaEnrollment(code: string): Promise<string[]>;
+  completeMfaStepUp(password: string, code: string): Promise<void>;
+  regenerateRecoveryCodes(): Promise<string[]>;
   sessions(): Promise<D.SessionRecord[]>;
   revokeSession(id: string): Promise<void>;
   passkeys(): Promise<D.PasskeyRecord[]>;
@@ -92,14 +104,14 @@ export interface CustomerApi {
 
 /** What each area is backed by. Drives the "Prototype" / "Planned" labels so unfinished integration is never implied to be live. */
 export const capabilities: Record<string, { status: D.CapabilityStatus; note?: string }> = {
-  services: { status: 'production', note: 'Inventory is backed by account-scoped Fortless APIs; Service Detail wiring remains a separate slice.' },
-  deploy: { status: 'simulated', note: 'Checkout, payment and provisioning are simulated in this prototype.' },
-  billing: { status: 'simulated' },
-  domains: { status: 'simulated', note: 'Registration, transfer and DNS editing depend on registrar integration.' },
-  support: { status: 'production', note: 'The first slice uses the read-only account ticket feed.' },
+  services: { status: 'production' },
+  deploy: { status: 'production' },
+  billing: { status: 'partial', note: 'Invoices, orders, subscriptions and the billing profile are live. Saved payment methods, direct invoice payment and billing-cycle changes are not exposed by the backend.' },
+  domains: { status: 'partial', note: 'DNS zones and records are live. Registrar purchase, nameserver updates and auto-renew changes are not exposed by the backend.' },
+  support: { status: 'production' },
   account: { status: 'production', note: 'Identity is loaded from the authenticated Fortless session.' },
   usage: { status: 'planned', note: 'Historical usage needs a metrics backend.' },
-  announcements: { status: 'planned' },
-  knowledge: { status: 'planned' },
-  notifications: { status: 'planned' },
+  announcements: { status: 'production' },
+  knowledge: { status: 'production' },
+  notifications: { status: 'partial', note: 'Email preferences are live. Discord and push channels are not exposed by the backend.' },
 };

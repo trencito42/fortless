@@ -42,7 +42,7 @@ export interface Plan {
   name: string;
   /** Workload families this plan can host. */
   workloads: Workload[];
-  ramMb: number; cpuPct: number; diskMb: number; slots?: number; bandwidthGb: number;
+  ramMb: number; cpuPct: number; diskMb: number; slots?: number; bandwidthGb?: number;
   priceMonthly: Money;
   priceYearly: Money;
   highlight?: boolean;
@@ -67,7 +67,7 @@ export type OrderState = 'pending-payment' | 'provisioning' | 'active' | 'failed
 export interface OrderRecord { id: string; number: string; placedOn: string; state: OrderState; items: { title: string; detail: string }[]; total: Money; invoiceId?: string; failure?: string }
 
 export type DomainState = 'active' | 'expiring' | 'expired' | 'pending-transfer' | 'pending-registration';
-export interface DomainRecord { id: string; name: string; state: DomainState; registeredOn: string; expiresOn: string; autoRenew: boolean; privacy: boolean; nameservers: string[]; renewPrice: Money; locked: boolean; /** Linked service ids for the A record helper. */ serviceIds?: string[] }
+export interface DomainRecord { id: string; name: string; state: DomainState; registeredOn: string; expiresOn: string; autoRenew: boolean; privacy: boolean; nameservers: string[]; renewPrice?: Money; locked: boolean; /** Linked service ids for the A record helper. */ serviceIds?: string[] }
 
 export type TicketState = 'open' | 'answered' | 'awaiting-customer' | 'closed';
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent';
@@ -95,4 +95,4 @@ export interface Profile { fullName: string; email: string; emailVerified: boole
 export interface CustomerIdentity extends Profile { accountName: string; role: string }
 
 /** What a customer-facing capability is backed by today. The prototype labels anything that is not `production` so nobody mistakes it for live. */
-export type CapabilityStatus = 'production' | 'planned' | 'simulated';
+export type CapabilityStatus = 'production' | 'partial' | 'planned';

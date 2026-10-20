@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 
-export interface AppRoute { pattern: string; load: () => Promise<{ default: ComponentType<any> }> }
+export interface AppRoute { pattern: string; load: () => Promise<{ default: ComponentType<never> }> }
 
 /** Route table of the customer app. Order matters: first match wins. There are no admin, staff or internal routes. */
 export const routes: AppRoute[] = [

@@ -85,7 +85,7 @@ export function Calendar({ value, range, onSelect, min, max, weekStartsOn = 1, l
         <p className="font-extrabold tracking-[-0.02em]" aria-live="polite">{monthLabel}</p>
         <IconButton icon="arrow-right-01" label="Next month" variant="ghost" size="sm" onClick={() => { moved.current = false; setView(addMonths(view, 1)); }} />
       </div>
-      <div ref={grid} role="grid" aria-label={`${label}, ${monthLabel}`} onKeyDown={onKey} className="grid">
+      <div ref={grid} role="grid" aria-label={`${label}, ${monthLabel}`} tabIndex={-1} onKeyDown={onKey} className="grid">
         <div role="row" className="grid grid-cols-7">
           {dayNames.map((n) => <span key={n.long} role="columnheader" aria-label={n.long} className="py-1 text-center text-[12px] font-bold text-ink3">{n.short.slice(0, 2)}</span>)}
         </div>

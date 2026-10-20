@@ -5,7 +5,7 @@ import { ServiceApiError, type ConsoleConnection, type ConsoleHandlers, type Ser
  * Transport for the real Fortless API. It is the ONLY place that knows URLs, CSRF, cookies or the Wings socket protocol.
  * No Pterodactyl Application API, admin key or panel client key is ever used or reachable here: the browser authenticates to
  * Fortless with its session cookie, and for the console it receives a short-lived, server-scoped Wings token from
- * GET /api/v1/services/:id/console (see console.ts in the backend). Not wired to the production app yet.
+ * GET /api/v1/services/:id/console (see console.ts in the backend).
  */
 export interface HttpOptions {
   /** Prefix for same-origin requests, normally ''. */
@@ -40,26 +40,30 @@ export function createFortlessHttpPorts(opts: HttpOptions = {}): ServiceDetailPo
 
   const token = async () => {
     if (csrf) return csrf;
-    const res = await doFetch(`${base}/api/v1/auth/csrf`, { credentials: 'same-origin' });
+    const res = await doFetch(`${base}/api/v1/auth/csrf`, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } });
     if (!res.ok) throw new ServiceApiError('Could not start a secure session.', res.status);
-    csrf = ((await res.json()) as { csrfToken: string }).csrfToken;
+    if (!res.headers.get('content-type')?.toLowerCase().includes('application/json')) throw new ServiceApiError('The session endpoint returned an invalid content type. Check the /api proxy.', 502, 'INVALID_CONTENT_TYPE');
+    const body = (await res.json()) as { csrfToken?: unknown };
+    if (typeof body.csrfToken !== 'string' || !body.csrfToken) throw new ServiceApiError('The session endpoint returned an invalid CSRF response.', 502, 'INVALID_RESPONSE');
+    csrf = body.csrfToken;
     return csrf;
   };
 
   async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal, retried = false): Promise<T> {
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { Accept: 'application/json' };
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     if (method !== 'GET') headers['X-CSRF-Token'] = await token();
     let res: Response;
     try {
-      res = await doFetch(`${base}${path}`, { method, headers, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body), signal });
+      res = await doFetch(`${base}${path}`, { method, headers, credentials: 'same-origin', cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body), signal });
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') throw e;
       throw new ServiceApiError('Could not reach Fortless. Check your connection and try again.', 0, 'NETWORK');
     }
+    const contentType = res.headers.get('content-type')?.toLowerCase() ?? '';
     const text = await res.text();
     let data: Record<string, unknown> = {};
-    if (text) { try { data = JSON.parse(text) as Record<string, unknown>; } catch { data = { raw: text }; } }
+    if (text && contentType.includes('application/json')) { try { const parsed = JSON.parse(text) as unknown; if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('object required'); data = parsed as Record<string, unknown>; } catch { throw new ServiceApiError(`${path} returned malformed JSON.`, 502, 'INVALID_RESPONSE'); } }
     const code = typeof data['code'] === 'string' ? data['code'] : typeof data['error'] === 'string' && /^[A-Z_]+$/.test(data['error']) ? data['error'] : undefined;
     if (res.status === 401) { opts.onSessionExpired?.(); throw new ServiceApiError('Your session has expired. Sign in again.', 401, 'UNAUTHENTICATED'); }
     if (res.status === 403 && code === 'CSRF_INVALID' && !retried && method !== 'GET') { csrf = null; return request<T>(method, path, body, signal, true); }
@@ -68,6 +72,7 @@ export function createFortlessHttpPorts(opts: HttpOptions = {}): ServiceDetailPo
       const msg = (typeof data['message'] === 'string' && data['message']) || (typeof data['error'] === 'string' && !/^[A-Z_]+$/.test(data['error']) && data['error']) || `Request failed (${res.status}).`;
       throw new ServiceApiError(msg, res.status, code);
     }
+    if (!contentType.includes('application/json')) throw new ServiceApiError(`${path} returned ${contentType || 'an unknown content type'} instead of JSON. Check the /api proxy.`, 502, 'INVALID_CONTENT_TYPE');
     return data as T;
   }
   const get = <T>(p: string, s?: AbortSignal) => request<T>('GET', p, undefined, s);
