@@ -11,7 +11,7 @@ export class ApiError extends Error {
 
 export interface DomainSearchResult { name: string; tld: string; available: boolean; premium?: boolean; price?: D.Money; renewPrice?: D.Money }
 export interface PayResult { ok: true; receipt: string }
-export interface CheckoutInput { quoteId: string; regionId: string; deploymentSpec: DeploySpec; acceptedTerms: boolean }
+export interface CheckoutInput { quoteId: string; regionId: string; deploymentSpec: DeploySpec; acceptedTerms: boolean; idempotencyKey?: string }
 export interface CheckoutResult { orderId: string; invoiceId?: string; paymentAttemptId?: string; checkoutUrl: string }
 export interface ServiceFilters { q?: string }
 export interface CatalogField { key: string; label: string; type: 'text' | 'number' | 'select' | 'secret' | 'switch'; default: string; required?: boolean; options?: { value: string; label: string }[]; help?: string; secret?: boolean; min?: number; max?: number }
@@ -23,7 +23,7 @@ export interface DeploySpec {
   workload: string; mode: 'quick' | 'custom'; name: string; engine: string; version: string; preset?: string; addons: string[];
   settings: Record<string, string>; secrets?: Record<string, string>; planId: string; regionId: string; cycle: D.BillingCycle;
 }
-export interface DeployQuote { id: string; lines: { label: string; amount: D.Money }[]; tax: D.Money; total: D.Money; dueToday: D.Money }
+export interface DeployQuote { id: string; lines: { label: string; amount: D.Money }[]; tax: D.Money; taxLabel?: string; total: D.Money; dueToday: D.Money }
 
 export interface CustomerApi {
   identity(): Promise<D.CustomerIdentity>;
@@ -63,8 +63,8 @@ export interface CustomerApi {
   listDomains(): Promise<D.DomainRecord[]>;
   getDomain(name: string): Promise<D.DomainRecord>;
   searchDomains(query: string): Promise<DomainSearchResult[]>;
-  dnsRecords(domain: string): Promise<{ id: string; type: 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'SRV'; name: string; value: string; ttl: number; propagated?: boolean }[]>;
-  saveDnsRecord(domain: string, r: { id?: string; type: 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'SRV'; name: string; value: string; ttl: number }): Promise<void>;
+  dnsRecords(domain: string): Promise<{ id: string; type: 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'SRV'; name: string; value: string; ttl: number; priority?: number; weight?: number; port?: number; propagated?: boolean }[]>;
+  saveDnsRecord(domain: string, r: { id?: string; type: 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'SRV'; name: string; value: string; ttl: number; priority?: number; weight?: number; port?: number }): Promise<void>;
   deleteDnsRecord(domain: string, id: string): Promise<void>;
   saveNameservers(domain: string, ns: string[]): Promise<void>;
   setDomainAutoRenew(domain: string, on: boolean): Promise<void>;

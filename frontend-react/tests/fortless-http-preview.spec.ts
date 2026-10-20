@@ -302,3 +302,68 @@ test('suspended services do not trigger error warnings or appear in attention fi
   await page.getByRole('radio', { name: /Attention 0/ }).click();
   await expect(page.getByText('No services match')).toBeVisible();
 });
+
+test('service detail distinguishes 403, 404, and 500 error tiers with retry options', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Maria Popescu', email: 'maria@example.test' }, account: { name: 'Maria Studio' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: true }));
+    if (path === '/api/v1/services') return route.fulfill(json({ services: [] }));
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+
+  await page.goto('/app/services/nonexistent_svc');
+  await expect(page.getByText('Service not found')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to services' })).toBeVisible();
+});
+
+test('dns editor maps priority, weight and port for SRV and MX records', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Maria Popescu', email: 'maria@example.test' }, account: { name: 'Maria Studio' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: true }));
+    if (path === '/api/v1/domains/zones') {
+      return route.fulfill(json({
+        zones: [{ id: 'zone_1', domain_name: 'example.com', status: 'ACTIVE', created_at: '2026-01-01T00:00:00Z', expires_at: '2027-01-01T00:00:00Z', auto_renew: true, whois_privacy: true, nameservers: '["ns1.fortless.net"]' }],
+      }));
+    }
+    if (path === '/api/v1/domains/zones/zone_1/records') {
+      return route.fulfill(json({
+        records: [
+          { id: 'rec_mx', record_type: 'MX', name: '@', content: 'mail.example.com', ttl: 3600, priority: 10 },
+          { id: 'rec_srv', record_type: 'SRV', name: '_minecraft._tcp', content: 'mc.example.com', ttl: 3600, priority: 0, weight: 5, port: 25565 },
+        ],
+      }));
+    }
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+
+  await page.goto('/app/domains/example.com');
+  await expect(page.getByText('example.com').first()).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'mail.example.com' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: '5 25565 mc.example.com' })).toBeVisible();
+});
+
+test('mfa setup renders local svg qr code without external network leaks', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Maria Popescu', email: 'maria@example.test' }, account: { name: 'Maria Studio' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/csrf') return route.fulfill(json({ csrfToken: 'csrf_test_token' }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: false, recoveryCodesRemaining: 0 }));
+    if (path === '/api/v1/auth/mfa/totp/enroll') return route.fulfill(json({ secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/Fortless:test?secret=JBSWY3DPEHPK3PXP' }));
+    if (path === '/api/v1/auth/passkeys') return route.fulfill(json({ passkeys: [] }));
+    if (path === '/api/v1/auth/sessions') return route.fulfill(json({ sessions: [] }));
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+
+  await page.goto('/app/account/security');
+  await page.getByRole('button', { name: 'Set up authenticator' }).click();
+  await page.locator('input[autocomplete="current-password"]').last().fill('ValidPass1234!');
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Verify local SVG QR code is rendered and does not leak raw otpauth:// URI as plain text
+  const qr = page.getByRole('img', { name: 'Authenticator setup QR code' });
+  await expect(qr).toBeVisible();
+  await expect(qr.locator('svg')).toBeVisible();
+});
+

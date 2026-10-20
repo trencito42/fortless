@@ -10,7 +10,6 @@ import { hero, toast } from '../../../petal/index.js';
 import { capabilitiesStore } from '../../../core/state/capabilities.js';
 import type {
   WorkloadDefinition,
-  WorkloadCategory,
   DeploymentSpecification,
   DeploymentValidationResult,
 } from '../../../../modules/deployment/types.js';

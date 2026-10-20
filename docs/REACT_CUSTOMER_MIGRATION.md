@@ -75,11 +75,17 @@ npx vite preview --host 127.0.0.1 --port 4174 --strictPort
 
 Open `http://127.0.0.1:4174/app` through an SSH tunnel. For a real authenticated preview, use an approved same-origin staging route so the secure session cookie remains valid. Do not publish the isolated port publicly or change nginx without approval.
 
-## Cutover prerequisites
+## Cutover implementation & prerequisites status
 
-1. Create an authenticated same-origin staging route with explicit approval.
-2. Add Fastify history fallback for every allowed React customer deep link without changing `/admin`.
-3. Add a CSP-compatible React asset manifest and immutable hashed asset serving.
-4. Verify responsive layouts, direct refresh, light/dark themes, 401/403/MFA and account isolation in a browser with working dependencies.
-5. Map remaining `CustomerApi` methods and verify Service Detail ports one capability at a time.
-6. Identify and exercise the production backup command (`npm run backup`) and traffic rollback procedure before any cutover.
+1. **Fastify SPA Route Handling:** Implemented in `src/server.ts` gated by `FORTLESS_REACT_CUSTOMER_UI=true`. Legacy `app.html` remains the default fallback when unset or false. Deep link auth guards protect all `/app/*` routes.
+2. **Static Asset Caching & MIME Types:** Vite hashed assets in `dist-react-preview/assets/` are served by `/assets/:file` with `Cache-Control: public, max-age=31536000, immutable`. Added `.woff2`, `.woff`, `.json` MIME type mapping.
+3. **CSP & Security Headers:** Fastify's dynamic `onSend` hook computes inline script SHA-256 hashes and attaches base security headers (`X-Content-Type-Options: nosniff`, `Referrer-Policy`, etc.).
+4. **Admin Isolation:** Administrative portal (`/admin`) is completely unaffected and isolated.
+5. **Verified Test Coverage:**
+   - 18/18 Playwright preview tests passed.
+   - 4/4 Fastify React contract tests passed.
+   - 497/497 root Vitest backend domain tests passed.
+   - Root TypeScript (`tsc --noEmit`), React TypeScript (`tsc --noEmit`), ESLint, and Vite build all pass with 0 errors.
+6. **Detailed Cutover Plan:** Documented in [`docs/REACT_CUSTOMER_CUTOVER_PLAN.md`](file:///home/fortless/worktrees/react-customer-ui/docs/REACT_CUSTOMER_CUTOVER_PLAN.md).
+7. **Security Review:** Documented in [`docs/REACT_CUSTOMER_SECURITY_REVIEW.md`](file:///home/fortless/worktrees/react-customer-ui/docs/REACT_CUSTOMER_SECURITY_REVIEW.md).
+

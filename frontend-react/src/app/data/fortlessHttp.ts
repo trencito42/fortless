@@ -359,7 +359,21 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
       await request('/api/v1/deploy/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validated) });
       const payload = await request<Json>('/api/v1/quotes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ planVersionId: spec.planId, quantity: 1, interval: spec.cycle === 'yearly' ? 'ANNUAL' : 'MONTHLY', regionId: spec.regionId, customOptions: { deploymentSpec: validated, serverName: spec.name } }] }) });
       const c = currency(payload['currency']);
-      return { id: requiredText(payload['id'], 'quote.id'), lines: array(payload['lines'], 'quote.lines').map((line) => ({ label: text(line['planVersionId'], 'Hosting plan'), amount: { amount: number(line['totalMinorUnits'], 'quote.line.totalMinorUnits'), currency: c } })), tax: { amount: number(payload['taxMinorUnits'], 'quote.taxMinorUnits'), currency: c }, total: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c }, dueToday: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c } };
+      const taxEvidence = payload['taxEvidence'] as Record<string, unknown> | undefined;
+      let taxLabel: string | undefined = undefined;
+      if (taxEvidence && typeof taxEvidence['taxRateBasisPoints'] === 'number') {
+        const bps = taxEvidence['taxRateBasisPoints'] as number;
+        const jurisdiction = typeof taxEvidence['jurisdiction'] === 'string' ? taxEvidence['jurisdiction'] : 'Tax';
+        taxLabel = bps > 0 ? `${jurisdiction} ${bps / 100}%` : `${jurisdiction} 0% (Reverse charge)`;
+      }
+      return {
+        id: requiredText(payload['id'], 'quote.id'),
+        lines: array(payload['lines'], 'quote.lines').map((line) => ({ label: text(line['planVersionId'], 'Hosting plan'), amount: { amount: number(line['totalMinorUnits'], 'quote.line.totalMinorUnits'), currency: c } })),
+        tax: { amount: number(payload['taxMinorUnits'], 'quote.taxMinorUnits'), currency: c },
+        taxLabel,
+        total: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c },
+        dueToday: { amount: number(payload['totalMinorUnits'], 'quote.totalMinorUnits'), currency: c },
+      };
     },
     listOrders: async () => {
       const payload = await request<Json>('/api/v1/orders');
@@ -389,8 +403,67 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     },
     getDomain: async (name) => { const domains = await api.listDomains(); const domain = domains.find((item) => item.name === name); if (!domain) throw new ApiError('Domain not found.', 'NOT_FOUND', 404); return domain; },
     searchDomains: async (query): Promise<DomainSearchResult[]> => { const payload = await request<Json>(`/api/v1/domains/search?query=${enc(query)}`); return array(payload['results'], 'domain search').map((item) => { const rawAmount = item['annualPriceMinorUnits']; const price = rawAmount === undefined || rawAmount === null ? undefined : { amount: number(rawAmount, 'domain.annualPriceMinorUnits'), currency: currency(item['currency']) }; return { name: requiredText(item['domain'], 'domain.domain'), tld: text(item['tld']), available: bool(item['available']), price, renewPrice: price }; }); },
-    dnsRecords: async (name) => { const domain = await api.getDomain(name); const payload = await request<Json>(`/api/v1/domains/zones/${enc(domain.id)}/records`); return array(payload['records'], 'dns records').filter((item) => text(item['record_type']) !== 'NS').map((item) => ({ id: requiredText(item['id'], 'dns.id'), type: text(item['record_type']) as 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'SRV', name: text(item['name'], '@'), value: requiredText(item['content'], 'dns.content'), ttl: number(item['ttl'], 'dns.ttl') })); },
-    saveDnsRecord: async (name, item) => { const domain = await api.getDomain(name); await request(`/api/v1/domains/zones/${enc(domain.id)}/records${item.id ? `/${enc(item.id)}` : ''}`, { method: item.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recordType: item.type, name: item.name, content: item.value, ttl: item.ttl }) }); bump(); },
+    dnsRecords: async (name) => {
+      const domain = await api.getDomain(name);
+      const payload = await request<Json>(`/api/v1/domains/zones/${enc(domain.id)}/records`);
+      return array(payload['records'], 'dns records')
+        .filter((item) => text(item['record_type']) !== 'NS')
+        .map((item) => {
+          const type = text(item['record_type']) as 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'SRV';
+          const priority = item['priority'] !== undefined && item['priority'] !== null ? Number(item['priority']) : undefined;
+          const weight = item['weight'] !== undefined && item['weight'] !== null ? Number(item['weight']) : undefined;
+          const port = item['port'] !== undefined && item['port'] !== null ? Number(item['port']) : undefined;
+          let val = requiredText(item['content'], 'dns.content');
+          if (type === 'SRV' && weight !== undefined && port !== undefined) {
+            val = `${weight} ${port} ${val}`;
+          }
+          return {
+            id: requiredText(item['id'], 'dns.id'),
+            type,
+            name: text(item['name'], '@'),
+            value: val,
+            ttl: number(item['ttl'], 'dns.ttl'),
+            priority,
+            weight,
+            port,
+          };
+        });
+    },
+    saveDnsRecord: async (name, item) => {
+      const domain = await api.getDomain(name);
+      let content = item.value.trim();
+      const priority = item.priority;
+      let weight = item.weight;
+      let port = item.port;
+
+      if (item.type === 'SRV') {
+        const parts = content.split(/\s+/);
+        const wStr = parts[0];
+        const pStr = parts[1];
+        if (parts.length >= 3 && wStr !== undefined && pStr !== undefined) {
+          weight = parseInt(wStr, 10);
+          port = parseInt(pStr, 10);
+          content = parts.slice(2).join(' ');
+        }
+      }
+
+      const body: Record<string, unknown> = {
+        recordType: item.type,
+        name: item.name,
+        content,
+        ttl: item.ttl,
+      };
+      if (priority !== undefined) body['priority'] = priority;
+      if (weight !== undefined) body['weight'] = weight;
+      if (port !== undefined) body['port'] = port;
+
+      await request(`/api/v1/domains/zones/${enc(domain.id)}/records${item.id ? `/${enc(item.id)}` : ''}`, {
+        method: item.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      bump();
+    },
     deleteDnsRecord: async (name, id) => { const domain = await api.getDomain(name); await request(`/api/v1/domains/zones/${enc(domain.id)}/records/${enc(id)}`, { method: 'DELETE' }); bump(); },
     getTicket: async (id) => { const payload = await request<Json>(`/api/v1/tickets/${enc(id)}`); return mapTicket(record(payload['ticket'], 'ticket'), array(payload['messages'], 'ticket.messages'), array(payload['attachments'], 'ticket.attachments')); },
     createTicket: async (ticket) => { const created = await request<Json>('/api/v1/tickets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject: ticket.subject, priority: ticket.priority.toUpperCase(), message: ticket.body }) }); const id = requiredText(created['ticketId'], 'ticket.ticketId'); await uploadTicketFiles(id, text(created['messageId']) || undefined, ticket.files); bump(); return api.getTicket(id); },
@@ -404,10 +477,43 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
       if (!window.PublicKeyCredential || !navigator.credentials) throw new ApiError('Passkeys are not supported by this browser.', 'UNSUPPORTED', 501);
       const options = await request<Json>('/api/v1/auth/passkeys/register-options', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       const user = record(options['user'], 'passkey.user'); const challenge = requiredText(options['challenge'], 'passkey.challenge');
-      const credential = await navigator.credentials.create({ publicKey: { challenge: base64urlToBuffer(challenge), rp: record(options['rp'], 'passkey.rp') as unknown as PublicKeyCredentialRpEntity, user: { id: new TextEncoder().encode(requiredText(user['id'], 'passkey.user.id')), name: requiredText(user['name'], 'passkey.user.name'), displayName: requiredText(user['displayName'], 'passkey.user.displayName') }, pubKeyCredParams: array(options['pubKeyCredParams'], 'passkey.pubKeyCredParams') as unknown as PublicKeyCredentialParameters[], timeout: number(options['timeout'], 'passkey.timeout'), authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' }, attestation: 'none' } }) as PublicKeyCredential | null;
-      if (!credential) throw new ApiError('Passkey registration was cancelled.', 'CANCELLED');
+      let credential: PublicKeyCredential | null = null;
+      try {
+        credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: base64urlToBuffer(challenge),
+            rp: record(options['rp'], 'passkey.rp') as unknown as PublicKeyCredentialRpEntity,
+            user: {
+              id: new TextEncoder().encode(requiredText(user['id'], 'passkey.user.id')),
+              name: requiredText(user['name'], 'passkey.user.name'),
+              displayName: requiredText(user['displayName'], 'passkey.user.displayName'),
+            },
+            pubKeyCredParams: array(options['pubKeyCredParams'], 'passkey.pubKeyCredParams') as unknown as PublicKeyCredentialParameters[],
+            timeout: number(options['timeout'], 'passkey.timeout'),
+            authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+            attestation: 'none',
+          },
+        }) as PublicKeyCredential | null;
+      } catch (err: unknown) {
+        if (err instanceof DOMException && (err.name === 'NotAllowedError' || err.name === 'AbortError')) {
+          throw new ApiError('Passkey registration was cancelled or timed out.', 'CANCELLED', 400);
+        }
+        throw new ApiError(err instanceof Error ? err.message : 'Passkey registration failed.', 'PASSKEY_ERROR', 400);
+      }
+      if (!credential) throw new ApiError('Passkey registration was cancelled.', 'CANCELLED', 400);
       const response = credential.response as AuthenticatorAttestationResponse;
-      const result = await request<Json>('/api/v1/auth/passkeys/register-verify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceLabel: name || 'Passkey', challenge, clientDataJSON: bufferToBase64url(response.clientDataJSON), credentialId: bufferToBase64url(credential.rawId), publicKey: bufferToBase64url(response.attestationObject), transports: response.getTransports?.() }) });
+      const result = await request<Json>('/api/v1/auth/passkeys/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceLabel: name || 'Passkey',
+          challenge,
+          clientDataJSON: bufferToBase64url(response.clientDataJSON),
+          credentialId: bufferToBase64url(credential.rawId),
+          publicKey: bufferToBase64url(response.attestationObject),
+          transports: response.getTransports?.(),
+        }),
+      });
       const key = record(result['passkey'], 'passkey'); bump(); return { id: requiredText(key['id'], 'passkey.id'), name: text(key['deviceLabel'], name), addedOn: iso(key['createdAt']) };
     },
     removePasskey: async (id) => { await request(`/api/v1/auth/passkeys/${enc(id)}`, { method: 'DELETE' }); bump(); },
@@ -425,8 +531,27 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     checkout: async (input) => {
       if (!input.acceptedTerms) throw new ApiError('Accept the terms of service to continue.', 'TERMS_REQUIRED', 400);
       const validated = deploymentSpec(input.deploymentSpec);
-      const payload = await request<Json>('/api/v1/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ quoteId: input.quoteId, regionId: input.regionId, customOptions: { deploymentSpec: validated, serverName: input.deploymentSpec.name } }) });
-      return { orderId: requiredText(payload['orderId'], 'checkout.orderId'), invoiceId: typeof payload['invoiceId'] === 'string' ? payload['invoiceId'] : undefined, paymentAttemptId: typeof payload['paymentAttemptId'] === 'string' ? payload['paymentAttemptId'] : undefined, checkoutUrl: requiredText(payload['checkoutUrl'], 'checkout.checkoutUrl') };
+      const idempotencyKey = input.idempotencyKey ?? `checkout-${input.quoteId}`;
+      const payload = await request<Json>('/api/v1/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ quoteId: input.quoteId, regionId: input.regionId, customOptions: { deploymentSpec: validated, serverName: input.deploymentSpec.name } }),
+      });
+      const checkoutUrl = requiredText(payload['checkoutUrl'], 'checkout.checkoutUrl');
+      try {
+        const parsed = new URL(checkoutUrl, window.location.origin);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          throw new Error('Invalid protocol');
+        }
+      } catch {
+        throw new ApiError('Invalid checkout redirection URL.', 'INVALID_CHECKOUT_URL', 502);
+      }
+      return {
+        orderId: requiredText(payload['orderId'], 'checkout.orderId'),
+        invoiceId: typeof payload['invoiceId'] === 'string' ? payload['invoiceId'] : undefined,
+        paymentAttemptId: typeof payload['paymentAttemptId'] === 'string' ? payload['paymentAttemptId'] : undefined,
+        checkoutUrl,
+      };
     },
     cart: async () => [], addToCart: unsupported, removeFromCart: unsupported, payInvoice: unsupported, changeCycle: unsupported,
     listPaymentMethods: async () => [], addPaymentMethod: unsupported, removePaymentMethod: unsupported, setDefaultPaymentMethod: unsupported,

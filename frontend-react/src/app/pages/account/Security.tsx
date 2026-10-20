@@ -6,6 +6,8 @@ import { useApi, useApiQuery } from '../../data/DataProvider';
 import { PageHeader } from '../../components/PageHeader';
 import { CapabilityNote } from '../../components/CapabilityNote';
 import { relative } from '../../format';
+import { QrCode } from '../../components/QrCode';
+import { ApiError } from '../../data/api';
 
 function Password() {
   const api = useApi();
@@ -49,13 +51,30 @@ export default function Security() {
             {mfaError ? <Notice tone="bad">{mfaError}</Notice> : null}
             {stepUp ? <div className="grid max-w-sm gap-3"><Notice tone="warn">Confirm your password and current authenticator code. This sensitive action requires recent step-up verification.</Notice><TextField label="Current password" type="password" autoComplete="current-password" value={stepPassword} onChange={(event) => setStepPassword(event.target.value)} /><TextField label="Authenticator code" inputMode="numeric" autoComplete="one-time-code" value={stepCode} onChange={(event) => setStepCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /><div><Button variant="secondary" disabled={!stepPassword || stepCode.length !== 6} onClick={() => void regenerate()}>Verify and generate</Button></div></div> : null}
             {enrol && !mfa ? <div className="grid max-w-sm gap-3"><TextField label="Current password" type="password" autoComplete="current-password" value={enrolPassword} onChange={(event) => setEnrolPassword(event.target.value)} /><div><Button variant="secondary" onClick={() => { setMfaError(undefined); api.beginMfaEnrollment(enrolPassword).then(setMfa, (error: Error) => setMfaError(error.message)); }}>Continue</Button></div></div> : null}
-            {mfa ? <TwoFactorSetup qr={<div role="img" aria-label="Authenticator setup URI" className="grid size-40 place-items-center overflow-hidden rounded-md bg-s3 p-3 text-center text-[10px] font-semibold text-ink3"><span className="break-all">{mfa.uri}</span></div>} secret={mfa.secret} onVerify={async (code) => { const recovery = await api.confirmMfaEnrollment(code); setEnrol(false); setMfa(undefined); setEnrolPassword(''); setCodes(recovery); profile.reload(); }} /> : null}
+            {mfa ? <TwoFactorSetup qr={<QrCode value={mfa.uri} size={160} />} secret={mfa.secret} onVerify={async (code) => { const recovery = await api.confirmMfaEnrollment(code); setEnrol(false); setMfa(undefined); setEnrolPassword(''); setCodes(recovery); profile.reload(); }} /> : null}
             {codes ? <RecoveryCodes codes={codes} onRegenerate={async () => { setCodes(undefined); setStepUp(true); }} /> : null}
           </Card>
         )}
       </ResourceView>
       <ResourceView res={passkeys} reload={passkeys.reload} label="Loading passkeys">
-        {(list) => <PasskeyList passkeys={list.map((k) => ({ id: k.id, name: k.name, added: k.addedOn, lastUsed: k.lastUsed }))} onAdd={async () => { await api.addPasskey('This device'); }} onRemove={async (k) => api.removePasskey(k.id)} />}
+        {(list) => (
+          <PasskeyList
+            passkeys={list.map((k) => ({ id: k.id, name: k.name, added: k.addedOn, lastUsed: k.lastUsed }))}
+            onAdd={async () => {
+              try {
+                await api.addPasskey('This device');
+                await passkeys.reload();
+              } catch (err: unknown) {
+                if (err instanceof ApiError && err.code === 'CANCELLED') return;
+                setMfaError(err instanceof Error ? err.message : 'Could not add passkey.');
+              }
+            }}
+            onRemove={async (k) => {
+              await api.removePasskey(k.id);
+              await passkeys.reload();
+            }}
+          />
+        )}
       </ResourceView>
       <ResourceView res={sessions} reload={sessions.reload} label="Loading sessions">
         {(list) => <SessionList sessions={list.map((s) => ({ id: s.id, device: s.device, location: s.location, lastActive: relative(s.lastActive), current: s.current }))} onRevoke={async (s) => api.revokeSession(s.id)} onRevokeOthers={async () => { await api.revokeOtherSessions(); }} />}

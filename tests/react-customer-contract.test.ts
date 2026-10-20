@@ -41,4 +41,39 @@ describe('React customer read-only HTTP contracts', () => {
     expect(forbidden.statusCode).toBe(403);
     expect(forbidden.headers['content-type']).toMatch(/^application\/json/);
   });
+
+  it('preserves legacy customer app by default and protects /app with authentication', async () => {
+    delete process.env.FORTLESS_REACT_CUSTOMER_UI;
+    const unauthenticated = await h.call('GET', '/app', null);
+    expect(unauthenticated.statusCode).toBe(302);
+    expect(unauthenticated.headers['location']).toBe('/login?next=/app');
+
+    const owner = h.user('react_owner_legacy');
+    const response = await h.call('GET', '/app', owner.token);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toMatch(/^text\/html/);
+    expect(response.headers['cache-control']).toBe('no-store');
+  });
+
+  it('serves React customer app and protects deep links when FORTLESS_REACT_CUSTOMER_UI is enabled', async () => {
+    process.env.FORTLESS_REACT_CUSTOMER_UI = 'true';
+    try {
+      const unauthDeep = await h.call('GET', '/app/account/security', null);
+      expect(unauthDeep.statusCode).toBe(302);
+      expect(unauthDeep.headers['location']).toContain('/login?next=');
+
+      const owner = h.user('react_owner_spa');
+      const response = await h.call('GET', '/app', owner.token);
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toMatch(/^text\/html/);
+      expect(response.headers['cache-control']).toBe('no-store, private');
+      expect(response.headers['content-security-policy']).toBeDefined();
+
+      const deepResponse = await h.call('GET', '/app/account/security', owner.token);
+      expect(deepResponse.statusCode).toBe(200);
+      expect(deepResponse.headers['content-type']).toMatch(/^text\/html/);
+    } finally {
+      delete process.env.FORTLESS_REACT_CUSTOMER_UI;
+    }
+  });
 });

@@ -48,7 +48,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     const price = spec.cycle === 'yearly' ? plan.priceYearly : plan.priceMonthly;
     const lines = [{ label: `${plan.name} (${spec.cycle})`, amount: price }, ...(spec.addons.length ? [{ label: `${spec.addons.length} addon${spec.addons.length > 1 ? 's' : ''}`, amount: eur(0) }] : [])];
     const sub = total(lines.map((l) => l.amount)); const t = tax(sub);
-    return { id: 'quote_test', lines, tax: t, total: eur(sub.amount + t.amount), dueToday: eur(sub.amount + t.amount) };
+    return { id: 'quote_test', lines, tax: t, taxLabel: 'VAT 19%', total: eur(sub.amount + t.amount), dueToday: eur(sub.amount + t.amount) };
   };
 
   const api: CustomerApi = {

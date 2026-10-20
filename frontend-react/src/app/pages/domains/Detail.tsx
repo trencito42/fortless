@@ -42,7 +42,7 @@ export default function DomainDetail({ name }: { name: string }) {
               </div>
               <DNSRecordEditor
                 domain={d.name} records={dns.status === 'ready' ? (dns.data as DnsRecord[]) : []} loading={dns.status === 'loading'} error={dns.status === 'error' ? dns.error : undefined} onRetry={dns.reload}
-                onSave={async (r) => { await api.saveDnsRecord(d.name, r); }} onDelete={async (r) => { await api.deleteDnsRecord(d.name, r.id); }}
+                onSave={async (r) => { await api.saveDnsRecord(d.name, r); await dns.reload(); }} onDelete={async (r) => { await api.deleteDnsRecord(d.name, r.id); await dns.reload(); }}
               />
             </>
           );

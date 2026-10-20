@@ -38,8 +38,28 @@ function Summary({ v, plans, catalog }: { v: V; plans: Plan[]; catalog: Record<s
   useEffect(() => {
     if (!v.workload || !plan) { setQuote(undefined); return; }
     let live = true;
-    api.quote({ workload: v.workload, mode: v.mode, name: v.settings.name ?? '', engine: v.engine, version: v.version, preset: v.preset, addons: v.addons, settings: v.settings, planId: v.planId, regionId: v.regionId, cycle: v.cycle }).then((q) => { if (live) setQuote(q); }, () => { if (live) setQuote(undefined); });
-    return () => { live = false; };
+    const timer = setTimeout(() => {
+      api.quote({
+        workload: v.workload,
+        mode: v.mode,
+        name: v.settings.name ?? '',
+        engine: v.engine,
+        version: v.version,
+        preset: v.preset,
+        addons: v.addons,
+        settings: v.settings,
+        planId: v.planId,
+        regionId: v.regionId,
+        cycle: v.cycle,
+      }).then(
+        (q) => { if (live) setQuote(q); },
+        () => { if (live) setQuote(undefined); }
+      );
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
   }, [api, v.workload, v.planId, v.cycle, v.addons, v.mode, v.engine, v.version, v.preset, v.regionId, v.settings, plan]);
   const cat = v.workload ? catalog[v.workload] : null;
   return (
@@ -54,7 +74,7 @@ function Summary({ v, plans, catalog }: { v: V; plans: Plan[]; catalog: Record<s
       {quote ? (
         <div className="grid gap-1 border-t border-ink/10 pt-3 text-[14px]">
           {quote.lines.map((l) => <p key={l.label} className="flex justify-between gap-3"><span className="text-ink2">{l.label}</span><span className="font-semibold tabular-nums">{money(l.amount)}</span></p>)}
-          <p className="flex justify-between gap-3"><span className="text-ink2">VAT 19%</span><span className="font-semibold tabular-nums">{money(quote.tax)}</span></p>
+          <p className="flex justify-between gap-3"><span className="text-ink2">{quote.taxLabel ?? 'Tax'}</span><span className="font-semibold tabular-nums">{money(quote.tax)}</span></p>
           <p className="flex justify-between gap-3 pt-1 text-[16px] font-extrabold"><span>Due today</span><span className="tabular-nums">{money(quote.dueToday)}</span></p>
         </div>
       ) : <p className="text-[13.5px] text-ink3">Choose a plan to see the price.</p>}

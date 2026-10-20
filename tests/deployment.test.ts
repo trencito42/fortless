@@ -3,7 +3,6 @@ import Database from 'better-sqlite3';
 import { SCHEMA_SQL } from '../src/database/schema.js';
 import { runMigrations } from '../src/database/migrations.js';
 import {
-  WORKLOAD_DEFINITIONS,
   getWorkloadDefinition,
   listWorkloads,
   validateDeploymentSpec,

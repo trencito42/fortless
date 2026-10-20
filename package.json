@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "build:frontend": "esbuild src/frontend/client/index.ts --bundle --format=iife --outfile=public/assets/app-ui.js --target=es2022 && esbuild src/frontend/admin/index.ts --bundle --format=iife --outfile=public/assets/admin-ui.js --target=es2022 && esbuild src/frontend/client/editor/index.ts --bundle --format=iife --minify --outfile=public/assets/editor-ui.js --target=es2022",
+    "build:react": "cd frontend-react && npm run build",
+    "build:all": "npm run build:frontend && npm run build:react && tsc",
     "build": "npm run build:frontend && tsc",
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",

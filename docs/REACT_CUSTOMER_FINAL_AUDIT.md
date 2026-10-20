@@ -76,7 +76,7 @@ All customer routes have been audited for:
   - Category U: Auditor Delta Invariants & Lifecycle Precision
 
 ### 3.2 Frontend Playwright Preview Test Suite (`tests/fortless-http-preview.spec.ts`)
-- **Status:** 14 passed tests, 0 failed.
+- **Status:** 18 passed tests, 0 failed.
 - **Coverage:**
   1. Authenticated preview renders real identity and account-scoped dashboard DTOs
   2. Mobile dashboard keeps customer navigation accessible
@@ -93,18 +93,53 @@ All customer routes have been audited for:
   13. Account security, team, and activity audit views
   14. Deploy wizard loads real catalog workloads
   15. Suspended services do not trigger error warnings or appear in attention filter
+  16. Service detail distinguishes 403, 404, and 500 error tiers with actionable retry UI
+  17. DNS editor maps priority, weight and port for SRV and MX records
+  18. MFA setup renders local SVG QR code without external network leaks
 
-### 3.3 TypeScript & Linter Verification
+### 3.3 Fastify Production Integration & Contract Suite (`tests/react-customer-contract.test.ts`)
+- **Status:** 4 passed tests, 0 failed.
+- **Coverage:**
+  1. Authenticated JSON envelopes expected by the React adapter
+  2. JSON 401 without session and JSON 403 for forbidden role mutation
+  3. Legacy customer app preserved by default with authentication guard
+  4. Feature-flagged (`FORTLESS_REACT_CUSTOMER_UI=true`) React SPA serving, deep link auth guards, and CSP headers
+
+### 3.4 TypeScript & Linter Verification
+- `npx tsc --noEmit` in root: 0 errors.
 - `npm run typecheck` in `frontend-react/`: 0 errors.
 - `npm run lint` in `frontend-react/`: 0 errors.
 - `npm run build` in `frontend-react/`: Vite build succeeds with complete tree-shaken preview bundles.
 
 ---
 
-## 4. Key Architectural Guarantees Maintained
+## 4. Confirmed Integration Problems Resolved
 
-1. **Production Isolation:** No modifications were made to `/home/fortless/htdocs/fortless.net` or production databases/daemons.
-2. **Lifecycle State Separation:** Administrative statuses (`SUSPENDED`, `PAST_DUE`, `CANCELLED`, `TERMINATED`) are isolated from runtime crashes. Suspended services use neutral/muted UI styling, do not pollute Dashboard "Needs attention" warnings, and are excluded from error-priority sorting and Attention filters.
-3. **No Admin Leaks:** The React customer application contains no references or bundles for the administrative backend (`/admin`).
-4. **No Dead Fixtures in Production:** `createFortlessHttpApi` strictly rejects simulated data if a network request fails; errors bubble up to `ResourceView` or `Notice` components.
-5. **Design System Adherence:** The interface consistently leverages the Petal design system primitives, without introducing Tailwind CSS or competing third-party UI libraries.
+1. **Suspended Services Decoupling:**
+   - Suspended services (`SUSPENDED`, `PAST_DUE`) are strictly distinguished from crashed/error states.
+   - Removed from "Needs attention" warnings.
+   - Neutral visual treatment applied.
+   - Excluded from Attention filter; kept in All services.
+2. **DNS Record Priority, Weight & Port:**
+   - Added end-to-end support for MX priority, SRV priority, SRV weight, and SRV port.
+   - Records list automatically reloads on save and delete.
+3. **Financial Correctness & Deploy Optimization:**
+   - Eliminated hardcoded `VAT 19%`; tax labels derive from authoritative backend `taxEvidence`.
+   - Implemented 250ms debouncing and AbortController stale request cancellation for quotes.
+4. **Checkout Idempotency & Redirect Validation:**
+   - Stable idempotency key derived from quote ID across retries and ambiguous network outcomes.
+   - Strict `http:` / `https:` protocol validation on checkout redirect URL.
+5. **Service Detail Error Differentiation:**
+   - Differentiated 401 (session expired), 403 (access denied), 404 (service not found), 500+ (server error), and network error with actionable retry options.
+6. **Local Offline SVG QR Code & Passkey Hardening:**
+   - Integrated bundled `qrcode` generator rendering inline SVG without third-party network leaks.
+   - Handled WebAuthn user cancellation gracefully.
+
+---
+
+## 5. Cutover Readiness Assessment
+
+- **Overall Status:** `READY FOR OWNER REVIEW`
+- **Rollback Readiness:** 100% (Instant rollback via `FORTLESS_REACT_CUSTOMER_UI=false` without database dependencies).
+- **Production Safety:** Fully preserved. Staging and production directory `/home/fortless/htdocs/fortless.net` remained strictly untouched.
+

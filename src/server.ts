@@ -17,10 +17,8 @@ import {
 import { createPlayerManagerService } from './modules/player-manager/index.js';
 import {
   listWorkloads,
-  getWorkloadDefinition,
   validateDeploymentSpec,
   DeploymentValidationError,
-  resolveEggForWorkload,
 } from './modules/deployment/index.js';
 import { getServiceConsoleCredentials, ConsoleAccessError, withAccountClientKey } from './modules/provisioning/console.js';
 import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -407,7 +405,19 @@ export function buildServer(): FastifyInstance {
   const mimeFor = (file: string) => {
     const ext = path.extname(file);
     return ext === '.css' ? 'text/css' : ext === '.js' ? 'application/javascript' : ext === '.svg' ? 'image/svg+xml'
-      : ext === '.png' ? 'image/png' : ext === '.ico' ? 'image/x-icon' : 'application/octet-stream';
+      : ext === '.png' ? 'image/png' : ext === '.ico' ? 'image/x-icon' : ext === '.woff2' ? 'font/woff2'
+      : ext === '.woff' ? 'font/woff' : ext === '.json' ? 'application/json' : 'application/octet-stream';
+  };
+  const isReactCustomerUiEnabled = () => process.env.FORTLESS_REACT_CUSTOMER_UI === 'true' || process.env.FORTLESS_REACT_CUSTOMER_UI === '1';
+  const reactDistDir = path.resolve(process.cwd(), 'frontend-react/dist-react-preview');
+  const serveReactCustomerApp = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    const indexPath = path.join(reactDistDir, 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      return reply.status(503).type('text/plain').send('React customer UI build not found. Run npm run build in frontend-react.');
+    }
+    const html = fs.readFileSync(indexPath, 'utf8');
+    return reply.type('text/html').header('Cache-Control', 'no-store, private').send(html);
   };
   if (fs.existsSync(assetDir)) {
     for (const file of fs.readdirSync(assetDir)) {
@@ -438,6 +448,7 @@ export function buildServer(): FastifyInstance {
 
   app.get('/app', async (req, reply) => {
     if (!req.auth) return reply.redirect('/login?next=/app');
+    if (isReactCustomerUiEnabled()) return serveReactCustomerApp(req, reply);
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) {
       return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
@@ -446,10 +457,11 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/app/:view', async (req, reply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    if (isReactCustomerUiEnabled()) return serveReactCustomerApp(req, reply);
     const { view } = req.params as { view: string };
     const allowedViews = new Set(['services', 'deploy', 'billing', 'support', 'activity', 'settings', 'domains']);
     if (!allowedViews.has(view)) return reply.redirect('/app');
-    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(`/app/${view}`)}`);
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/');
@@ -459,6 +471,7 @@ export function buildServer(): FastifyInstance {
   const SETTINGS_TABS = new Set(['profile', 'security', 'team', 'sessions']);
   const serveServicePage = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    if (isReactCustomerUiEnabled()) return serveReactCustomerApp(req, reply);
     const { id, tab } = req.params as { id: string; tab?: string };
     if (tab !== undefined && !SERVICE_TABS.has(tab)) return reply.redirect(`/app/services/${encodeURIComponent(id)}`);
     const db = getDatabase();
@@ -471,9 +484,10 @@ export function buildServer(): FastifyInstance {
   app.get('/app/services/:id', serveServicePage);
   app.get('/app/services/:id/:tab', serveServicePage);
   app.get('/app/settings/:tab', async (req, reply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    if (isReactCustomerUiEnabled()) return serveReactCustomerApp(req, reply);
     const { tab } = req.params as { tab: string };
     if (!SETTINGS_TABS.has(tab)) return reply.redirect('/app/settings');
-    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/app');
@@ -481,6 +495,7 @@ export function buildServer(): FastifyInstance {
 
   app.get('/app/support/:id', async (req, reply) => {
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    if (isReactCustomerUiEnabled()) return serveReactCustomerApp(req, reply);
     const { id } = req.params as { id: string };
     if (id !== 'new') {
       const ticket = getDatabase().prepare('SELECT id FROM tickets WHERE id = ? AND account_id = ?').get(id, req.auth.account.id);
@@ -489,6 +504,12 @@ export function buildServer(): FastifyInstance {
     const appPath = path.join(publicDir, 'app.html');
     if (fs.existsSync(appPath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('app.html'));
     return reply.redirect('/app/support');
+  });
+
+  app.get('/app/*', async (req, reply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    if (isReactCustomerUiEnabled()) return serveReactCustomerApp(req, reply);
+    return reply.redirect('/app');
   });
 
   registerOidcRoutes(app);
@@ -646,6 +667,10 @@ export function buildServer(): FastifyInstance {
     const filePath = path.join(publicDir, 'assets', file);
     if (fs.existsSync(filePath)) {
       return reply.type(mimeFor(file)).header('Cache-Control', 'no-cache').send(fs.readFileSync(filePath));
+    }
+    const reactAssetPath = path.join(reactDistDir, 'assets', file);
+    if (fs.existsSync(reactAssetPath)) {
+      return reply.type(mimeFor(file)).header('Cache-Control', 'public, max-age=31536000, immutable').send(fs.readFileSync(reactAssetPath));
     }
     return reply.status(404).send('Asset Not Found');
   });
