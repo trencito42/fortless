@@ -397,6 +397,7 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     closeTicket: async (id) => { await request(`/api/v1/tickets/${enc(id)}/resolve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
     sessions: async () => { const payload = await request<Json>('/api/v1/auth/sessions'); return array(payload['sessions'], 'sessions').map((session) => ({ id: requiredText(session['id'], 'session.id'), device: text(session['userAgent'], 'Unknown browser'), location: text(session['ipAddress']) || undefined, lastActive: iso(session['lastActiveAt']), current: bool(session['isCurrent']) })); },
     revokeSession: async (id) => { await request(`/api/v1/auth/sessions/${enc(id)}`, { method: 'DELETE' }); bump(); },
+    revokeOtherSessions: async () => { await request('/api/v1/auth/sessions/revoke-others', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
     passkeys: async () => { const payload = await request<Json>('/api/v1/auth/passkeys'); return array(payload['passkeys'], 'passkeys').map((key) => ({ id: requiredText(key['id'], 'passkey.id'), name: text(key['deviceLabel'], 'Passkey'), addedOn: iso(key['createdAt']), lastUsed: typeof key['lastUsedAt'] === 'string' ? key['lastUsedAt'] : undefined })); },
     addPasskey: async (name) => {
       if (!window.PublicKeyCredential || !navigator.credentials) throw new ApiError('Passkeys are not supported by this browser.', 'UNSUPPORTED', 501);
@@ -416,6 +417,7 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     saveNotificationPrefs: async (prefs) => { await request('/api/v1/notification-preferences', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ billingEmail: prefs.topics['billing']?.email ?? true, serviceEmail: prefs.topics['service']?.email ?? true, supportEmail: prefs.topics['support']?.email ?? true }) }); bump(); },
     announcements: async () => { const payload = await request<Json>('/api/v1/notifications'); return array(payload['notifications'], 'notifications').map((item) => ({ id: requiredText(item['id'], 'notification.id'), kind: text(item['type']).includes('INCIDENT') ? 'incident' : text(item['type']).includes('MAINTENANCE') ? 'maintenance' : 'news', title: requiredText(item['title'], 'notification.title'), body: text(item['message']), at: iso(item['createdAt']), read: Boolean(item['readAt']) })); },
     markAnnouncementRead: async (id) => { await request(`/api/v1/notifications/${enc(id)}/read`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
+    markAllAnnouncementsRead: async () => { await request('/api/v1/notifications/read-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
     kb: async () => { const payload = await request<Json>('/api/v1/kb/articles?limit=20'); return array(payload['articles'], 'knowledge articles').map((item) => ({ id: text(item['slug'], requiredText(item['id'], 'article.id')), category: text(item['category'], 'General'), title: requiredText(item['title'], 'article.title'), summary: text(item['summary']), body: text(item['contentMarkdown']).split(/\n\s*\n/).filter(Boolean), updatedOn: iso(item['updatedAt']), tags: Array.isArray(item['tags']) ? item['tags'].filter((tag): tag is string => typeof tag === 'string') : [] })); },
     power: async (id, action) => { await request(`/api/v1/services/${enc(id)}/power`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action.toUpperCase() }) }); bump(); },
     usage: unsupported,
@@ -425,8 +427,8 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
       const payload = await request<Json>('/api/v1/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ quoteId: input.quoteId, regionId: input.regionId, customOptions: { deploymentSpec: validated, serverName: input.deploymentSpec.name } }) });
       return { orderId: requiredText(payload['orderId'], 'checkout.orderId'), invoiceId: typeof payload['invoiceId'] === 'string' ? payload['invoiceId'] : undefined, paymentAttemptId: typeof payload['paymentAttemptId'] === 'string' ? payload['paymentAttemptId'] : undefined, checkoutUrl: requiredText(payload['checkoutUrl'], 'checkout.checkoutUrl') };
     },
-    cart: unsupported, addToCart: unsupported, removeFromCart: unsupported, payInvoice: unsupported, changeCycle: unsupported,
-    listPaymentMethods: unsupported, addPaymentMethod: unsupported, removePaymentMethod: unsupported, setDefaultPaymentMethod: unsupported,
+    cart: async () => [], addToCart: unsupported, removeFromCart: unsupported, payInvoice: unsupported, changeCycle: unsupported,
+    listPaymentMethods: async () => [], addPaymentMethod: unsupported, removePaymentMethod: unsupported, setDefaultPaymentMethod: unsupported,
     saveNameservers: unsupported, setDomainAutoRenew: unsupported, apiKeys: unsupported, createApiKey: unsupported, revokeApiKey: unsupported,
   };
   return Object.assign(api, { subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; }, version: () => version, bump });

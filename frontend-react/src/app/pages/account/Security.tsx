@@ -58,7 +58,7 @@ export default function Security() {
         {(list) => <PasskeyList passkeys={list.map((k) => ({ id: k.id, name: k.name, added: k.addedOn, lastUsed: k.lastUsed }))} onAdd={async () => { await api.addPasskey('This device'); }} onRemove={async (k) => api.removePasskey(k.id)} />}
       </ResourceView>
       <ResourceView res={sessions} reload={sessions.reload} label="Loading sessions">
-        {(list) => <SessionList sessions={list.map((s) => ({ id: s.id, device: s.device, location: s.location, lastActive: relative(s.lastActive), current: s.current }))} onRevoke={async (s) => api.revokeSession(s.id)} onRevokeOthers={async () => { for (const s of list.filter((x) => !x.current)) await api.revokeSession(s.id); }} />}
+        {(list) => <SessionList sessions={list.map((s) => ({ id: s.id, device: s.device, location: s.location, lastActive: relative(s.lastActive), current: s.current }))} onRevoke={async (s) => api.revokeSession(s.id)} onRevokeOthers={async () => { await api.revokeOtherSessions(); }} />}
       </ResourceView>
     </div>
   );

@@ -146,6 +146,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     regenerateRecoveryCodes: () => call('regenerateRecoveryCodes', () => ['test-code']),
     sessions: () => call('sessions', () => s.sessions),
     revokeSession: (id) => call('revokeSession', () => { if (find(s.sessions, id, 'Session').current) throw new ApiError('Sign out from the account menu to end this session.', 'CURRENT'); s.sessions = s.sessions.filter((x) => x.id !== id); bump(); }),
+    revokeOtherSessions: () => call('revokeOtherSessions', () => { s.sessions = s.sessions.filter((x) => x.current); bump(); }),
     passkeys: () => call('passkeys', () => s.passkeys),
     addPasskey: (name) => call('addPasskey', () => { const p = { id: nid('p'), name: name.trim() || 'Passkey', addedOn: '2026-10-20' }; s.passkeys.push(p); bump(); return p; }),
     removePasskey: (id) => call('removePasskey', () => { s.passkeys = s.passkeys.filter((p) => p.id !== id); bump(); }),
@@ -160,6 +161,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
     activity: () => call('activity', () => s.activity),
     announcements: () => call('announcements', () => s.news),
     markAnnouncementRead: (id) => call('markAnnouncementRead', () => { find(s.news, id, 'Announcement').read = true; bump(); }),
+    markAllAnnouncementsRead: () => call('markAllAnnouncementsRead', () => { for (const a of s.news) a.read = true; bump(); }),
     kb: () => call('kb', () => F.kb),
   };
   return Object.assign(api, { subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, version: () => ver, reset: () => { s = seed(); bump(); } });

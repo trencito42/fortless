@@ -84,6 +84,7 @@ export interface CustomerApi {
   regenerateRecoveryCodes(): Promise<string[]>;
   sessions(): Promise<D.SessionRecord[]>;
   revokeSession(id: string): Promise<void>;
+  revokeOtherSessions(): Promise<void>;
   passkeys(): Promise<D.PasskeyRecord[]>;
   addPasskey(name: string): Promise<D.PasskeyRecord>;
   removePasskey(id: string): Promise<void>;
@@ -99,6 +100,7 @@ export interface CustomerApi {
   // content
   announcements(): Promise<D.Announcement[]>;
   markAnnouncementRead(id: string): Promise<void>;
+  markAllAnnouncementsRead(): Promise<void>;
   kb(): Promise<D.KbArticle[]>;
 }
 

@@ -23,7 +23,7 @@ export default function InvoiceDetail({ id }: { id: string }) {
             <InvoiceSummary
               invoice={toUi(i)}
               onPay={async () => setNote({ tone: 'bad', text: 'Direct invoice payment is not exposed by the billing backend.' })}
-              onDownload={() => setNote({ tone: 'bad', text: 'Invoice PDF download is not exposed by the billing backend.' })}
+              onDownload={() => { window.location.assign(`/api/v1/invoices/${encodeURIComponent(id)}/download`); }}
             />
           </div>
         )}
