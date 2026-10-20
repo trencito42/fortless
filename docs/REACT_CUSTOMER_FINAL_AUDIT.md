@@ -92,6 +92,7 @@ All customer routes have been audited for:
   12. Domains views render registered zones and DNS management
   13. Account security, team, and activity audit views
   14. Deploy wizard loads real catalog workloads
+  15. Suspended services do not trigger error warnings or appear in attention filter
 
 ### 3.3 TypeScript & Linter Verification
 - `npm run typecheck` in `frontend-react/`: 0 errors.
@@ -103,6 +104,7 @@ All customer routes have been audited for:
 ## 4. Key Architectural Guarantees Maintained
 
 1. **Production Isolation:** No modifications were made to `/home/fortless/htdocs/fortless.net` or production databases/daemons.
-2. **No Admin Leaks:** The React customer application contains no references or bundles for the administrative backend (`/admin`).
-3. **No Dead Fixtures in Production:** `createFortlessHttpApi` strictly rejects simulated data if a network request fails; errors bubble up to `ResourceView` or `Notice` components.
-4. **Design System Adherence:** The interface consistently leverages the Petal design system primitives, without introducing Tailwind CSS or competing third-party UI libraries.
+2. **Lifecycle State Separation:** Administrative statuses (`SUSPENDED`, `PAST_DUE`, `CANCELLED`, `TERMINATED`) are isolated from runtime crashes. Suspended services use neutral/muted UI styling, do not pollute Dashboard "Needs attention" warnings, and are excluded from error-priority sorting and Attention filters.
+3. **No Admin Leaks:** The React customer application contains no references or bundles for the administrative backend (`/admin`).
+4. **No Dead Fixtures in Production:** `createFortlessHttpApi` strictly rejects simulated data if a network request fails; errors bubble up to `ResourceView` or `Notice` components.
+5. **Design System Adherence:** The interface consistently leverages the Petal design system primitives, without introducing Tailwind CSS or competing third-party UI libraries.

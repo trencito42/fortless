@@ -8,11 +8,13 @@ import { ServiceStateBadge, WorkloadIcon } from '../components/bits';
 import { mb, money, date } from '../format';
 import { WORKLOAD_LABEL, type ServiceRow } from '../domain/types';
 
+import { serverStatus, type ServerState } from '@/features';
+
 type Quick = 'all' | 'running' | 'stopped' | 'attention';
 type Sort = 'name' | 'state' | 'ram' | 'renews';
-const NEEDS = new Set(['error', 'suspended']);
+const NEEDS = new Set(['error']);
 
-const valueOf = (s: ServiceRow, f: string): unknown => ({ workload: s.workload, provider: s.provider, region: s.regionId, plan: s.planId, ram: s.resources.ramLimitMb, tag: (s.tags ?? []).join(' ') } as Record<string, unknown>)[f];
+const valueOf = (s: ServiceRow, f: string): unknown => ({ state: s.state, workload: s.workload, provider: s.provider, region: s.regionId, plan: s.planId, ram: s.resources.ramLimitMb, tag: (s.tags ?? []).join(' ') } as Record<string, unknown>)[f];
 
 /** Why a power action is unavailable for a row, or null when it is allowed. Legitimate provider limits are explained, not hidden. */
 const powerBlock = (s: ServiceRow): string | null => {
@@ -37,6 +39,7 @@ export default function Services() {
     const services = res.status === 'ready' ? res.data : [];
     const options = (pairs: Array<[string, string]>) => [...new Map(pairs).entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }));
     return [
+      { id: 'state', label: 'Status', type: 'select', options: options(services.map((s) => [s.state, serverStatus[s.state as ServerState]?.label ?? s.state])) },
       { id: 'workload', label: 'Workload', type: 'select', options: options(services.map((s) => [s.workload, WORKLOAD_LABEL[s.workload]])) },
       { id: 'provider', label: 'Provider', type: 'select', options: options(services.map((s) => [s.provider, s.provider === 'PTERODACTYL' ? 'Game & app hosting' : s.provider === 'PROXMOX' ? 'Virtual machine' : 'Web hosting'])) },
       { id: 'region', label: 'Region', type: 'select', options: options(services.map((s) => [s.regionId, s.regionName])) },
@@ -58,7 +61,7 @@ export default function Services() {
     if (quick === 'stopped') r = r.filter((s) => s.state === 'offline');
     if (quick === 'attention') r = r.filter((s) => NEEDS.has(s.state));
     r = applyFilters(r, rules, fields, valueOf);
-    const order = { error: 0, suspended: 1, installing: 2, starting: 3, stopping: 3, running: 4, offline: 5 } as Record<string, number>;
+    const order = { error: 0, installing: 1, starting: 2, stopping: 2, running: 3, offline: 4, suspended: 5 } as Record<string, number>;
     return [...r].sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name) : sort === 'state' ? (order[a.state] ?? 9) - (order[b.state] ?? 9) : sort === 'ram' ? b.resources.ramLimitMb - a.resources.ramLimitMb : (a.renewsOn ?? '9').localeCompare(b.renewsOn ?? '9'));
   }, [res, quick, rules, sort, fields]);
   const counts = res.status === 'ready' ? { running: res.data.filter((s) => s.state === 'running').length, stopped: res.data.filter((s) => s.state === 'offline').length, attention: res.data.filter((s) => NEEDS.has(s.state)).length } : null;

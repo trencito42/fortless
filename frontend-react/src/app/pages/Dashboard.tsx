@@ -71,7 +71,8 @@ export default function Dashboard() {
                 { key: 'run', label: 'running', value: c.running, tone: 'bg-good' },
                 { key: 'stop', label: 'stopped', value: c.stopped, tone: 'bg-s4' },
                 { key: 'busy', label: 'busy', value: c.busy, tone: 'bg-warn' },
-                { key: 'bad', label: 'suspended or with errors', value: c.suspended + c.problem, tone: 'bg-bad' },
+                { key: 'suspended', label: 'suspended', value: c.suspended, tone: 'bg-ink3' },
+                { key: 'bad', label: 'with errors', value: c.problem, tone: 'bg-bad' },
               ]} />
               <p className="text-[13px] font-semibold text-ink2">{c.running} running · {c.stopped} stopped · {c.suspended} suspended{c.problem ? ` · ${c.problem} crashed` : ''}</p>
             </>

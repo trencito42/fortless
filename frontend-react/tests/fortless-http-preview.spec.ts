@@ -236,3 +236,69 @@ test('deploy wizard loads real catalog workloads', async ({ page }) => {
   await page.goto('/app/deploy');
   await expect(page.getByText('Minecraft: Java Edition')).toBeVisible();
 });
+
+test('suspended services do not trigger error warnings or appear in attention filter', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Maria Popescu', email: 'maria@example.test' }, account: { name: 'Maria Studio' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: true }));
+    if (path === '/api/v1/services') {
+      return route.fulfill(json({
+        services: [
+          {
+            id: 'svc_susp_1',
+            identifier: 'srv-susp1',
+            account_id: 'acc_1',
+            plan_name: 'Minecraft Paper',
+            contract_status: 'SUSPENDED',
+            runtime_state: 'STOPPED',
+            provider_type: 'PTERODACTYL',
+            node_name: 'Frankfurt-1',
+            node_id: 'fra',
+            created_at: '2026-09-01T10:00:00Z',
+            suspension_reason: 'Account billing review.',
+            memory_limit_mb: 4096,
+            disk_limit_mb: 20480,
+          },
+          {
+            id: 'svc_susp_2',
+            identifier: 'srv-susp2',
+            account_id: 'acc_1',
+            plan_name: 'CS2 Server',
+            contract_status: 'PAST_DUE',
+            runtime_state: 'STOPPED',
+            provider_type: 'PTERODACTYL',
+            node_name: 'Frankfurt-1',
+            node_id: 'fra',
+            created_at: '2026-09-02T10:00:00Z',
+            suspension_reason: 'Invoice past due.',
+            memory_limit_mb: 8192,
+            disk_limit_mb: 40960,
+          },
+        ],
+      }));
+    }
+    if (path === '/api/v1/invoices') return route.fulfill(json({ invoices: [] }));
+    if (path === '/api/v1/subscriptions') return route.fulfill(json({ subscriptions: [] }));
+    if (path === '/api/v1/tickets') return route.fulfill(json({ tickets: [] }));
+    if (path === '/api/v1/audit') return route.fulfill(json({ logs: [] }));
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+
+  await page.goto('/app');
+  // Needs attention section must NOT be rendered when only suspended services exist
+  await expect(page.getByRole('heading', { name: 'Needs attention' })).not.toBeVisible();
+  // Services summary bar reflects suspended services
+  await expect(page.getByText('2 suspended')).toBeVisible();
+  await expect(page.getByText('Suspended').first()).toBeVisible();
+
+  await page.goto('/app/services');
+  // Attention segmented filter counter must be 0
+  await expect(page.getByRole('radio', { name: /Attention 0/ })).toBeVisible();
+  // Suspended services appear under All with their Suspended status badge
+  await expect(page.getByRole('cell', { name: /Minecraft Paper/ }).first()).toBeVisible();
+  await expect(page.getByRole('cell', { name: /CS2 Server/ }).first()).toBeVisible();
+  // Switching to Attention filter shows no matches
+  await page.getByRole('radio', { name: /Attention 0/ }).click();
+  await expect(page.getByText('No services match')).toBeVisible();
+});

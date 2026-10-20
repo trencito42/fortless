@@ -9,7 +9,8 @@ import type { ServiceSummary } from './model';
 /** Pure DTO -> kit-props functions. No I/O, no React, unit-testable. This is the only place wire shapes meet the design system. */
 
 export function runtimeToState(rs: C.RuntimeState | undefined, contract: C.ContractStatus): ServerState {
-  if (contract !== 'ACTIVE') return 'suspended';
+  if (contract === 'SUSPENDED' || contract === 'PAST_DUE') return 'suspended';
+  if (contract === 'CANCELLED' || contract === 'TERMINATED') return 'offline';
   switch (rs) { case 'RUNNING': return 'running'; case 'STOPPED': case 'OFFLINE': return 'offline'; case 'INSTALLING': return 'installing'; case 'ERROR': return 'error'; default: return 'unknown'; }
 }
 /** Wings `status` event / usage state, which is more current than the stored runtime. */

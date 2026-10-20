@@ -57,7 +57,6 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
       const w: D.Warning[] = [];
       for (const v of s.services) {
         if (v.state === 'error') w.push({ id: `w_${v.id}`, severity: 'error', title: `${v.name} crashed`, detail: v.note ?? 'The process exited unexpectedly.', serviceId: v.id, action: { label: 'Open console', to: `/app/services/${v.id}/console` } });
-        if (v.state === 'suspended') w.push({ id: `w_${v.id}`, severity: 'error', title: `${v.name} is suspended`, detail: v.note ?? 'Pay the open invoice to resume.', serviceId: v.id, action: { label: 'Pay invoice', to: '/app/billing/invoices' } });
         if (v.resources.diskLimitMb && v.resources.diskUsedMb / v.resources.diskLimitMb > 0.85) w.push({ id: `wd_${v.id}`, severity: 'warn', title: `${v.name} is almost out of disk`, detail: 'Over 85% of the disk is used.', serviceId: v.id });
       }
       const od = s.invoices.filter((i) => i.state === 'overdue').length; if (od) w.push({ id: 'w_inv', severity: 'warn', title: `${od} overdue invoice${od > 1 ? 's' : ''}`, detail: 'Services with unpaid invoices are suspended after 7 days.', action: { label: 'Review invoices', to: '/app/billing/invoices' } });

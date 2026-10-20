@@ -10,7 +10,7 @@ export const serverStatus: Record<ServerState, StatusView> = {
   stopping: { tone: 'warn', label: 'Stopping', live: true },
   offline: { tone: 'neutral', label: 'Offline' },
   installing: { tone: 'info', label: 'Installing', live: true },
-  suspended: { tone: 'bad', label: 'Suspended' },
+  suspended: { tone: 'neutral', label: 'Suspended' },
   error: { tone: 'bad', label: 'Error' },
   unknown: { tone: 'neutral', label: 'Unknown' },
 };

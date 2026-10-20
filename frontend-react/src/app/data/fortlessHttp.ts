@@ -51,11 +51,12 @@ function workloadFor(service: WireService): D.Workload {
 function serviceState(service: WireService): D.ServiceState {
   const contract = text(service.contract_status, 'ACTIVE').toUpperCase();
   if (contract === 'SUSPENDED' || contract === 'PAST_DUE') return 'suspended';
-  if (contract !== 'ACTIVE') return 'error';
+  if (contract === 'CANCELLED' || contract === 'TERMINATED') return 'offline';
   const runtime = text(service.runtime_state, 'UNKNOWN').toUpperCase();
+  if (runtime === 'ERROR') return 'error';
   if (runtime === 'RUNNING') return 'running';
   if (runtime === 'INSTALLING') return 'installing';
-  if (runtime === 'ERROR') return 'error';
+  if (contract !== 'ACTIVE') return 'offline';
   return 'offline';
 }
 
@@ -320,7 +321,7 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     warnings: async () => {
       const [services, invoices] = await Promise.all([listServices(), listInvoices()]);
       return [
-        ...services.filter((service) => service.state === 'suspended' || service.state === 'error').map<D.Warning>((service) => ({ id: `service-${service.id}`, severity: 'error', title: `${service.name} needs attention`, detail: service.note ?? 'The service is not operational.', serviceId: service.id, action: { label: 'View service', to: `/app/services/${service.id}` } })),
+        ...services.filter((service) => service.state === 'error').map<D.Warning>((service) => ({ id: `service-${service.id}`, severity: 'error', title: `${service.name} needs attention`, detail: service.note ?? 'The service encountered a technical error.', serviceId: service.id, action: { label: 'View service', to: `/app/services/${service.id}` } })),
         ...invoices.filter((invoice) => invoice.state === 'overdue').map<D.Warning>((invoice) => ({ id: `invoice-${invoice.id}`, severity: 'warn', title: `Invoice ${invoice.number} is overdue`, detail: 'Review the authoritative invoice record before taking action.', action: { label: 'Review invoices', to: '/app/billing/invoices' } })),
       ];
     },
