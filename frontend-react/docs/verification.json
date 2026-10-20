@@ -1,0 +1,576 @@
+{
+  "verified": [
+    "action-menu",
+    "alert-dialog",
+    "announcements-kb",
+    "api-keys",
+    "app-shell",
+    "audit-trail",
+    "backups-schedules",
+    "badge-status",
+    "billing",
+    "bulk-action-bar",
+    "button",
+    "button-group",
+    "card-surfaces",
+    "cart-checkout",
+    "chart-legend",
+    "charts",
+    "checkbox-card-group",
+    "choice-controls",
+    "code-editor",
+    "combobox",
+    "command-button",
+    "copy-loading-destructive",
+    "data-table",
+    "deploy-configurator",
+    "description-timeline",
+    "dialog",
+    "discord-bot-setup",
+    "dns-editor",
+    "domain-search",
+    "dropzone-date",
+    "feedback-primitives",
+    "files",
+    "filter-builder",
+    "form-wizard",
+    "game-config",
+    "key-value",
+    "log-viewer",
+    "metric-card",
+    "network-allocations",
+    "notification-preferences",
+    "number-fields",
+    "otp-two-factor",
+    "pagination",
+    "passkeys-sessions",
+    "payment-methods",
+    "player-manager",
+    "popover-tooltip",
+    "pricing-table",
+    "radial",
+    "reveal-button",
+    "secret-field",
+    "segmented-control",
+    "select",
+    "server-console",
+    "server-metrics",
+    "server-power",
+    "service-detail",
+    "slider-field",
+    "split-button",
+    "startup-editor",
+    "status-map",
+    "tabs-breadcrumbs",
+    "tag-input",
+    "team-members",
+    "text-fields",
+    "ticket-conversation",
+    "toggle-button-group",
+    "toolbar",
+    "tree-view",
+    "usage-overview",
+    "validation-summary"
+  ],
+  "failing": [],
+  "tiers": {
+    "button": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "badge-status": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "card-surfaces": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "feedback-primitives": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "button-group": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "segmented-control": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "toggle-button-group": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "split-button": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "action-menu": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "toolbar": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "bulk-action-bar": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "copy-loading-destructive": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "text-fields": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "secret-field": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "number-fields": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "slider-field": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "select": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "combobox": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "choice-controls": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "tag-input": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "key-value": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "dropzone-date": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "dialog": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "alert-dialog": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "popover-tooltip": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "app-shell": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "tabs-breadcrumbs": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "data-table": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "pagination": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "description-timeline": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "tree-view": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "metric-card": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "charts": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "radial": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "form-wizard": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "server-console": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "code-editor": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "log-viewer": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "files": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "server-power": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "server-metrics": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "game-config": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "player-manager": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "deploy-configurator": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "dns-editor": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "billing": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "ticket-conversation": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "discord-bot-setup": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "status-map": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "otp-two-factor": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "passkeys-sessions": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "payment-methods": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "api-keys": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "team-members": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "backups-schedules": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "domain-search": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    },
+    "command-button": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "reveal-button": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "checkbox-card-group": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "validation-summary": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "chart-legend": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "filter-builder": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "audit-trail": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": true,
+      "failing": false
+    },
+    "pricing-table": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "notification-preferences": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "cart-checkout": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "announcements-kb": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "usage-overview": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "startup-editor": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "network-allocations": {
+      "render": true,
+      "a11y": true,
+      "interaction": true,
+      "browser": false,
+      "failing": false
+    },
+    "service-detail": {
+      "render": true,
+      "a11y": true,
+      "interaction": false,
+      "browser": false,
+      "failing": false
+    }
+  },
+  "note": "verified = render + axe tiers passed. interaction = hand-written keyboard/pointer tests passed. browser = interaction-tested and screenshotted. See scripts/registry-report.ts for exact definitions."
+}

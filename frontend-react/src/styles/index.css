@@ -1,0 +1,254 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter-tight";
+@import "@fontsource-variable/jetbrains-mono";
+
+/*
+ * Fortless design tokens (Petal). Extracted from Fortless.html / Fortless App Nav.html / Fortless Views.html.
+ * Flat layered surfaces, no borders, no shadows, no gradients.
+ * Light is the base. Dark applies for explicit data-theme="dark" and for system dark when no explicit light choice is set.
+ *
+ * Deviation from the prototypes: --ink3 (hints, placeholders, disabled copy) was #8995a5 on white (2.9:1).
+ * It is darkened here so secondary copy passes WCAG 2.2 AA (4.5:1). Status text colors are adjusted the same way.
+ */
+:root {
+  --bg: #eff1f5;
+  --s1: #ffffff;
+  --s2: #f5f6fa;
+  --s3: #e5e8ee;
+  --s4: #d5dae3;
+  --ink: #0b1a2b;
+  --ink2: #55637a;
+  --ink3: #5f6c80;
+  --on-ink: #ffffff;
+  --accent: #2559ee;
+  --accent-h: #1b4cd1;
+  --accent-bg: #e0e8ff;
+  --accent-ink: #1b4cd1;
+  --on-accent: #ffffff;
+  --good: #12713c;
+  --good-bg: #d6f5e0;
+  --warn: #8f5800;
+  --warn-bg: #fdefc8;
+  --bad: #c42229;
+  --bad-bg: #fde1e2;
+  --info: #3b46c9;
+  --info-bg: #e3e5ff;
+  --violet: #7a4d90;
+  --violet-bg: #efe1f5;
+  --lime: #b9ff3d;
+  --lime-ink: #0b1a12;
+  --on-bad: #ffffff;
+  --con: #0b1a2b;
+  --con-ink: #c9d8ee;
+  --con-dim: #7f95b4;
+  --con-ok: #5be39a;
+  --con-warn: #f0b232;
+  --con-bad: #ff7b80;
+  --overlay: rgb(8 14 24 / 0.42);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter Tight Variable", "Inter Tight", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --r-xs: 8px;
+  --r-sm: 12px;
+  --r-md: 14px;
+  --r-lg: 22px;
+  --r-xl: 28px;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur: 250ms;
+  --dur-slow: 400ms;
+
+  --ctl-sm: 34px;
+  --ctl-md: 44px;
+  --ctl-lg: 52px;
+  --touch-min: 44px;
+
+  --sidebar-w: 272px;
+  --sidebar-rail-w: 76px;
+  --content-max: 1280px;
+  --gut: clamp(16px, 2.4vw, 28px);
+
+  --z-sticky: 20;
+  --z-nav: 40;
+  --z-overlay: 60;
+  --z-popover: 70;
+  --z-toast: 80;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0e15;
+    --s1: #141a24;
+    --s2: #1b2330;
+    --s3: #252f3f;
+    --s4: #344156;
+    --ink: #eef2f7;
+    --ink2: #9aa8ba;
+    --ink3: #8593a6;
+    --on-ink: #0a0e15;
+    --accent: #7aa2ff;
+    --accent-h: #9bb8ff;
+    --accent-bg: #1a2750;
+    --accent-ink: #9bb8ff;
+    --on-accent: #0a0e15;
+    --good: #3ddc84;
+    --good-bg: #123525;
+    --warn: #f0b232;
+    --warn-bg: #352a0e;
+    --bad: #ff6b70;
+    --bad-bg: #3b1618;
+    --info: #8f9bff;
+    --info-bg: #1f2250;
+    --violet: #d2a9e4;
+    --violet-bg: #2b2236;
+    --on-bad: #0a0e15;
+    --con: #05080d;
+    --overlay: rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a0e15;
+  --s1: #141a24;
+  --s2: #1b2330;
+  --s3: #252f3f;
+  --s4: #344156;
+  --ink: #eef2f7;
+  --ink2: #9aa8ba;
+  --ink3: #8593a6;
+  --on-ink: #0a0e15;
+  --accent: #7aa2ff;
+  --accent-h: #9bb8ff;
+  --accent-bg: #1a2750;
+  --accent-ink: #9bb8ff;
+  --on-accent: #0a0e15;
+  --good: #3ddc84;
+  --good-bg: #123525;
+  --warn: #f0b232;
+  --warn-bg: #352a0e;
+  --bad: #ff6b70;
+  --bad-bg: #3b1618;
+  --info: #8f9bff;
+  --info-bg: #1f2250;
+  --violet: #d2a9e4;
+  --violet-bg: #2b2236;
+  --on-bad: #0a0e15;
+  --con: #05080d;
+  --overlay: rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+:root[data-density="compact"] {
+  --ctl-sm: 30px;
+  --ctl-md: 38px;
+  --ctl-lg: 46px;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-s1: var(--s1);
+  --color-s2: var(--s2);
+  --color-s3: var(--s3);
+  --color-s4: var(--s4);
+  --color-ink: var(--ink);
+  --color-ink2: var(--ink2);
+  --color-ink3: var(--ink3);
+  --color-on-ink: var(--on-ink);
+  --color-accent: var(--accent);
+  --color-accent-h: var(--accent-h);
+  --color-accent-bg: var(--accent-bg);
+  --color-accent-ink: var(--accent-ink);
+  --color-on-accent: var(--on-accent);
+  --color-good: var(--good);
+  --color-good-bg: var(--good-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-bad: var(--bad);
+  --color-bad-bg: var(--bad-bg);
+  --color-on-bad: var(--on-bad);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-violet: var(--violet);
+  --color-violet-bg: var(--violet-bg);
+  --color-lime: var(--lime);
+  --color-lime-ink: var(--lime-ink);
+  --color-con: var(--con);
+  --color-con-ink: var(--con-ink);
+  --color-con-dim: var(--con-dim);
+  --color-con-ok: var(--con-ok);
+  --color-con-warn: var(--con-warn);
+  --color-con-bad: var(--con-bad);
+  --color-overlay: var(--overlay);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-xs: var(--r-xs);
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-xl: var(--r-xl);
+  --ease-petal: var(--ease);
+  --breakpoint-xs: 360px;
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1440px;
+  --breakpoint-2xl: 1920px;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { cursor: pointer; font: inherit; color: inherit; background: none; border: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  button:disabled { cursor: not-allowed; }
+  a { color: inherit; text-decoration: none; }
+  h1, h2, h3, h4, h5, h6, p { margin: 0; }
+  input, textarea, select { font: inherit; color: inherit; }
+  @media (max-width: 767px) {
+    input, textarea, select { font-size: 16px; }
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-bg); color: var(--accent-ink); }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+  }
+}
+
+@layer utilities {
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .h-ctl-sm { height: var(--ctl-sm); --half: calc(var(--ctl-sm) / 2); }
+  .h-ctl-md { height: var(--ctl-md); --half: calc(var(--ctl-md) / 2); }
+  .h-ctl-lg { height: var(--ctl-lg); --half: calc(var(--ctl-lg) / 2); }
+  .min-h-ctl-sm { min-height: var(--ctl-sm); }
+  .min-h-ctl-md { min-height: var(--ctl-md); }
+  .min-h-ctl-lg { min-height: var(--ctl-lg); }
+  .size-ctl-sm { width: var(--ctl-sm); height: var(--ctl-sm); }
+  .size-ctl-md { width: var(--ctl-md); height: var(--ctl-md); }
+  .size-ctl-lg { width: var(--ctl-lg); height: var(--ctl-lg); }
+  .w-ctl-sm { width: var(--ctl-sm); }
+  .w-ctl-md { width: var(--ctl-md); }
+  .w-ctl-lg { width: var(--ctl-lg); }
+}
+
+@keyframes fl-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes fl-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fl-spin { to { transform: rotate(360deg); } }
+@keyframes fl-ping { from { opacity: 0.6; transform: scale(1); } to { opacity: 0; transform: scale(3); } }
+@keyframes fl-sheet { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fl-shimmer { 0% { opacity: 1; } 50% { opacity: 0.55; } 100% { opacity: 1; } }

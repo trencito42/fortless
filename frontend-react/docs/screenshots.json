@@ -1,0 +1,32 @@
+{
+  "captured": [
+    "button-group",
+    "segmented-control",
+    "number-fields",
+    "secret-field",
+    "combobox",
+    "dialog",
+    "data-table",
+    "filter-builder",
+    "audit-trail",
+    "chart-legend",
+    "form-wizard",
+    "files",
+    "server-console",
+    "deploy-configurator",
+    "player-manager",
+    "command-button",
+    "checkbox-card-group",
+    "validation-summary",
+    "toolbar"
+  ],
+  "missing": [],
+  "sizes": [
+    "390x844",
+    "1440x900"
+  ],
+  "themes": [
+    "light",
+    "dark"
+  ]
+}
