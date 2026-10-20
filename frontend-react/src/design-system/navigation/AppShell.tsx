@@ -7,6 +7,8 @@ import { Kbd } from '../primitives/Kbd';
 import { Breadcrumbs } from './Breadcrumbs';
 import { MobileNavigationSheet } from './MobileNavigationSheet';
 import { NavTree } from './NavTree';
+import { ActionMenu } from '../actions/ActionMenu';
+import type { MenuEntry } from '../actions/menu-types';
 import type { MobileTab, NavGroup, NavUser } from './nav-types';
 import { breadcrumbsFor, filterNav, findNav } from './nav-utils';
 
@@ -37,6 +39,8 @@ export interface AppShellProps {
   defaultCollapsed?: boolean;
   /** Shown in the sidebar footer, next to the user (theme toggle slot). */
   userActions?: ReactNode;
+  /** Account actions opened from the authenticated user's row or avatar. */
+  userMenuEntries?: MenuEntry[];
   className?: string;
 }
 
@@ -45,23 +49,31 @@ export interface AppShellProps {
  * Phone: sticky top bar, floating bottom tab bar, and a bottom sheet with the full navigation.
  * Navigation is data: pass groups, ids and permissions; the shell never imports a router.
  */
-export function AppShell({ nav, currentId, onNavigate, user, can, tabs, actions, onOpenSearch, children, defaultCollapsed = false, userActions, className }: AppShellProps) {
+export function AppShell({ nav, currentId, onNavigate, user, can, tabs, actions, onOpenSearch, children, defaultCollapsed = false, userActions, userMenuEntries, className }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [sheet, setSheet] = useState(false);
   const groups = filterNav(nav, can);
   const crumbs = breadcrumbsFor(groups, currentId);
   const currentItem = findNav(groups, currentId)?.item;
 
-  const userRow = (
-    <div className="flex items-center gap-2.5">
+  const userRowContent = (
+    <div className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
       <Avatar initials={user.initials} size="sm" />
       <span className="grid min-w-0 flex-1 leading-tight">
         <b className="truncate font-bold">{user.name}</b>
         {user.role ? <small className="truncate font-semibold text-ink3">{user.role}</small> : null}
       </span>
-      {userActions}
     </div>
   );
+  const userRow = userMenuEntries?.length ? (
+    <ActionMenu
+      label={`Account menu for ${user.name}`}
+      align="start"
+      side="top"
+      trigger={<button type="button" aria-label={`Account menu for ${user.name}`} className="flex min-w-0 flex-1 items-center rounded-md p-1 hover:bg-s2 focus-visible:outline-2 focus-visible:outline-accent">{userRowContent}</button>}
+      entries={userMenuEntries}
+    />
+  ) : userRowContent;
 
   return (
     <div className={cn('flex h-dvh min-h-0 bg-bg text-ink', className)}>
@@ -83,7 +95,7 @@ export function AppShell({ nav, currentId, onNavigate, user, can, tabs, actions,
           <NavTree groups={groups} currentId={currentId} onNavigate={onNavigate} collapsed={collapsed} />
         </div>
         <div className={cn('mt-2 flex shrink-0 items-center pt-3', collapsed ? 'flex-col gap-2' : 'justify-between gap-2')}>
-          {collapsed ? <Avatar initials={user.initials} size="sm" /> : <div className="min-w-0 flex-1">{userRow}</div>}
+          {collapsed ? (userMenuEntries?.length ? <ActionMenu label={`Account menu for ${user.name}`} side="right" align="end" trigger={<button type="button" aria-label={`Account menu for ${user.name}`} className="rounded-full focus-visible:outline-2 focus-visible:outline-accent"><Avatar initials={user.initials} size="sm" /></button>} entries={userMenuEntries} /> : <Avatar initials={user.initials} size="sm" />) : <div className="flex min-w-0 flex-1 items-center gap-1">{userRow}{userActions}</div>}
           <IconButton label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} icon="layout-left" size="sm" variant="ghost" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed} />
         </div>
       </aside>

@@ -200,6 +200,29 @@ export function revokeAccountMember(
   }, db);
 }
 
+export function revokeAccountInvitation(
+  data: { accountId: string; actorUserId: string; invitationId: string; ipAddress: string },
+  db: Database.Database = getDatabase()
+): void {
+  runInTransaction((trx) => {
+    const actor = trx.prepare('SELECT role FROM memberships WHERE account_id = ? AND user_id = ?')
+      .get(data.accountId, data.actorUserId) as { role: string } | undefined;
+    if (!actor || !['OWNER', 'TECH_ADMIN'].includes(actor.role)) {
+      throw new Error('Only workspace owners and technical administrators can cancel invitations.');
+    }
+    const invitation = trx.prepare(`
+      SELECT id FROM account_invitations
+      WHERE id = ? AND account_id = ? AND accepted_at IS NULL
+    `).get(data.invitationId, data.accountId) as { id: string } | undefined;
+    if (!invitation) throw new Error('Invitation not found.');
+    trx.prepare("UPDATE account_invitations SET accepted_at = datetime('now', 'utc') WHERE id = ?").run(data.invitationId);
+    trx.prepare(`
+      INSERT INTO audit_events (id, account_id, actor_user_id, actor_type, action, resource_type, resource_id, ip_address, correlation_id)
+      VALUES (?, ?, ?, 'USER', 'team.invitation_revoked', 'invitation', ?, ?, ?)
+    `).run(generateId('aud'), data.accountId, data.actorUserId, data.invitationId, data.ipAddress, generateId('cor'));
+  }, db);
+}
+
 export function acceptAccountInvitation(
   rawToken: string,
   userId: string,

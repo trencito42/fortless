@@ -74,6 +74,7 @@ import {
   listAccountInvitations,
   inviteAccountMember,
   revokeAccountMember,
+  revokeAccountInvitation,
   acceptAccountInvitation,
 } from './modules/identity/teams.js';
 import {
@@ -99,6 +100,18 @@ import {
   createPlanVersion,
   updatePlanStatus,
 } from './modules/catalog/catalog.js';
+import {
+  deleteAnnouncement,
+  deleteArticle,
+  deleteCategory,
+  listManagedContent,
+  listPublishedAnnouncements,
+  markAllAnnouncementsRead,
+  markAnnouncementRead,
+  saveAnnouncement,
+  saveArticle,
+  saveCategory,
+} from './modules/content/content.js';
 import { PterodactylHttpAdapter, ProviderError } from './modules/provisioning/adapter.js';
 import { VERIFIED_TAX_ID_TYPE, createQuote } from './modules/pricing/quote.js';
 import { processCheckout } from './modules/checkout/checkout.js';
@@ -593,7 +606,8 @@ export function buildServer(): FastifyInstance {
     const category = (req.query as any)?.category;
     const limit = (req.query as any)?.limit ? Number((req.query as any).limit) : 10;
     const articles = searchKnowledgeArticles(query, { category, limit }, getDatabase());
-    return { articles };
+    const categories = (getDatabase().prepare('SELECT id, slug, name, description, sort_order AS sortOrder FROM knowledge_categories ORDER BY sort_order, name').all());
+    return { articles, categories };
   });
 
   // Knowledge Base: Get Article by Slug
@@ -604,6 +618,81 @@ export function buildServer(): FastifyInstance {
       return reply.status(404).send({ error: 'Article not found.' });
     }
     return { article };
+  });
+
+  app.get('/api/v1/announcements', { preHandler: [requireAuth] }, async (req) => ({
+    announcements: listPublishedAnnouncements(req.auth!.user.id, getDatabase()),
+  }));
+  app.post('/api/v1/announcements/:id/read', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parsed = z.object({ id: z.string().min(1) }).safeParse(req.params);
+    if (!parsed.success) return reply.status(400).send({ error: 'Announcement ID is required.' });
+    try { markAnnouncementRead(parsed.data.id, req.auth!.user.id, getDatabase()); return { success: true }; }
+    catch (error: unknown) { return reply.status(404).send({ error: (error as Error).message }); }
+  });
+  app.post('/api/v1/announcements/read-all', { preHandler: [requireAuth] }, async (req) => {
+    markAllAnnouncementsRead(req.auth!.user.id, getDatabase());
+    return { success: true };
+  });
+
+  const categoryBody = z.object({
+    slug: z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$/),
+    name: z.string().trim().min(1).max(100),
+    description: z.string().trim().max(500).default(''),
+    sortOrder: z.number().int().min(-10000).max(10000).default(0),
+  });
+  const articleBody = z.object({
+    slug: z.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    title: z.string().trim().min(1).max(200), category: z.string().min(1).max(64),
+    summary: z.string().trim().min(1).max(1000), contentMarkdown: z.string().trim().min(1).max(100000),
+    tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]), isPublished: z.boolean(),
+  });
+  const announcementBody = z.object({
+    slug: z.string().trim().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    category: z.string().min(1).max(64), kind: z.enum(['NEWS', 'MAINTENANCE', 'INCIDENT']),
+    title: z.string().trim().min(1).max(200), bodyMarkdown: z.string().trim().min(1).max(100000),
+    isPublished: z.boolean(), publishedAt: z.string().datetime().nullable().optional(),
+  });
+  const contentError = (reply: FastifyReply, error: unknown) => reply.status(400).send({ error: error instanceof Error ? error.message : 'Content operation failed.' });
+
+  app.get('/api/v1/admin/content', { preHandler: [requireAuth, requireStaffPermission('content:read')] }, async () => listManagedContent(getDatabase()));
+  for (const kind of ['knowledge', 'announcement'] as const) {
+    app.post(`/api/v1/admin/content/${kind}-categories`, { preHandler: [requireAuth, requireStaffPermission('content:manage')] }, async (req, reply) => {
+      const body = categoryBody.safeParse(req.body); if (!body.success) return reply.status(400).send({ error: 'Invalid category fields.', issues: body.error.issues });
+      try { return reply.status(201).send({ category: saveCategory(kind, null, body.data, getDatabase()) }); } catch (error) { return contentError(reply, error); }
+    });
+    app.put(`/api/v1/admin/content/${kind}-categories/:id`, { preHandler: [requireAuth, requireStaffPermission('content:manage')] }, async (req, reply) => {
+      const params = z.object({ id: z.string().min(1) }).safeParse(req.params); const body = categoryBody.safeParse(req.body);
+      if (!params.success || !body.success) return reply.status(400).send({ error: 'Invalid category fields.' });
+      try { return { category: saveCategory(kind, params.data.id, body.data, getDatabase()) }; } catch (error) { return contentError(reply, error); }
+    });
+    app.delete(`/api/v1/admin/content/${kind}-categories/:id`, { preHandler: [requireAuth, requireStaffPermission('content:manage'), requireRecentStepUp] }, async (req, reply) => {
+      const params = z.object({ id: z.string().min(1) }).safeParse(req.params); if (!params.success) return reply.status(400).send({ error: 'Category ID is required.' });
+      try { deleteCategory(kind, params.data.id, getDatabase()); return { success: true }; } catch (error) { return contentError(reply, error); }
+    });
+  }
+  app.post('/api/v1/admin/content/articles', { preHandler: [requireAuth, requireStaffPermission('content:manage')] }, async (req, reply) => {
+    const body = articleBody.safeParse(req.body); if (!body.success) return reply.status(400).send({ error: 'Invalid article fields.', issues: body.error.issues });
+    try { return reply.status(201).send({ article: saveArticle(null, body.data, getDatabase()) }); } catch (error) { return contentError(reply, error); }
+  });
+  app.put('/api/v1/admin/content/articles/:id', { preHandler: [requireAuth, requireStaffPermission('content:manage')] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params); const body = articleBody.safeParse(req.body); if (!params.success || !body.success) return reply.status(400).send({ error: 'Invalid article fields.' });
+    try { return { article: saveArticle(params.data.id, body.data, getDatabase()) }; } catch (error) { return contentError(reply, error); }
+  });
+  app.delete('/api/v1/admin/content/articles/:id', { preHandler: [requireAuth, requireStaffPermission('content:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params); if (!params.success) return reply.status(400).send({ error: 'Article ID is required.' });
+    try { deleteArticle(params.data.id, getDatabase()); return { success: true }; } catch (error) { return contentError(reply, error); }
+  });
+  app.post('/api/v1/admin/content/announcements', { preHandler: [requireAuth, requireStaffPermission('content:manage')] }, async (req, reply) => {
+    const body = announcementBody.safeParse(req.body); if (!body.success) return reply.status(400).send({ error: 'Invalid announcement fields.', issues: body.error.issues });
+    try { return reply.status(201).send({ announcement: saveAnnouncement(null, body.data, req.auth!.user.id, getDatabase()) }); } catch (error) { return contentError(reply, error); }
+  });
+  app.put('/api/v1/admin/content/announcements/:id', { preHandler: [requireAuth, requireStaffPermission('content:manage')] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params); const body = announcementBody.safeParse(req.body); if (!params.success || !body.success) return reply.status(400).send({ error: 'Invalid announcement fields.' });
+    try { return { announcement: saveAnnouncement(params.data.id, body.data, req.auth!.user.id, getDatabase()) }; } catch (error) { return contentError(reply, error); }
+  });
+  app.delete('/api/v1/admin/content/announcements/:id', { preHandler: [requireAuth, requireStaffPermission('content:manage'), requireRecentStepUp] }, async (req, reply) => {
+    const params = z.object({ id: z.string().min(1) }).safeParse(req.params); if (!params.success) return reply.status(400).send({ error: 'Announcement ID is required.' });
+    try { deleteAnnouncement(params.data.id, getDatabase()); return { success: true }; } catch (error) { return contentError(reply, error); }
   });
 
   app.get('/admin', async (req, reply) => {
@@ -619,7 +708,7 @@ export function buildServer(): FastifyInstance {
     const viewPermissions: Record<string, StaffPermission> = {
       accounts: 'accounts:read', services: 'services:read', orders: 'accounts:read', billing: 'accounts:read',
       infrastructure: 'services:read', catalog: 'catalog:read', tickets: 'tickets:read', audit: 'audit:read',
-      jobs: 'audit:read', staff: 'staff:read', status: 'services:read', settings: 'admin:access',
+      jobs: 'audit:read', staff: 'staff:read', content: 'content:read', status: 'services:read', settings: 'admin:access',
     };
     if (!viewPermissions[view]) return reply.redirect('/admin');
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(`/admin/${view}`)}`);
@@ -1250,6 +1339,22 @@ export function buildServer(): FastifyInstance {
         ipAddress: req.ip,
       });
       return reply.send({ success: true, message: 'Team member removed.' });
+    } catch (err: unknown) {
+      return reply.status(400).send({ error: (err as Error).message });
+    }
+  });
+
+  app.delete('/api/v1/account/invitations/:invitationId', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = z.object({ invitationId: z.string().min(1) }).safeParse(req.params);
+    if (!parse.success) return reply.status(400).send({ error: 'Invitation ID is required.' });
+    try {
+      revokeAccountInvitation({
+        accountId: req.auth!.account.id,
+        actorUserId: req.auth!.user.id,
+        invitationId: parse.data.invitationId,
+        ipAddress: req.ip,
+      });
+      return reply.send({ success: true, message: 'Invitation cancelled.' });
     } catch (err: unknown) {
       return reply.status(400).send({ error: (err as Error).message });
     }
@@ -2768,6 +2873,7 @@ export function buildServer(): FastifyInstance {
       { id: 'adm-orders', title: 'Admin: Orders', category: 'Admin Control Plane', icon: 'package', path: '/admin/orders', perm: 'accounts:read' as StaffPermission },
       { id: 'adm-billing', title: 'Admin: Billing Operations', category: 'Admin Control Plane', icon: 'credit-card', path: '/admin/billing', perm: 'accounts:read' as StaffPermission },
       { id: 'adm-infrastructure', title: 'Admin: Infrastructure Capacity', category: 'Admin Control Plane', icon: 'database', path: '/admin/infrastructure', perm: 'services:read' as StaffPermission },
+      { id: 'adm-content', title: 'Admin: Content Management', category: 'Admin Control Plane', icon: 'document', path: '/admin/content', perm: 'content:read' as StaffPermission },
       { id: 'adm-tickets', title: 'Admin: Support Queue', category: 'Admin Control Plane', icon: 'bubble-chat', path: '/admin/tickets', perm: 'tickets:read' as StaffPermission },
       { id: 'adm-audit', title: 'Admin: Global Audit Trail', category: 'Admin Control Plane', icon: 'shield-01', path: '/admin/audit', perm: 'audit:read' as StaffPermission },
       { id: 'adm-staff', title: 'Admin: Staff Access & Roles', category: 'Admin Control Plane', icon: 'users', path: '/admin/staff', perm: 'staff:read' as StaffPermission },

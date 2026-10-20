@@ -1361,6 +1361,65 @@ Fortless issues legally binding sequential invoices (\`INV-YYYY-XXXXX\`) on conf
       `);
     },
   },
+  {
+    version: 64,
+    name: 'managed knowledge categories and customer announcements',
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS knowledge_categories (
+          id TEXT PRIMARY KEY,
+          slug TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        INSERT OR IGNORE INTO knowledge_categories (id, slug, name, sort_order)
+        SELECT 'kbc_' || lower(replace(category, ' ', '-')), category,
+               replace(replace(category, '_', ' '), '-', ' '), 0
+        FROM knowledge_articles;
+
+        CREATE TABLE IF NOT EXISTS announcement_categories (
+          id TEXT PRIMARY KEY,
+          slug TEXT UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+
+        INSERT OR IGNORE INTO announcement_categories (id, slug, name, sort_order) VALUES
+          ('anc_news', 'news', 'News', 10),
+          ('anc_maintenance', 'maintenance', 'Maintenance', 20),
+          ('anc_incidents', 'incidents', 'Incidents', 30);
+
+        CREATE TABLE IF NOT EXISTS announcements (
+          id TEXT PRIMARY KEY,
+          slug TEXT UNIQUE NOT NULL,
+          category TEXT NOT NULL REFERENCES announcement_categories(slug) ON UPDATE CASCADE,
+          kind TEXT NOT NULL DEFAULT 'NEWS' CHECK(kind IN ('NEWS','MAINTENANCE','INCIDENT')),
+          title TEXT NOT NULL,
+          body_markdown TEXT NOT NULL,
+          is_published INTEGER NOT NULL DEFAULT 0 CHECK(is_published IN (0,1)),
+          published_at TEXT,
+          created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_announcements_published ON announcements(is_published, published_at DESC);
+
+        CREATE TABLE IF NOT EXISTS announcement_reads (
+          announcement_id TEXT NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          read_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+          PRIMARY KEY (announcement_id, user_id)
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): number {

@@ -45,7 +45,7 @@ export function NavTree({ groups, currentId, onNavigate, collapsed, touch }: Nav
       const target = itemTarget(item);
       const active = target === currentId;
       const link = (
-        <button type="button" className={row(active, false, touch)} aria-current={active ? 'page' : undefined} aria-label={collapsed ? item.label : undefined} onClick={() => onNavigate(target)}>
+        <button type="button" className={cn(row(active, false, touch), collapsed && 'justify-center px-0')} aria-current={active ? 'page' : undefined} aria-label={collapsed ? item.label : undefined} onClick={() => onNavigate(target)}>
           <Icon name={item.icon} size={20} className={active ? 'text-accent' : 'text-ink3'} />
           {collapsed ? null : <span className="min-w-0 flex-1 truncate">{item.label}</span>}
           {item.badge != null ? <Badge value={item.badge} dot={collapsed} /> : null}

@@ -140,6 +140,12 @@ export const ADMIN_ROUTES: Record<string, RouteDefinition> = {
     title: 'Catalog & Providers · FORTLESS',
     subtitle: 'Commercial products mapped explicitly to provider inventory.',
   },
+  content: {
+    id: 'content',
+    path: '/admin/content',
+    title: 'Content Management · FORTLESS',
+    subtitle: 'Knowledge base articles, categories and customer announcements.',
+  },
   tickets: {
     id: 'tickets',
     path: '/admin/tickets',

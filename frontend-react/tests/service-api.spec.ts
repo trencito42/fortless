@@ -11,15 +11,16 @@ import { ServiceApiError } from '../src/views/service-detail/ports';
  * What it does NOT prove: that a live Fortless or panel answers (see docs/SERVICE_DETAIL_API_MAP.md, level 5).
  */
 type Call = { method: string; url: string; body: unknown; csrf: string | null };
+const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 function recorder(reply: (url: string) => { status?: number; json: unknown } = () => ({ json: {} })) {
   const calls: Call[] = [];
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
-    if (url === '/api/v1/auth/csrf') return new Response(JSON.stringify({ csrfToken: 'tok-1' }), { status: 200 });
+    if (url === '/api/v1/auth/csrf') return jsonResponse({ csrfToken: 'tok-1' });
     const headers = (init?.headers ?? {}) as Record<string, string>;
     calls.push({ method: init?.method ?? 'GET', url, body: init?.body ? JSON.parse(String(init.body)) : undefined, csrf: headers['X-CSRF-Token'] ?? null });
     const r = reply(url);
-    return new Response(JSON.stringify(r.json), { status: r.status ?? 200 });
+    return jsonResponse(r.json, r.status ?? 200);
   }) as typeof fetch;
   return { calls, fetchFn };
 }
@@ -81,10 +82,10 @@ test.describe('adapter error handling', () => {
     let first = true; const seen: string[] = []; let csrfFetches = 0;
     const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === '/api/v1/auth/csrf') { csrfFetches++; return new Response(JSON.stringify({ csrfToken: `t${csrfFetches}` }), { status: 200 }); }
+      if (url === '/api/v1/auth/csrf') { csrfFetches++; return jsonResponse({ csrfToken: `t${csrfFetches}` }); }
       seen.push((init?.headers as Record<string, string>)['X-CSRF-Token'] ?? '');
-      if (first) { first = false; return new Response(JSON.stringify({ code: 'CSRF_INVALID' }), { status: 403 }); }
-      return new Response('{}', { status: 200 });
+      if (first) { first = false; return jsonResponse({ code: 'CSRF_INVALID' }, 403); }
+      return jsonResponse({});
     }) as typeof fetch;
     await createFortlessHttpPorts({ fetchFn }).service.power('svc1', 'STOP');
     expect(seen).toEqual(['t1', 't2']);
@@ -186,7 +187,7 @@ test.describe('base URL contract', () => {
   for (const base of ['', 'https://f.example', 'https://f.example/', 'https://f.example/api/v1', '/api/v1/']) {
     test(`no duplicated /api/v1 for baseUrl ${JSON.stringify(base)}`, async () => {
       const urls: string[] = [];
-      const fetchFn = (async (u: RequestInfo | URL) => { urls.push(String(u)); return new Response(JSON.stringify({ csrfToken: 't', ok: true }), { status: 200 }); }) as typeof fetch;
+      const fetchFn = (async (u: RequestInfo | URL) => { urls.push(String(u)); return jsonResponse({ csrfToken: 't', ok: true }); }) as typeof fetch;
       const ports = createFortlessHttpPorts({ baseUrl: base, fetchFn });
       await ports.service.get('s1', new AbortController().signal).catch(() => undefined);
       await ports.service.power('s1', 'START').catch(() => undefined);

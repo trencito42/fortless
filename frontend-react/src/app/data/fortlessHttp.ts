@@ -312,6 +312,7 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
       const name = text(user['name'], text(account['name'], 'Customer'));
       return { fullName: name, email: text(user['email']), emailVerified: Boolean(user['email_verified_at']), language: 'en', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, avatarInitials: initials(name), mfaEnabled: Boolean(mfa['enabled'] ?? mfa['totpEnabled']), recoveryCodesLeft: Number(mfa['recoveryCodesRemaining'] ?? 0), accountName: text(account['name'], 'Fortless'), role: roleLabel(membership['role']) };
     },
+    logout: async () => { await request('/api/v1/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); },
     listServices,
     getService: async (id) => { const services = await listServices(); const service = services.find((item) => item.id === id); if (!service) throw new ApiError('Service not found.', 'NOT_FOUND', 404); return service; },
     listInvoices,
@@ -325,7 +326,17 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
         ...invoices.filter((invoice) => invoice.state === 'overdue').map<D.Warning>((invoice) => ({ id: `invoice-${invoice.id}`, severity: 'warn', title: `Invoice ${invoice.number} is overdue`, detail: 'Review the authoritative invoice record before taking action.', action: { label: 'Review invoices', to: '/app/billing/invoices' } })),
       ];
     },
-    serviceEvents: async () => (await activity()).filter((event) => event.target).slice(0, 12).map((event) => ({ id: event.id, at: event.at, serviceId: '', serviceName: event.target!, severity: event.outcome === 'failed' ? 'error' : 'info', text: event.action })),
+    serviceEvents: async () => {
+      const payload = await request<Json>('/api/v1/audit?limit=100');
+      return array(payload['logs'], 'audit logs')
+        .filter((event) => text(event['resource_type']).toLowerCase() === 'service')
+        .slice(0, 12)
+        .map((event) => ({
+          id: requiredText(event['id'], 'audit.id'), at: iso(event['created_at']), serviceId: text(event['resource_id']),
+          serviceName: text(event['service_name'], 'Service'), severity: text(event['action']).includes('failed') ? 'error' as const : text(event['action']).includes('suspend') ? 'warn' as const : 'info' as const,
+          text: text(event['action']).replace(/^service[._]/, '').replace(/[._]/g, ' '),
+        }));
+    },
     profile: async () => api.identity(),
     saveProfile: async (patch) => {
       const current = await api.identity();
@@ -519,12 +530,12 @@ export function createFortlessHttpApi(baseUrl = ''): ObservableCustomerApi {
     removePasskey: async (id) => { await request(`/api/v1/auth/passkeys/${enc(id)}`, { method: 'DELETE' }); bump(); },
     team: async () => { const payload = await request<Json>('/api/v1/account/members'); const role = (value: unknown): D.TeamMemberRecord['role'] => text(value) === 'OWNER' ? 'owner' : text(value) === 'TECH_ADMIN' ? 'admin' : text(value) === 'BILLING_MANAGER' ? 'billing' : 'viewer'; return [...array(payload['members'], 'members').map((member) => ({ id: requiredText(member['id'], 'member.id'), name: text(member['name'], text(member['email'])), email: requiredText(member['email'], 'member.email'), role: role(member['role']), status: 'active' as const, permissions: [] })), ...array(payload['invitations'], 'invitations').map((invite) => ({ id: requiredText(invite['id'], 'invitation.id'), name: requiredText(invite['email'], 'invitation.email'), email: requiredText(invite['email'], 'invitation.email'), role: role(invite['role']), status: 'invited' as const, permissions: [] }))]; },
     inviteMember: async (email, role) => { const backendRole = role === 'owner' ? 'OWNER' : role === 'admin' || role === 'developer' ? 'TECH_ADMIN' : role === 'billing' ? 'BILLING_MANAGER' : 'VIEWER'; await request('/api/v1/account/members/invite', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, role: backendRole }) }); bump(); },
-    removeMember: async (id) => { await request(`/api/v1/account/members/${enc(id)}`, { method: 'DELETE' }); bump(); },
+    removeMember: async (id, status) => { await request(status === 'invited' ? `/api/v1/account/invitations/${enc(id)}` : `/api/v1/account/members/${enc(id)}`, { method: 'DELETE' }); bump(); },
     notificationPrefs: async () => { const payload = await request<Json>('/api/v1/notification-preferences'); const prefs = record(payload['preferences'], 'notification preferences'); return { channels: { email: true, discord: false, push: false }, topics: { billing: { email: bool(prefs['billingEmail']), discord: false, push: false }, service: { email: bool(prefs['serviceEmail']), discord: false, push: false }, support: { email: bool(prefs['supportEmail']), discord: false, push: false } } }; },
     saveNotificationPrefs: async (prefs) => { await request('/api/v1/notification-preferences', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ billingEmail: prefs.topics['billing']?.email ?? true, serviceEmail: prefs.topics['service']?.email ?? true, supportEmail: prefs.topics['support']?.email ?? true }) }); bump(); },
-    announcements: async () => { const payload = await request<Json>('/api/v1/notifications'); return array(payload['notifications'], 'notifications').map((item) => ({ id: requiredText(item['id'], 'notification.id'), kind: text(item['type']).includes('INCIDENT') ? 'incident' : text(item['type']).includes('MAINTENANCE') ? 'maintenance' : 'news', title: requiredText(item['title'], 'notification.title'), body: text(item['message']), at: iso(item['createdAt']), read: Boolean(item['readAt']) })); },
-    markAnnouncementRead: async (id) => { await request(`/api/v1/notifications/${enc(id)}/read`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
-    markAllAnnouncementsRead: async () => { await request('/api/v1/notifications/read-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
+    announcements: async () => { const payload = await request<Json>('/api/v1/announcements'); return array(payload['announcements'], 'announcements').map((item) => ({ id: requiredText(item['id'], 'announcement.id'), kind: text(item['kind']) === 'INCIDENT' ? 'incident' : text(item['kind']) === 'MAINTENANCE' ? 'maintenance' : 'news', title: requiredText(item['title'], 'announcement.title'), body: requiredText(item['bodyMarkdown'], 'announcement.bodyMarkdown'), at: iso(item['publishedAt']), read: Boolean(item['readAt']) })); },
+    markAnnouncementRead: async (id) => { await request(`/api/v1/announcements/${enc(id)}/read`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
+    markAllAnnouncementsRead: async () => { await request('/api/v1/announcements/read-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); bump(); },
     kb: async () => { const payload = await request<Json>('/api/v1/kb/articles?limit=20'); return array(payload['articles'], 'knowledge articles').map((item) => ({ id: text(item['slug'], requiredText(item['id'], 'article.id')), category: text(item['category'], 'General'), title: requiredText(item['title'], 'article.title'), summary: text(item['summary']), body: text(item['contentMarkdown']).split(/\n\s*\n/).filter(Boolean), updatedOn: iso(item['updatedAt']), tags: Array.isArray(item['tags']) ? item['tags'].filter((tag): tag is string => typeof tag === 'string') : [] })); },
     power: async (id, action) => { await request(`/api/v1/services/${enc(id)}/power`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: action.toUpperCase() }) }); bump(); },
     usage: unsupported,

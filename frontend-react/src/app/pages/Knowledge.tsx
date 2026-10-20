@@ -6,6 +6,7 @@ import { useNavigate } from '../router';
 import { PageHeader } from '../components/PageHeader';
 import { CapabilityNote } from '../components/CapabilityNote';
 import { date } from '../format';
+import { MarkdownArticle } from '../components/MarkdownArticle';
 
 export default function Knowledge({ id }: { id?: string }) {
   const nav = useNavigate();
@@ -15,7 +16,7 @@ export default function Knowledge({ id }: { id?: string }) {
     return (
       <div className="grid max-w-3xl gap-5">
         <PageHeader title={a?.title ?? 'Article not found'} crumbs={[{ label: 'Knowledge base', to: '/app/knowledge' }, { label: a?.title ?? 'Not found' }]} />
-        {a ? <Card pad="lg" className="grid gap-3"><p className="text-[13px] text-ink3">{a.category} · updated {date(a.updatedOn)}</p>{a.body.map((p, i) => <p key={i} className="max-w-[68ch] text-ink2">{p}</p>)}<div><Button variant="secondary" onClick={() => nav('/app/support/new')}>Still stuck? Open a ticket</Button></div></Card> : <EmptyState icon="book-01" title="This article does not exist" action={<Button variant="secondary" onClick={() => nav('/app/knowledge')}>Back to the knowledge base</Button>} />}
+        {a ? <Card pad="lg" className="grid gap-5"><p className="text-[13px] text-ink3">{a.category} · updated {date(a.updatedOn)}</p><MarkdownArticle source={a.body.join('\n\n')} /><div><Button variant="secondary" onClick={() => nav('/app/support/new')}>Still stuck? Open a ticket</Button></div></Card> : <EmptyState icon="book-01" title="This article does not exist" action={<Button variant="secondary" onClick={() => nav('/app/knowledge')}>Back to the knowledge base</Button>} />}
       </div>
     );
   }

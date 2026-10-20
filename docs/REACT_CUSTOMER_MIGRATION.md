@@ -27,7 +27,7 @@ Updated: 2026-10-20. This log covers the isolated first iteration only. No produ
 | `/app/support/*` | `Inbox.tsx`, `Conversation.tsx`, `New.tsx`, `Knowledge.tsx` | `/api/v1/tickets`, `/api/v1/tickets/:id`, `/api/v1/tickets/:id/messages`, `/api/v1/tickets/:id/attachments`, `/api/v1/kb` | TESTED | Multi-tenant isolation; attachment validation (MIME/size/path traversal); customer redaction | Playwright ticket conversation suite passes; Vitest Category M passes | Verified on isolated preview | Ready for staging review |
 | `/app/domains/*` | `List.tsx`, `Detail.tsx`, `Search.tsx` | `/api/v1/domains/zones`, `/api/v1/domains/zones/:id/records`, `/api/v1/domains/search` | TESTED | RFC DNS validation; zone multi-tenant isolation; minor-unit catalog pricing | Playwright domain DNS suite passes; Vitest Category P passes | Verified on isolated preview | Ready for staging review |
 | `/app/account/*` | `Security.tsx`, `Team.tsx`, `Activity.tsx`, `Profile.tsx`, `ApiKeys.tsx`, `Notifications.tsx` | `/api/v1/auth/sessions`, `/api/v1/auth/sessions/revoke-others`, `/api/v1/auth/passkeys`, `/api/v1/auth/mfa`, `/api/v1/account/members`, `/api/v1/audit`, `/api/v1/activity/export` | TESTED | Atomic TOTP verification; session revocation; honest unsupported state for customer API keys; audit export | Playwright account security suite passes; Vitest Category S & T pass | Verified on isolated preview | Ready for staging review |
-| `/app/announcements` | `Announcements.tsx` | `/api/v1/notifications`, `/api/v1/notifications/read-all` | TESTED | Tenant-scoped notification reads and atomic read-all mutator | Vitest suite passes; typecheck/lint/build passes | Verified on isolated preview | Ready for staging review |
+| `/app/announcements` | `Announcements.tsx` | `/api/v1/announcements`, `/api/v1/announcements/:id/read`, `/api/v1/announcements/read-all` | TESTED | Published global announcements have per-user read state and are distinct from operational notifications | Content-management Vitest and browser adapter tests pass | Verified on isolated preview | Requires migration 64 and normal deployment/restart before the live backend exposes the new routes |
 | Other customer routes | supplied React views | `/api/v1/*` | TESTED | Honest unsupported state / typed errors where backend feature is intentionally unconfigured | Playwright + Vitest suites pass | Verified on isolated preview | Ready for staging review |
 
 Status definitions: `NOT_STARTED`, `UI_READY`, `API_WIRED`, `TESTED`, `STAGING_VERIFIED`, `PRODUCTION_VERIFIED`.
@@ -39,7 +39,7 @@ Status definitions: `NOT_STARTED`, `UI_READY`, `API_WIRED`, `TESTED`, `STAGING_V
 - Live usage, player counts, service price and renewal data are not synthesized. The dashboard labels allocated limits and does not present zero as observed consumption.
 - Invoice totals use integer minor units from the backend. No frontend amount authorizes payment.
 - Warnings are derived only from persisted suspended/error service states and overdue invoices.
-- Recent service events use the customer-redacted audit feed. Staff metadata and other users' IP addresses remain redacted server-side.
+- Recent service events use only audit records whose `resource_type` is `service`; login/MFA/account events no longer leak into this panel. Staff metadata and other users' IP addresses remain redacted server-side.
 - Unsupported actions return a typed `NOT_WIRED` error; fixture data is never used as a recovery path.
 
 ## Verification run
@@ -48,7 +48,8 @@ Status definitions: `NOT_STARTED`, `UI_READY`, `API_WIRED`, `TESTED`, `STAGING_V
 - `npm run build`: passed; output written only to `frontend-react/dist-react-preview`.
 - `npm run lint`: failed on six pre-existing supplied-source findings (`routes.ts`, `TimeSeriesChart.tsx`, `PricingTable.tsx`, `Calendar.tsx`, `TimePicker.tsx`). No new adapter lint finding was reported.
 - `npx vitest run tests/react-customer-contract.test.ts --reporter=verbose`: 2/2 passed against a real Fastify instance and isolated database, including valid session JSON envelopes plus JSON 401/403.
-- `PW_BASE_URL=http://127.0.0.1:4174 npx playwright test tests/fortless-http-preview.spec.ts --workers=1`: 9/9 passed in Chromium. Missing browser libraries were extracted under `/tmp` only; the OS was not modified.
+- `npx playwright test tests/fortless-http-preview.spec.ts --workers=1`: 23/23 passed in Chromium. Missing browser libraries were extracted under `/tmp` only; the OS was not modified.
+- `npx playwright test tests/admin-content-preview.spec.ts --workers=1`: 1/1 passed, including the editable Knowledge Base and Announcements admin page.
 - Browser coverage includes authenticated identity/DTO rendering, desktop/mobile AppShell, delayed loading, valid empty data, 401, 403, invalid HTML/Content-Type, prevention of invented zero statistics, Services search, and Service Detail navigation.
 - The isolated Vite Preview proxy was verified by browser and curl: `/api/v1/auth/me` returns Fastify `401 application/json`, and `/login` returns the Fastify login page.
 - Production backend tests were not rerun because this iteration did not change backend code.

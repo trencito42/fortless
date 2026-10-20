@@ -1,6 +1,6 @@
 import { Suspense, lazy, useMemo, useState, type ComponentType } from 'react';
 import { AppShell, Button, CommandPalette, IconButton, Skeleton, useCommandPaletteShortcut, useTheme, type PaletteCommand } from '@/design-system';
-import { DataProvider } from './data/DataProvider';
+import { DataProvider, useApi } from './data/DataProvider';
 import { useApiQuery } from './data/DataProvider';
 import { createFortlessHttpApi } from './data/fortlessHttp';
 import { MOBILE_TABS, NAV, currentNavId } from './nav';
@@ -16,6 +16,7 @@ const SYSTEM_PATHS: Record<string, SystemKind> = { '/system/403': 'forbidden', '
 function Frame() {
   const { path, navigate } = useRouter();
   const theme = useTheme();
+  const api = useApi();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const identity = useApiQuery((api) => api.identity());
   useCommandPaletteShortcut(() => setPaletteOpen((o) => !o));
@@ -41,6 +42,12 @@ function Frame() {
         : { name: 'Fortless customer', initials: '—', role: identity.status === 'error' ? 'Session unavailable' : 'Loading account' }}
       onOpenSearch={() => setPaletteOpen(true)}
       actions={<IconButton label={theme.resolved === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} icon={theme.resolved === 'dark' ? 'sun-03' : 'moon-01'} variant="ghost" onClick={theme.toggle} />}
+      userMenuEntries={[
+        { id: 'profile', label: 'Profile', icon: 'user', onSelect: () => navigate('/app/account/profile') },
+        { id: 'security', label: 'Security', icon: 'shield-01', onSelect: () => navigate('/app/account/security') },
+        { id: 'separator', kind: 'separator' },
+        { id: 'logout', label: 'Sign out', icon: 'logout-01', tone: 'danger', onSelect: () => { void api.logout().then(() => window.location.assign('/login')); } },
+      ]}
     >
       <div className="mx-auto grid w-full min-w-0 max-w-[1280px] grid-cols-[minmax(0,1fr)] gap-5">
         <p className="rounded-full bg-s3 px-4 py-2 text-[13px] font-semibold text-ink2">React migration preview. Data and enabled actions use your authenticated Fortless account; unavailable backend capabilities are labelled explicitly.</p>

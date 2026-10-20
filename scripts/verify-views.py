@@ -16,7 +16,7 @@ ROUTES = {
  'o-over':'/admin','o-acc':'/admin/accounts','o-svc':'/admin/services','o-tix':'/admin/tickets',
  'o-aud':'/admin/audit','o-staff':'/admin/staff','status':'/status','legal':'/legal',
  'ticket-new':'/app/support/new','o-orders':'/admin/orders','o-billing':'/admin/billing','o-infra':'/admin/infrastructure','o-catalog':'/admin/catalog',
- 'o-status':'/admin/status','o-settings':'/admin/settings','o-jobs':'/admin/jobs',
+ 'o-status':'/admin/status','o-settings':'/admin/settings','o-jobs':'/admin/jobs','o-content':'/admin/content',
  'o-acc-detail':'/admin/accounts/sample','o-svc-detail':'/admin/services/sample','o-order-detail':'/admin/orders/sample',
  'o-invoice-detail':'/admin/billing/sample','o-tix-detail':'/admin/tickets/sample',
 }

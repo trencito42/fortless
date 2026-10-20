@@ -242,6 +242,12 @@
       title: "Catalog & Providers \xB7 FORTLESS",
       subtitle: "Commercial products mapped explicitly to provider inventory."
     },
+    content: {
+      id: "content",
+      path: "/admin/content",
+      title: "Content Management \xB7 FORTLESS",
+      subtitle: "Knowledge base articles, categories and customer announcements."
+    },
     tickets: {
       id: "tickets",
       path: "/admin/tickets",
@@ -907,6 +913,7 @@
           billing: "accounts:read",
           infrastructure: "services:read",
           catalog: "catalog:read",
+          content: "content:read",
           tickets: "tickets:read",
           audit: "audit:read",
           jobs: "audit:read",
@@ -1048,8 +1055,8 @@
   }
 
   // src/frontend/admin/pages/overview/index.ts
-  function linkRow(path, route, icon, title, sub, state = "", meta = "") {
-    return `<a class="li" href="${path}" data-route="${route}"><span class="tile neu sm">${hero(icon)}</span><span class="tx"><b>${esc(title)}</b><small>${esc(sub)}</small></span>${state ? badge(state) : ""}${meta ? `<span class="faint hide-n">${esc(meta)}</span>` : ""}</a>`;
+  function linkRow(path, route, icon, title, sub, state2 = "", meta = "") {
+    return `<a class="li" href="${path}" data-route="${route}"><span class="tile neu sm">${hero(icon)}</span><span class="tx"><b>${esc(title)}</b><small>${esc(sub)}</small></span>${state2 ? badge(state2) : ""}${meta ? `<span class="faint hide-n">${esc(meta)}</span>` : ""}</a>`;
   }
   function empty(message) {
     return `<div class="es" style="padding:24px 12px"><span class="tile good sm">${hero("check")}</span><h4>${esc(message)}</h4></div>`;
@@ -2539,10 +2546,10 @@
       const start = (currentPage - 1) * pageSize;
       const info = document.getElementById("adminJobsPageInfo");
       const pager = document.getElementById("adminJobsPager");
-      const row2 = document.getElementById("adminJobsPaginationRow");
+      const row3 = document.getElementById("adminJobsPaginationRow");
       if (info) info.textContent = total ? `Showing ${start + 1}\u2013${start + data.jobs.length} of ${total}` : "0 jobs";
       if (pager) pager.innerHTML = renderPager(currentPage, pages);
-      if (row2) row2.style.display = total > pageSize ? "flex" : "none";
+      if (row3) row3.style.display = total > pageSize ? "flex" : "none";
       bindListeners();
     } catch (error) {
       host.innerHTML = `<tr><td colspan="7"><div class="alert bad"><div><b>Jobs unavailable</b><span>${esc(error.message)}</span></div></div></td></tr>`;
@@ -2574,8 +2581,8 @@
       total2 = Number(d.total || 0);
       if (!d.staff.length) {
         host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>No matching staff identities.</b></div></td></tr>`;
-        const row3 = document.getElementById("adminStaffPaginationRow");
-        if (row3) row3.style.display = "none";
+        const row4 = document.getElementById("adminStaffPaginationRow");
+        if (row4) row4.style.display = "none";
         return;
       }
       host.innerHTML = d.staff.map((x) => `<tr class="h"><td data-l="Member"><div class="row nw"><span class="av v">${esc(x.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase())}</span><div><b>${esc(x.name)}</b><small>${esc(x.email)}</small></div></div></td><td data-l="Role">${badge(x.role)}</td><td data-l="MFA">${badge(x.mfa_enabled ? "READY" : "NOT SET UP")}</td><td data-l="Access">${badge(x.status)}</td><td data-l="Action"><button class="btn xs" data-staff-user-id="${esc(x.id)}" data-staff-name="${esc(x.name)}" data-staff-role="${esc(x.role)}" data-staff-status="${esc(x.status)}" data-permission="staff:manage">Edit</button></td></tr>`).join("");
@@ -2583,10 +2590,10 @@
       const start = (currentPage2 - 1) * pageSize2;
       const info = document.getElementById("adminStaffPageInfo");
       const pager = document.getElementById("adminStaffPager");
-      const row2 = document.getElementById("adminStaffPaginationRow");
+      const row3 = document.getElementById("adminStaffPaginationRow");
       if (info) info.textContent = `Showing ${start + 1}\u2013${start + d.staff.length} of ${total2}`;
       if (pager) pager.innerHTML = renderPager(currentPage2, pages);
-      if (row2) row2.style.display = total2 > pageSize2 ? "flex" : "none";
+      if (row3) row3.style.display = total2 > pageSize2 ? "flex" : "none";
       bindListeners2();
     } catch (e) {
       host.innerHTML = `<tr><td colspan="5"><div class="empty"><b>${esc(e.message)}</b></div></td></tr>`;
@@ -2609,12 +2616,114 @@
     if (modal) modal.hidden = false;
   }
 
+  // src/frontend/admin/pages/content/index.ts
+  var state = { knowledgeCategories: [], announcementCategories: [], articles: [], announcements: [] };
+  var bound = false;
+  var byId = (rows, id) => rows.find((row3) => row3.id === id);
+  var setForm = (id, values) => {
+    const form = document.getElementById(id);
+    if (!form) return;
+    for (const [name, value] of Object.entries(values)) {
+      const field = form.elements.namedItem(name);
+      if (!field) continue;
+      if (name === "slug" && typeof value === "string" && /^[A-Z0-9_]+$/.test(value)) field.removeAttribute("pattern");
+      if (field instanceof HTMLInputElement && field.type === "checkbox") field.checked = Boolean(value);
+      else field.value = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+    }
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  var row2 = (kind, item, meta) => `<div class="li"><div class="tx"><b>${esc("title" in item ? item.title : item.name)}</b><small>${esc(meta)}</small></div><div class="row nw"><button class="btn xs" type="button" data-content-edit="${kind}" data-content-id="${esc(item.id)}" data-permission="content:manage">Edit</button><button class="btn xs" type="button" data-content-delete="${kind}" data-content-id="${esc(item.id)}" data-permission="content:manage">Delete</button></div></div>`;
+  function paint() {
+    const set = (id, html) => {
+      const host = document.getElementById(id);
+      if (host) host.innerHTML = html || '<div class="empty"><b>Nothing here yet.</b></div>';
+    };
+    set("knowledgeCategoryList", state.knowledgeCategories.map((x) => row2("knowledge-category", x, x.slug)).join(""));
+    set("announcementCategoryList", state.announcementCategories.map((x) => row2("announcement-category", x, x.slug)).join(""));
+    set("knowledgeArticleList", state.articles.map((x) => row2("article", x, `${x.category} \xB7 ${x.isPublished ? "Published" : "Draft"}`)).join(""));
+    set("announcementList", state.announcements.map((x) => row2("announcement", x, `${x.kind} \xB7 ${x.isPublished ? "Published" : "Draft"}`)).join(""));
+    const options = (rows) => rows.map((x) => `<option value="${esc(x.slug)}">${esc(x.name)}</option>`).join("");
+    const kb = document.getElementById("knowledgeArticleCategory");
+    if (kb) kb.innerHTML = options(state.knowledgeCategories);
+    const announcements = document.getElementById("announcementCategory");
+    if (announcements) announcements.innerHTML = options(state.announcementCategories);
+  }
+  async function submit(form) {
+    const values = new FormData(form);
+    const id = String(values.get("id") || "");
+    let path = "";
+    let body = Object.fromEntries(values.entries());
+    if (form.id.endsWith("CategoryForm")) {
+      const kind = form.id.startsWith("knowledge") ? "knowledge" : "announcement";
+      path = `/api/v1/admin/content/${kind}-categories${id ? `/${encodeURIComponent(id)}` : ""}`;
+      body.sortOrder = Number(body.sortOrder || 0);
+      delete body.id;
+    } else if (form.id === "knowledgeArticleForm") {
+      path = `/api/v1/admin/content/articles${id ? `/${encodeURIComponent(id)}` : ""}`;
+      body.tags = String(body.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+      body.isPublished = form.elements.namedItem("isPublished").checked;
+      delete body.id;
+    } else {
+      path = `/api/v1/admin/content/announcements${id ? `/${encodeURIComponent(id)}` : ""}`;
+      body.isPublished = form.elements.namedItem("isPublished").checked;
+      delete body.id;
+    }
+    await api(path, { method: id ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    form.reset();
+    toast("Content saved.", "good");
+    await renderContent();
+  }
+  function bind() {
+    if (bound) return;
+    bound = true;
+    document.getElementById("contentReload")?.addEventListener("click", () => void renderContent());
+    for (const id of ["knowledgeCategoryForm", "announcementCategoryForm", "knowledgeArticleForm", "announcementForm"]) {
+      document.getElementById(id)?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void submit(event.currentTarget).catch((error) => toast(error.message, "bad"));
+      });
+    }
+    document.getElementById("page-content")?.addEventListener("click", (event) => {
+      const target = event.target;
+      const edit = target.closest("[data-content-edit]");
+      if (edit) {
+        const id = edit.dataset.contentId;
+        if (edit.dataset.contentEdit === "knowledge-category") setForm("knowledgeCategoryForm", byId(state.knowledgeCategories, id));
+        if (edit.dataset.contentEdit === "announcement-category") setForm("announcementCategoryForm", byId(state.announcementCategories, id));
+        if (edit.dataset.contentEdit === "article") setForm("knowledgeArticleForm", byId(state.articles, id));
+        if (edit.dataset.contentEdit === "announcement") setForm("announcementForm", byId(state.announcements, id));
+        return;
+      }
+      const del = target.closest("[data-content-delete]");
+      if (!del || !window.confirm("Delete this content permanently?")) return;
+      const segments = { "knowledge-category": "knowledge-categories", "announcement-category": "announcement-categories", article: "articles", announcement: "announcements" };
+      void api(`/api/v1/admin/content/${segments[del.dataset.contentDelete]}/${encodeURIComponent(del.dataset.contentId)}`, { method: "DELETE" }).then(() => {
+        toast("Content deleted.", "good");
+        return renderContent();
+      }).catch((error) => toast(error.message, "bad"));
+    });
+  }
+  async function renderContent() {
+    bind();
+    const error = document.getElementById("contentError");
+    if (error) error.hidden = true;
+    try {
+      state = await api("/api/v1/admin/content");
+      paint();
+    } catch (cause) {
+      if (error) {
+        error.hidden = false;
+        error.textContent = cause instanceof Error ? cause.message : "Could not load content.";
+      }
+    }
+  }
+
   // src/frontend/admin/pages/operations/index.ts
   function money2(value, currency = "EUR") {
     return new Intl.NumberFormat("en-GB", { style: "currency", currency }).format(Number(value || 0) / 100);
   }
   function moneySummary(rows, field) {
-    return rows.length ? rows.map((row2) => money2(Number(row2[field] || 0), row2.currency)).join(" \xB7 ") : "\u2014";
+    return rows.length ? rows.map((row3) => money2(Number(row3[field] || 0), row3.currency)).join(" \xB7 ") : "\u2014";
   }
   function empty2(message) {
     return `<div class="es"><h4>${esc(message)}</h4><p>No persisted records match the current filter.</p></div>`;
@@ -2783,7 +2892,7 @@
       ]);
       const metrics = document.querySelector("#billingMetrics");
       if (metrics) {
-        const overdue = invoiceData.summary.reduce((sum, row2) => sum + Number(row2.overdue_count || 0), 0);
+        const overdue = invoiceData.summary.reduce((sum, row3) => sum + Number(row3.overdue_count || 0), 0);
         metrics.innerHTML = metric("Invoices", invoiceData.total, "document") + metric("Collected", moneySummary(invoiceData.summary, "paid_minor_units"), "check", "good") + metric("Outstanding", moneySummary(invoiceData.summary, "outstanding_minor_units"), "warning", overdue ? "warn" : "good", `${overdue} overdue`) + metric("Credits issued", moneySummary(creditData.summary, "credited_minor_units"), "credit", creditData.total ? "info" : "");
       }
       cachedInvoices = invoiceData.invoices || [];
@@ -2910,10 +3019,10 @@
     document.getElementById("emailTemplateSubject").value = template.subject;
     document.getElementById("emailTemplateText").value = template.text;
     document.getElementById("emailTemplateHtml").value = template.html;
-    const state = document.getElementById("emailTemplateState");
-    if (state) {
-      state.className = `pill ${template.overridden ? "warn d" : "good d"}`;
-      state.textContent = template.overridden ? "Custom override" : "Canonical";
+    const state2 = document.getElementById("emailTemplateState");
+    if (state2) {
+      state2.className = `pill ${template.overridden ? "warn d" : "good d"}`;
+      state2.textContent = template.overridden ? "Custom override" : "Canonical";
     }
   }
   async function renderEmailSettings() {
@@ -3077,6 +3186,7 @@
       audit: ["Global audit trail", "Security-relevant events across accounts."],
       jobs: ["Operational jobs", "Provisioning, outbox, email and webhook workflow state."],
       staff: ["Staff access", "Persisted roles, access status and MFA readiness. Click to edit role."],
+      content: ["Content management", "Knowledge Base categories, articles and customer announcements."],
       status: ["System status", "Components and customer-visible incidents."],
       settings: ["Platform settings & integrations", "Environment configuration, payment modes, transactional mail, and hypervisor API diagnostics."]
     };
@@ -3152,6 +3262,10 @@
   router.register("staff", async () => {
     updateAdminChrome("staff");
     await renderStaff();
+  });
+  router.register("content", async () => {
+    updateAdminChrome("content");
+    await renderContent();
   });
   router.register("status", async () => {
     updateAdminChrome("status");

@@ -38,20 +38,20 @@ All customer routes have been audited for:
 | **Subscriptions** | `src/app/pages/billing/Subscriptions.tsx` | `GET /api/v1/subscriptions` | `CustomerApi.listSubscriptions` | `[SANDBOX_VERIFIED]` | Playwright: subscription overview & renewal dates |
 | **Billing Profile** | `src/app/pages/billing/Profile.tsx` | `GET /api/v1/account/billing-profile`<br>`PUT /api/v1/account/billing-profile` | `CustomerApi.getBillingProfile`<br>`CustomerApi.saveBillingProfile` | `[SANDBOX_VERIFIED]` | Playwright: billing profile edit & save |
 | **Support Tickets & Attachments** | `src/app/pages/support/Inbox.tsx`<br>`src/app/pages/support/Conversation.tsx`<br>`src/app/pages/support/New.tsx` | `GET /api/v1/tickets`<br>`POST /api/v1/tickets`<br>`GET /api/v1/tickets/:id`<br>`POST /api/v1/tickets/:id/messages`<br>`GET /api/v1/tickets/:id/attachments` | `CustomerApi.listTickets`<br>`CustomerApi.getTicket`<br>`CustomerApi.createTicket`<br>`CustomerApi.replyTicket` | `[SANDBOX_VERIFIED]` | Playwright: ticket thread & replies; Vitest Category M (TICK-01 - TICK-04) |
-| **Knowledge Base** | `src/app/pages/support/Knowledge.tsx` | `GET /api/v1/kb` | `CustomerApi.kbArticles` | `[SANDBOX_VERIFIED]` | Vitest: AI-06 KB multi-category search |
+| **Knowledge Base** | `src/app/pages/Knowledge.tsx` | `GET /api/v1/kb/articles`<br>`GET /api/v1/kb/articles/:slug`<br>`/api/v1/admin/content/articles/*`<br>`/api/v1/admin/content/knowledge-categories/*` | `CustomerApi.kb` | `[SANDBOX_VERIFIED]` | Playwright: semantic Markdown rendering and admin editor; Vitest: content CRUD and permissions |
 | **Domains & Authoritative DNS** | `src/app/pages/domains/List.tsx`<br>`src/app/pages/domains/Detail.tsx`<br>`src/app/pages/domains/Search.tsx` | `GET /api/v1/domains/zones`<br>`GET/POST /api/v1/domains/zones/:id/records`<br>`GET /api/v1/domains/search` | `CustomerApi.listDomains`<br>`CustomerApi.getDomain`<br>`CustomerApi.dnsRecords`<br>`CustomerApi.saveDnsRecord`<br>`CustomerApi.deleteDnsRecord` | `[SANDBOX_VERIFIED]` | Playwright: domain list & DNS editor; Vitest Category P (DOM-01 - DOM-04) |
 | **Account Security (Sessions & MFA)** | `src/app/pages/account/Security.tsx` | `GET /api/v1/auth/sessions`<br>`DELETE /api/v1/auth/sessions/:id`<br>`POST /api/v1/auth/sessions/revoke-others`<br>`GET /api/v1/auth/passkeys`<br>`GET /api/v1/auth/mfa` | `CustomerApi.sessions`<br>`CustomerApi.revokeSession`<br>`CustomerApi.revokeOtherSessions`<br>`CustomerApi.passkeys` | `[SANDBOX_VERIFIED]` | Playwright: session revocation; Vitest Category S & T (SEC-04, FTL-SEC-201, FTL-SEC-202) |
-| **Team Management** | `src/app/pages/account/Team.tsx` | `GET /api/v1/account/members`<br>`POST /api/v1/account/invitations` | `CustomerApi.members`<br>`CustomerApi.inviteMember` | `[SANDBOX_VERIFIED]` | Playwright: member list & roles |
+| **Team Management** | `src/app/pages/account/Team.tsx` | `GET /api/v1/account/members`<br>`POST /api/v1/account/members/invite`<br>`DELETE /api/v1/account/members/:membershipId`<br>`DELETE /api/v1/account/invitations/:invitationId` | `CustomerApi.team`<br>`CustomerApi.inviteMember`<br>`CustomerApi.removeMember` | `[SANDBOX_VERIFIED]` | Playwright: one invite action and correct member/invitation deletion routes; Vitest: invitation cancellation |
 | **Audit Activity & Export** | `src/app/pages/account/Activity.tsx` | `GET /api/v1/audit`<br>`GET /api/v1/activity/export` | `CustomerApi.activity` | `[SANDBOX_VERIFIED]` | Playwright: audit event stream & CSV export button |
 | **API Keys** | `src/app/pages/account/ApiKeys.tsx` | Client notice (unsupported for customers) | `CustomerApi` | `[SANDBOX_VERIFIED]` | Playwright: honest unavailable notice |
-| **Announcements & Notifications** | `src/app/pages/Announcements.tsx`<br>`src/app/pages/account/Notifications.tsx` | `GET /api/v1/notifications`<br>`POST /api/v1/notifications/read-all`<br>`GET/PUT /api/v1/notification-preferences` | `CustomerApi.announcements`<br>`CustomerApi.markAllAnnouncementsRead`<br>`CustomerApi.notificationPreferences` | `[SANDBOX_VERIFIED]` | Playwright: notification preferences & announcements read-all |
+| **Announcements & Notifications** | `src/app/pages/Announcements.tsx`<br>`src/app/pages/account/Notifications.tsx` | `GET /api/v1/announcements`<br>`POST /api/v1/announcements/:id/read`<br>`POST /api/v1/announcements/read-all`<br>`GET/PUT /api/v1/notification-preferences`<br>`/api/v1/admin/content/announcements/*` | `CustomerApi.announcements`<br>`CustomerApi.markAnnouncementRead`<br>`CustomerApi.markAllAnnouncementsRead`<br>`CustomerApi.notificationPrefs` | `[SANDBOX_VERIFIED]` | Playwright: dedicated announcements API and admin editor; Vitest: publishing, read tracking and RBAC |
 
 ---
 
 ## 3. Automated Test Suite Results
 
 ### 3.1 Backend Vitest Test Suite (`npm test`)
-- **Status:** 31 passed files, 497 passed tests (0 failed).
+- **Status:** 32 passed files, 501 passed tests (0 failed).
 - **Categories Covered:**
   - Category A: Identity, Sessions & MFA (TOTP, WebAuthn Passkeys)
   - Category B: Logical Multi-Tenancy & RBAC
@@ -76,7 +76,7 @@ All customer routes have been audited for:
   - Category U: Auditor Delta Invariants & Lifecycle Precision
 
 ### 3.2 Frontend Playwright Preview Test Suite (`tests/fortless-http-preview.spec.ts`)
-- **Status:** 18 passed tests, 0 failed.
+- **Status:** 23 passed tests, 0 failed. The separate admin content browser test also passes.
 - **Coverage:**
   1. Authenticated preview renders real identity and account-scoped dashboard DTOs
   2. Mobile dashboard keeps customer navigation accessible

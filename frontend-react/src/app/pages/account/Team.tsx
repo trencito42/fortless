@@ -23,7 +23,7 @@ export default function Team() {
       <CapabilityNote area="account" />
       {note ? <Notice tone={note.tone}>{note.text}</Notice> : null}
       <ResourceView res={res} reload={res.reload} label="Loading team">
-        {(list: TeamMemberRecord[]) => <TeamMembers members={list.map((m) => ({ id: m.id, name: m.name, email: m.email, role: m.role, permissions: m.permissions, pending: m.status === 'invited' }))} groups={GROUPS} onSavePermissions={async () => { setNote({ tone: 'warn', text: 'Fine-grained permission changes are not exposed by the account API. No changes were saved.' }); }} onRemove={async (m) => api.removeMember(m.id)} onInvite={() => setOpen(true)} />}
+        {(list: TeamMemberRecord[]) => <TeamMembers members={list.map((m) => ({ id: m.id, name: m.name, email: m.email, role: m.role, permissions: m.permissions, pending: m.status === 'invited' }))} groups={GROUPS} onSavePermissions={async () => { setNote({ tone: 'warn', text: 'Fine-grained permission changes are not exposed by the account API. No changes were saved.' }); }} onRemove={async (m) => api.removeMember(m.id, m.pending ? 'invited' : 'active')} />}
       </ResourceView>
       <Dialog open={open} onOpenChange={setOpen} title="Invite a team member" description="They receive an email and choose their own password."
         footer={<><Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button><Button variant="primary" onClick={() => { setErr(undefined); api.inviteMember(email.trim(), (role ?? 'viewer') as TeamMemberRecord['role']).then(() => { setOpen(false); setNote({ tone: 'good', text: `Invitation sent to ${email.trim()}.` }); }, (e: Error) => setErr(e.message)); }}>Send invitation</Button></>}>

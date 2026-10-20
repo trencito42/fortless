@@ -32,6 +32,7 @@ import { renderTickets, openTicketDetail, renderTicketDetail, getActiveTicketId 
 import { renderAudit } from './pages/audit/index.js';
 import { renderJobs } from './pages/jobs/index.js';
 import { renderStaff, openStaffEditor } from './pages/staff/index.js';
+import { renderContent } from './pages/content/index.js';
 import { renderOrders, renderOrderDetail, renderBilling, renderInvoiceDetail, renderInfrastructure, renderStatus } from './pages/operations/index.js';
 import { renderSettings, testProviderConnection, testSmtpConnection, testStripeConnection, selectEmailTemplate, saveEmailTemplate, resetEmailTemplate, resendEmail } from './pages/settings/index.js';
 import { toast } from '../petal/index.js';
@@ -58,6 +59,7 @@ function updateAdminChrome(routeName: string) {
     audit: ['Global audit trail', 'Security-relevant events across accounts.'],
     jobs: ['Operational jobs', 'Provisioning, outbox, email and webhook workflow state.'],
     staff: ['Staff access', 'Persisted roles, access status and MFA readiness. Click to edit role.'],
+    content: ['Content management', 'Knowledge Base categories, articles and customer announcements.'],
     status: ['System status', 'Components and customer-visible incidents.'],
     settings: ['Platform settings & integrations', 'Environment configuration, payment modes, transactional mail, and hypervisor API diagnostics.'],
   };
@@ -128,6 +130,7 @@ router.register('staff', async () => {
   updateAdminChrome('staff');
   await renderStaff();
 });
+router.register('content', async () => { updateAdminChrome('content'); await renderContent(); });
 router.register('status', async () => { updateAdminChrome('status'); await renderStatus(); });
 router.register('settings', async () => {
   updateAdminChrome('settings');

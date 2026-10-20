@@ -53,6 +53,7 @@ export function createFixtureApi(opts: FixtureOptions = {}): CustomerApi & { sub
 
   const api: CustomerApi = {
     identity: () => call('identity', () => ({ ...s.account, accountName: 'Fortless Demo', role: 'Owner' })),
+    logout: () => call('logout', () => undefined),
     warnings: () => call('warnings', () => {
       const w: D.Warning[] = [];
       for (const v of s.services) {

@@ -27,12 +27,91 @@ test('authenticated preview renders real identity and account-scoped dashboard D
   await page.screenshot({ path: 'test-results/react-dashboard-integrated.png', fullPage: true });
 });
 
+test('desktop sidebar aligns every collapsed navigation icon and exposes the authenticated user menu', async ({ page }) => {
+  await mockDashboard(page);
+  await page.goto('/app');
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  const sidebar = page.getByLabel('Sidebar');
+  const centers = await sidebar.locator('nav button svg').evaluateAll((icons) => icons.map((icon) => {
+    const box = icon.getBoundingClientRect(); return box.left + box.width / 2;
+  }));
+  expect(centers.length).toBeGreaterThan(5);
+  expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(1);
+  await sidebar.getByRole('button', { name: 'Account menu for Maria Popescu' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Profile' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Security' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Sign out' })).toBeVisible();
+});
+
+test('team shows one invite action and cancels pending invitations through the invitation endpoint', async ({ page }) => {
+  let deleted = '';
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Stefan', email: 'stefan@example.test' }, account: { name: 'Fortless' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: true }));
+    if (path === '/api/v1/auth/csrf') return route.fulfill(json({ csrfToken: 'test-csrf-token' }));
+    if (path === '/api/v1/account/members' && route.request().method() === 'GET') return route.fulfill(json({ members: [], invitations: [{ id: 'inv_pending', email: 'paunelul.tr@gmail.com', role: 'VIEWER' }] }));
+    if (path === '/api/v1/account/invitations/inv_pending' && route.request().method() === 'DELETE') { deleted = path; return route.fulfill(json({ success: true })); }
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+  await page.goto('/app/account/team');
+  await expect(page.getByRole('button', { name: 'Invite member' })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Actions for paunelul.tr@gmail.com' }).click();
+  await page.getByRole('menuitem', { name: 'Remove' }).click();
+  await page.getByRole('button', { name: 'Remove member' }).click();
+  await expect.poll(() => deleted).toBe('/api/v1/account/invitations/inv_pending');
+});
+
+test('important service events exclude account and authentication audit records', async ({ page }) => {
+  await mockDashboard(page);
+  await page.route('**/api/v1/audit**', (route) => route.fulfill(json({ logs: [
+    { id: 'svc_event', created_at: '2026-10-20T12:00:00Z', action: 'service.power_started', resource_type: 'service', resource_id: 'svc_1', service_name: 'Survival' },
+    { id: 'login_event', created_at: '2026-10-20T11:00:00Z', action: 'user.login', resource_type: 'user', resource_id: 'usr_secret' },
+  ] })));
+  await page.goto('/app');
+  const serviceEvents = page.getByRole('region', { name: 'Important service events' });
+  await expect(serviceEvents.getByRole('heading', { name: 'Important service events' })).toBeVisible();
+  await expect(serviceEvents.getByText('Survival')).toBeVisible();
+  await expect(serviceEvents.getByText('usr_secret')).toHaveCount(0);
+});
+
+test('announcements use the dedicated content API rather than operational notifications', async ({ page }) => {
+  const requested: string[] = [];
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname; requested.push(path);
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Stefan', email: 'stefan@example.test' }, account: { name: 'Fortless' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: true }));
+    if (path === '/api/v1/announcements') return route.fulfill(json({ announcements: [{ id: 'ann_1', kind: 'NEWS', title: 'Panel update', bodyMarkdown: 'The new panel is ready.', publishedAt: '2026-10-20T10:00:00Z', readAt: null }] }));
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+  await page.goto('/app/announcements');
+  await expect(page.getByText('Panel update')).toBeVisible();
+  expect(requested).toContain('/api/v1/announcements');
+  expect(requested).not.toContain('/api/v1/notifications');
+});
+
 test('mobile dashboard keeps customer navigation available', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockDashboard(page);
   await page.goto('/app');
   await expect(page.getByRole('heading', { name: 'Welcome, Maria' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Servers/i }).or(page.getByRole('link', { name: /Servers/i })).first()).toBeVisible();
+});
+
+test('knowledge article renders backend Markdown as semantic styled content', async ({ page }) => {
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/auth/me') return route.fulfill(json({ user: { name: 'Maria Popescu', email: 'maria@example.test' }, account: { name: 'Maria Studio' }, membership: { role: 'OWNER' } }));
+    if (path === '/api/v1/auth/mfa') return route.fulfill(json({ enabled: false }));
+    if (path === '/api/v1/kb/articles') return route.fulfill(json({ articles: [{ id: 'kb_1', slug: 'minecraft-crash-eula-memory', category: 'Minecraft', title: 'Troubleshooting Minecraft Startup Crashes', summary: 'EULA and memory', contentMarkdown: '## Unaccepted EULA Agreement\n\nIf the console shows **You need to agree**:\n\n1. Open `eula.txt`.\n2. Change `eula=false` to `eula=true`.\n\n```\njava.lang.OutOfMemoryError: Java heap space\n```', updatedAt: '2026-10-20T10:00:00Z', tags: ['minecraft'] }] }));
+    return route.fulfill(json({ error: 'Not found' }, 404));
+  });
+  await page.goto('/app/knowledge/minecraft-crash-eula-memory');
+  await expect(page.getByRole('heading', { name: 'Unaccepted EULA Agreement', level: 2 })).toBeVisible();
+  await expect(page.locator('ol').filter({ hasText: 'Open eula.txt.' }).locator('li')).toHaveCount(2);
+  await expect(page.locator('code').filter({ hasText: 'java.lang.OutOfMemoryError' })).toBeVisible();
+  await expect(page.getByText('## Unaccepted EULA Agreement')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/react-knowledge-markdown.png', fullPage: true });
 });
 
 test('expired session is never replaced with fixtures', async ({ page }) => {

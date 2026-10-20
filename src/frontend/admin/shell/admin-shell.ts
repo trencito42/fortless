@@ -78,6 +78,7 @@ export class AdminShell {
         billing: 'accounts:read',
         infrastructure: 'services:read',
         catalog: 'catalog:read',
+        content: 'content:read',
         tickets: 'tickets:read',
         audit: 'audit:read',
         jobs: 'audit:read',

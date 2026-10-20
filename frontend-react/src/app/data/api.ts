@@ -27,6 +27,7 @@ export interface DeployQuote { id: string; lines: { label: string; amount: D.Mon
 
 export interface CustomerApi {
   identity(): Promise<D.CustomerIdentity>;
+  logout(): Promise<void>;
   // dashboard
   warnings(): Promise<D.Warning[]>;
   serviceEvents(): Promise<D.ServiceEvent[]>;
@@ -93,7 +94,7 @@ export interface CustomerApi {
   revokeApiKey(id: string): Promise<void>;
   team(): Promise<D.TeamMemberRecord[]>;
   inviteMember(email: string, role: D.TeamMemberRecord['role']): Promise<void>;
-  removeMember(id: string): Promise<void>;
+  removeMember(id: string, status?: D.TeamMemberRecord['status']): Promise<void>;
   notificationPrefs(): Promise<D.NotificationPrefs>;
   saveNotificationPrefs(p: D.NotificationPrefs): Promise<void>;
   activity(): Promise<D.ActivityRecord[]>;
