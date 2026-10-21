@@ -88,7 +88,7 @@ export function WorkspaceDemo({ compact = false }: { compact?: boolean }) {
       </div>
       <div className="min-w-0 rounded-[22px] bg-s1 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0"><p className="site-h truncate text-[22px] font-extrabold tracking-[-0.04em] sm:text-[26px]">{svc.name}</p><p className="text-[13px] text-ink2">{svc.sub} · demo workspace</p></div>
+          <div className="min-w-0"><p className="truncate text-[22px] font-extrabold tracking-[-0.04em] sm:text-[26px]">{svc.name}</p><p className="text-[13px] text-ink2">{svc.sub} · demo workspace</p></div>
           <div className="flex items-center gap-1.5" role="group" aria-label="Power controls">
             <span className={cn('mr-1 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12.5px] font-bold', isOn ? 'bg-good-bg text-good' : 'bg-s3 text-ink2')}><StatusDot tone={isOn ? 'good' : 'idle'} live={isOn} />{isOn ? 'Running' : 'Offline'}</span>
             <button type="button" onClick={() => power('start')} disabled={isOn} className="h-9 rounded-full bg-s2 px-3.5 text-[13px] font-bold outline-none hover:bg-s3 focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40">Start</button>
@@ -98,7 +98,7 @@ export function WorkspaceDemo({ compact = false }: { compact?: boolean }) {
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2.5">
           {[['CPU', `${isOn ? now : 0}%`, isOn ? now : 0], ['Memory', `${mem} GB`, isOn ? 52 : 3], ['Storage', '8.1 GB', 34]].map(([l, v, p]) => (
-            <div key={String(l)} className="rounded-2xl bg-s2 p-3 sm:p-4"><p className="text-[12px] font-bold text-ink2">{l}</p><p className="site-h text-[22px] font-extrabold tracking-[-0.04em] tabular-nums sm:text-[30px]">{v}</p><div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-s3"><div className="h-full rounded-full bg-accent transition-[width] duration-700 ease-petal" style={{ width: `${p}%` }} /></div></div>
+            <div key={String(l)} className="rounded-2xl bg-s2 p-3 sm:p-4"><p className="text-[12px] font-bold text-ink2">{l}</p><p className="text-[22px] font-extrabold tracking-[-0.04em] tabular-nums sm:text-[30px]">{v}</p><div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-s3"><div className="h-full rounded-full bg-accent transition-[width] duration-700 ease-petal" style={{ width: `${p}%` }} /></div></div>
           ))}
         </div>
         <div className={cn('mt-2.5 grid gap-2.5', !compact && 'md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]')}>

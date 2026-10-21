@@ -13,7 +13,7 @@ function Tile({ icon, topic, title, text, className, dark, children, delay = 0 }
       <button type="button" onClick={() => open(topic)} aria-haspopup="dialog" aria-label={`Try ${title}`} className={cn('absolute right-5 top-5 inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[14px] font-bold outline-none transition-[background-color,transform] duration-300 ease-spring hover:scale-105 focus-visible:ring-2 focus-visible:ring-accent', dark ? 'bg-lime text-lime-ink' : 'bg-s3 text-ink hover:bg-ink hover:text-on-ink')}>Try it<Icon name="arrow-up-right-01" size={16} /></button>
       <div className="grid gap-3">
         <span className={cn('grid size-11 place-items-center rounded-2xl', dark ? 'bg-night3 text-lime' : 'bg-accent-bg text-accent-ink')}><Icon name={icon} size={22} /></span>
-        <div><p className="site-h text-[clamp(26px,2.6vw,34px)] font-extrabold leading-none tracking-[-0.05em]">{title}</p><p className={cn('mt-2 max-w-sm text-[15.5px]', dark ? 'text-night-dim' : 'text-ink2')}>{text}</p></div>
+        <div><p className="text-[clamp(26px,2.6vw,34px)] font-extrabold leading-none tracking-[-0.05em]">{title}</p><p className={cn('mt-2 max-w-sm text-[15.5px]', dark ? 'text-night-dim' : 'text-ink2')}>{text}</p></div>
       </div>
       <div aria-hidden="true">{children(seen)}</div>
     </div>

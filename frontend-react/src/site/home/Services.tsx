@@ -21,7 +21,7 @@ function Card({ topic, look, icon, title, text, cta, className, delay, children 
         className={cn('group relative grid h-full min-h-[360px] w-full content-between gap-8 overflow-hidden rounded-[32px] p-6 text-left outline-none transition-transform duration-500 ease-spring hover:-translate-y-1.5 hover:-rotate-[0.6deg] focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-bg active:scale-[0.985] sm:p-8', L.card)}>
         <div className="grid gap-4">
           <span className={cn('grid size-14 place-items-center rounded-2xl transition-transform duration-500 ease-spring group-hover:rotate-[-8deg] group-hover:scale-110', L.tile)}><Icon name={icon} size={28} /></span>
-          <div><p className="site-h text-[clamp(32px,3.6vw,48px)] font-extrabold leading-none tracking-[-0.055em]">{title}</p><p className={cn('mt-3 max-w-md text-[17px]', L.sub)}>{text}</p></div>
+          <div><p className="text-[clamp(32px,3.6vw,48px)] font-extrabold leading-none tracking-[-0.055em]">{title}</p><p className={cn('mt-3 max-w-md text-[17px]', L.sub)}>{text}</p></div>
         </div>
         <div className="grid gap-4">
           <div className={cn('rounded-2xl p-4', L.mini)} aria-hidden="true">{children}</div>

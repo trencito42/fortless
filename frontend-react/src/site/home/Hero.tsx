@@ -40,7 +40,7 @@ export function Hero() {
     <section aria-labelledby="hero-title" className="relative pt-[120px] sm:pt-[132px]">
       <Wrap className="relative">
         <Stickers />
-        <Headline as="h1" lines={['Hosting,', 'minus the', 'hassle.']} nowrap className="mt-6 text-[clamp(52px,11.2vw,164px)] leading-[0.92]" />
+        <Headline as="h1" lines={['Hosting,', 'minus the', 'hassle.']} nowrap className="mt-6 text-[clamp(60px,13.2vw,190px)] leading-[0.9]" />
         <Reveal delay={500} className="mt-8 grid items-end gap-8 lg:grid-cols-[minmax(0,1fr)_auto]">
           <p id="hero-title" className="max-w-xl text-[19px] leading-snug text-ink2 sm:text-[22px]">Launch a game server, a Discord bot or an app in minutes, then run it from one calm control panel. Console, files, backups and billing included.</p>
           <div className="flex flex-wrap gap-3">

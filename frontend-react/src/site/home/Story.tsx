@@ -15,7 +15,7 @@ function Pick({ t }: { t: number }) {
   const picked = t > 0.25;
   return (
     <div className="grid gap-3">
-      <p className="site-h text-[22px] font-extrabold tracking-[-0.04em]">What are you hosting?</p>
+      <p className="text-[22px] font-extrabold tracking-[-0.04em]">What are you hosting?</p>
       <div className="grid grid-cols-3 gap-2.5">
         {items.map(([ic, l, s], i) => (
           <div key={l} className={cn('grid gap-2 rounded-2xl p-3 transition-colors duration-500 sm:p-4', i === 0 && picked ? 'bg-accent text-on-accent' : 'bg-s1')} style={{ transform: `translateY(${(1 - ease(t * 3 - i * 0.3)) * 24}px)`, opacity: clamp(t * 4 - i * 0.3 + 0.2) }}>
@@ -39,7 +39,7 @@ function Shape({ t }: { t: number }) {
   const ram = 2 + ease(t * 1.6) * 2;
   return (
     <div className="grid gap-3">
-      <p className="site-h text-[22px] font-extrabold tracking-[-0.04em]">Pick a size that fits.</p>
+      <p className="text-[22px] font-extrabold tracking-[-0.04em]">Pick a size that fits.</p>
       <div className="grid grid-cols-3 gap-2.5">
         {sizes.map(([n, g], i) => (
           <div key={n} className={cn('rounded-2xl p-3 transition-colors duration-500 sm:p-4', i === idx ? 'bg-ink text-on-ink' : 'bg-s1')}>
@@ -62,7 +62,7 @@ function Launch({ t }: { t: number }) {
   const done = (i: number) => t > (i + 1) / (steps.length + 0.6);
   return (
     <div className="grid gap-3">
-      <p className="site-h text-[22px] font-extrabold tracking-[-0.04em]">Launching survival-server…</p>
+      <p className="text-[22px] font-extrabold tracking-[-0.04em]">Launching survival-server…</p>
       <ul className="grid gap-2">
         {steps.map((s, i) => (
           <li key={s} className={cn('flex items-center gap-3 rounded-2xl bg-s1 p-3.5 transition-opacity duration-500', done(i) ? 'opacity-100' : 'opacity-60')}>
@@ -81,7 +81,7 @@ function Run({ t }: { t: number }) {
   const shown = Math.floor(clamp(t * 1.6) * (lines.length + 0.99));
   return (
     <div className="grid gap-3">
-      <div className="flex items-center justify-between"><p className="site-h text-[22px] font-extrabold tracking-[-0.04em]">survival-server</p><span className="inline-flex items-center gap-1.5 rounded-full bg-good-bg px-3 py-1 text-[12.5px] font-bold text-good"><span className="size-2 rounded-full bg-good" />Running</span></div>
+      <div className="flex items-center justify-between"><p className="text-[22px] font-extrabold tracking-[-0.04em]">survival-server</p><span className="inline-flex items-center gap-1.5 rounded-full bg-good-bg px-3 py-1 text-[12.5px] font-bold text-good"><span className="size-2 rounded-full bg-good" />Running</span></div>
       <div className="rounded-2xl bg-con p-4 font-mono text-[12.5px] text-con-ink">
         {lines.slice(0, shown).map((l, i) => <p key={l} className={i === 2 ? 'text-con-ok' : ''}><span className="text-con-dim">[10:32:{18 + i}]</span> {l}</p>)}
         <p className="text-con-dim">&gt; <span className="site-caret inline-block h-3 w-1.5 bg-con-ink" /></p>
@@ -118,7 +118,7 @@ export function Story() {
     return (
       <section id="story" aria-label="How it works" className="py-28"><Wrap className="grid gap-12">{head}
         <ol className="grid gap-6 lg:grid-cols-2">{CHAPTERS.map((c, i) => (
-          <li key={c.id} className="grid gap-4 rounded-[28px] bg-s1 p-6"><p className="site-h text-[28px] font-extrabold tracking-[-0.05em]"><span className="mr-3 text-ink2">0{i + 1}</span>{c.title}</p><p className="text-ink2">{c.text}</p><div className="rounded-3xl bg-accent-bg p-4">{c.scene(1)}</div></li>
+          <li key={c.id} className="grid gap-4 rounded-[28px] bg-s1 p-6"><p className="text-[28px] font-extrabold tracking-[-0.05em]"><span className="mr-3 text-ink2">0{i + 1}</span>{c.title}</p><p className="text-ink2">{c.text}</p><div className="rounded-3xl bg-accent-bg p-4">{c.scene(1)}</div></li>
         ))}</ol></Wrap></section>
     );
   }
@@ -134,7 +134,7 @@ export function Story() {
                 {CHAPTERS.map((c, i) => (
                   <li key={c.id} aria-current={i === active ? 'step' : undefined} className={cn('grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 rounded-3xl p-4 transition-[background-color,opacity] duration-500 sm:p-5', i === active ? 'bg-s1' : 'opacity-75', i !== active && 'max-lg:hidden')}>
                     <span className={cn('grid size-9 place-items-center rounded-full text-[14px] font-extrabold transition-colors duration-500', i === active ? 'bg-accent text-on-accent' : i < active ? 'bg-good text-on-accent' : 'bg-s3 text-ink2')}>{i < active ? <Icon name="tick-02" size={16} /> : i + 1}</span>
-                    <div><p className="site-h text-[clamp(24px,3.2vw,40px)] font-extrabold leading-none tracking-[-0.05em]">{c.title}</p>
+                    <div><p className="text-[clamp(24px,3.2vw,40px)] font-extrabold leading-none tracking-[-0.05em]">{c.title}</p>
                       <div className={cn('grid transition-[grid-template-rows,opacity] duration-500 ease-petal', i === active ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}><p className="overflow-hidden pt-2 text-[16px] text-ink2">{c.text}</p></div></div>
                   </li>
                 ))}

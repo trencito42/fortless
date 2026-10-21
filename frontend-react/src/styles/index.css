@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter-tight";
 @import "@fontsource-variable/jetbrains-mono";
-@import "@fontsource-variable/montserrat";
 
 /*
  * Fortless design tokens (Petal). Extracted from Fortless.html / Fortless App Nav.html / Fortless Views.html.
@@ -199,7 +198,6 @@
   --color-brand: var(--brand);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --font-menu: "Montserrat Variable", "Montserrat", var(--font-sans);
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
@@ -318,6 +316,3 @@
 @keyframes ok-pop { 0% { transform: scale(0.88); } 60% { transform: scale(1.05); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .ok-check, .ok-check .ring, .ok-check .disc, .ok-check .tick { animation: none; } .ok-check .ring, .ok-check .tick { stroke-dashoffset: 0; } .ok-check .disc { fill-opacity: 1; } }
 
-/* Public site headings use Montserrat. Tighter tracking than Inter Tight would look cramped on its wider letters. */
-.site-root :is(h1, h2, h3), .site-root .site-h { font-family: var(--font-menu); letter-spacing: -0.035em; }
-.site-root :is(h1, h2) { font-weight: 800; }
