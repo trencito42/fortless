@@ -36,6 +36,8 @@ export interface ResourceTableProps<T> {
   columnPicker?: boolean;
   mobileCard?: (r: T) => ReactNode;
   maxHeight?: string;
+  /** Pre-filled search text, for example from a link (?q=). */
+  initialSearch?: string;
 }
 
 const RANGES = [{ value: 'any', label: 'Any time' }, { value: '24h', label: 'Last 24 hours' }, { value: '7d', label: 'Last 7 days' }, { value: '30d', label: 'Last 30 days' }, { value: '90d', label: 'Last 90 days' }];
@@ -54,7 +56,7 @@ export function ResourceTable<T>(p: ResourceTableProps<T>) {
   const toast = useToast();
   const [segment, setSegment] = useState(p.defaultSegment ?? p.segments?.[0]?.value ?? 'all');
   const [fv, setFv] = useState<Record<string, string>>({});
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(p.initialSearch ?? '');
   const [rules, setRules] = useState<FilterRule[]>([]);
   const [range, setRange] = useState('any');
   const [showAdvanced, setShowAdvanced] = useState(false);
