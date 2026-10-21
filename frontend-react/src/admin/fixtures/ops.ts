@@ -1,0 +1,60 @@
+import type { ActionItem, ApprovalRequest, Customer, Job, Payment, ProviderConnection, Ticket, Worker, InfraNode, Order, WebhookEvent, StaffMember } from '../types';
+import { HOUR, MIN, iso, money } from '../lib/format';
+
+export const workers: Worker[] = [
+  { id: 'wrk_1', queue: 'provisioning', status: 'busy', lastHeartbeat: iso(-4_000), processed24h: 142, failed24h: 3, currentJobId: null, version: '2026.10.3' },
+  { id: 'wrk_2', queue: 'provisioning', status: 'idle', lastHeartbeat: iso(-6_000), processed24h: 128, failed24h: 1, currentJobId: null, version: '2026.10.3' },
+  { id: 'wrk_3', queue: 'billing', status: 'busy', lastHeartbeat: iso(-3_000), processed24h: 311, failed24h: 2, currentJobId: null, version: '2026.10.3' },
+  { id: 'wrk_4', queue: 'email', status: 'stalled', lastHeartbeat: iso(-11 * MIN), processed24h: 87, failed24h: 9, currentJobId: null, version: '2026.10.2' },
+  { id: 'wrk_5', queue: 'runtime-sync', status: 'idle', lastHeartbeat: iso(-9_000), processed24h: 1420, failed24h: 6, currentJobId: null, version: '2026.10.3' },
+];
+
+export const connections: ProviderConnection[] = [
+  { id: 'conn_ptero', name: 'Pterodactyl panel', type: 'PTERODACTYL', endpoint: 'https://panel.fortless.example', health: 'connected', lastSyncAt: iso(-3 * MIN), lastError: null, secret: 'ptla_••••••••••••••••c9F2', latencyMs: 228, version: '1.11.11' },
+  { id: 'conn_wings_eu', name: 'Wings fleet · EU', type: 'WINGS', endpoint: '5 nodes via panel', health: 'degraded', lastSyncAt: iso(-90_000), lastError: 'node-fra-02: heartbeat 94s old', secret: 'managed by panel', latencyMs: 41, version: '1.12.0' },
+  { id: 'conn_wings_us', name: 'Wings fleet · US', type: 'WINGS', endpoint: '1 node via panel', health: 'connected', lastSyncAt: iso(-100_000), lastError: null, secret: 'managed by panel', latencyMs: 118, version: '1.12.0' },
+  { id: 'conn_stripe', name: 'Stripe (live)', type: 'STRIPE', endpoint: 'api.stripe.com', health: 'connected', lastSyncAt: iso(-2 * MIN), lastError: null, secret: 'sk_live_••••••••••••••••Qx7p', latencyMs: 164, version: 'API 2025-09-30' },
+  { id: 'conn_smtp', name: 'SMTP relay', type: 'SMTP', endpoint: 'smtp.relay.example:587 (STARTTLS)', health: 'degraded', lastSyncAt: iso(-12 * MIN), lastError: '421 greylisted (3 of the last 20 deliveries)', secret: '••••••••••••', latencyMs: 905, version: null },
+  { id: 'conn_dns', name: 'DNS provider', type: 'DNS', endpoint: '—', health: 'not_configured', lastSyncAt: null, lastError: 'No DNS provider is wired into the backend yet.', secret: '—', latencyMs: null, version: null },
+];
+
+export function buildActions(customers: Customer[], orders: Order[], jobs: Job[], payments: Payment[], webhooks: WebhookEvent[], tickets: Ticket[], nodes: InfraNode[], staff: StaffMember[]): ActionItem[] {
+  const items: ActionItem[] = [];
+  const cust = (id: string) => customers.find((c) => c.id === id)?.name ?? id;
+  const push = (a: Omit<ActionItem, 'history' | 'notes' | 'status' | 'assignee'> & Partial<Pick<ActionItem, 'status' | 'assignee'>>) => items.push({ status: 'open', assignee: null, ...a, history: [{ id: `${a.id}_h0`, at: a.createdAt, actor: 'System', text: 'Raised automatically' }], notes: [] });
+
+  orders.filter((o) => o.status === 'FULFILLMENT_FAILED' || o.status === 'PARTIALLY_FULFILLED').forEach((o, i) => push({
+    id: `act_prov_${o.id}`, category: 'provisioning', priority: i === 0 ? 'critical' : 'high', title: `Provisioning failed for order ${o.id}`, detail: `${o.error ?? 'Fulfillment did not complete.'} Customer has paid; do not retry blindly.`, createdAt: o.updatedAt,
+    resource: { type: 'order', id: o.id, label: `${o.id} · ${cust(o.customerId)}`, to: `/orders/${o.id}` }, related: o.jobIds.map((j) => ({ type: 'job', id: j, label: j, to: `/provisioning/jobs/${j}` })),
+  }));
+  jobs.filter((j) => (j.status === 'manual_review' || j.status === 'dead_letter') && j.type !== 'PROVISION_SERVICE').forEach((j) => push({
+    id: `act_job_${j.id}`, category: 'jobs', priority: j.status === 'manual_review' ? 'high' : 'medium', title: `${j.type.replace(/_/g, ' ').toLowerCase()} job needs review`, detail: j.error?.message ?? 'Job exhausted retries.', createdAt: j.createdAt,
+    resource: { type: 'job', id: j.id, label: j.id, to: `/provisioning/jobs/${j.id}` }, related: j.customerId ? [{ type: 'customer', id: j.customerId, label: cust(j.customerId), to: `/customers/${j.customerId}` }] : [],
+  }));
+  jobs.filter((j) => j.status === 'failed' && j.type === 'SEND_EMAIL').forEach((j) => push({ id: `act_mail_${j.id}`, category: 'email', priority: 'medium', title: 'Email delivery failing (SMTP 421)', detail: j.error?.message ?? '', createdAt: j.createdAt, resource: { type: 'job', id: j.id, label: j.id, to: `/provisioning/jobs/${j.id}` }, related: [{ type: 'integration', id: 'conn_smtp', label: 'SMTP relay', to: '/settings/integrations/conn_smtp' }] }));
+  webhooks.filter((w) => w.status === 'failed').forEach((w) => push({ id: `act_wh_${w.id}`, category: 'webhooks', priority: 'high', title: `Stripe webhook ${w.type} failed`, detail: `${w.error ?? 'Handler error'}. ${w.attempts} attempts so far.`, createdAt: w.receivedAt, resource: { type: 'webhook', id: w.id, label: w.id, to: `/provisioning/webhooks?q=${w.id}` }, related: [] }));
+  payments.filter((p) => !p.reconciled).forEach((p) => push({ id: `act_pay_${p.id}`, category: 'payments', priority: 'critical', title: 'Payment succeeded at Stripe but is not reconciled', detail: `Charge ${p.providerRef} for ${money(p.amount)} has no matching "paid" state in Fortless. Customer may not be provisioned.`, createdAt: p.createdAt, resource: { type: 'payment', id: p.id, label: `${p.id} · ${cust(p.customerId)}`, to: `/billing/transactions/${p.id}` }, related: p.invoiceId ? [{ type: 'invoice', id: p.invoiceId, label: p.invoiceId, to: `/billing/invoices/${p.invoiceId}` }] : [] }));
+  payments.filter((p) => p.status === 'disputed').forEach((p) => push({ id: `act_disp_${p.id}`, category: 'payments', priority: 'high', title: 'Open card dispute — evidence due', detail: 'Stripe dispute opened. Submit evidence in the Stripe dashboard before the deadline; do not refund manually.', createdAt: iso(-6 * 24 * HOUR), resource: { type: 'payment', id: p.id, label: `${p.id} · ${cust(p.customerId)}`, to: `/billing/transactions/${p.id}` }, related: [{ type: 'customer', id: p.customerId, label: cust(p.customerId), to: `/customers/${p.customerId}` }] }));
+  tickets.filter((t) => t.priority === 'urgent' && !t.assigneeId && (t.status === 'open')).forEach((t) => push({ id: `act_tkt_${t.id}`, category: 'support', priority: 'critical', title: `Urgent ticket unassigned: ${t.subject}`, detail: `First response was due ${new Date(t.firstResponseDueAt).toISOString().slice(11, 16)} UTC.`, createdAt: t.createdAt, resource: { type: 'ticket', id: t.id, label: `${t.id} · ${cust(t.customerId)}`, to: `/support/tickets/${t.id}` }, related: t.serviceIds.map((s) => ({ type: 'service', id: s, label: s, to: `/services/${s}` })) }));
+  nodes.filter((n) => n.health !== 'healthy').forEach((n) => push({ id: `act_node_${n.id}`, category: 'nodes', priority: 'critical', title: `${n.name} is ${n.health}`, detail: 'Last Wings heartbeat 94s old; packet loss reported. Incident inc_0006 is public.', createdAt: iso(-2 * HOUR), resource: { type: 'node', id: n.id, label: n.name, to: `/infrastructure/nodes/${n.id}` }, related: [{ type: 'incident', id: 'inc_0006', label: 'inc_0006', to: '/monitoring/incidents/inc_0006' }] }));
+  nodes.filter((n) => n.allocated.ramMb / n.hardware.ramMb > 0.9).forEach((n) => push({ id: `act_cap_${n.id}`, category: 'capacity', priority: 'high', title: `${n.name}: sold RAM above 90% of physical`, detail: 'New orders keep landing here. Consider closing this node to new allocations or moving services.', createdAt: iso(-20 * HOUR), resource: { type: 'node', id: n.id, label: n.name, to: `/infrastructure/capacity` }, related: [] }));
+  const noMfa = staff.filter((s) => s.status === 'ACTIVE' && !s.mfa);
+  noMfa.forEach((s) => push({ id: `act_sec_${s.id}`, category: 'security', priority: 'high', title: `Staff account without MFA: ${s.name}`, detail: `${s.role} has no second factor. Staff permissions that need step-up cannot be exercised safely.`, createdAt: iso(-3 * 24 * HOUR), resource: { type: 'staff', id: s.id, label: s.name, to: `/staff/directory/${s.id}` }, related: [] }));
+  push({ id: 'act_sec_burst', category: 'security', priority: 'medium', title: '14 failed sign-ins for acc_0002 from 3 IPs in 10 minutes', detail: 'Rate limiter engaged. No successful login followed.', createdAt: iso(-48 * MIN), resource: { type: 'customer', id: 'acc_0002', label: 'Andrei Popescu', to: '/customers/acc_0002/security' }, related: [{ type: 'audit', id: 'sec_0003', label: 'Security events', to: '/audit/security' }] });
+  push({ id: 'act_stall_wrk4', category: 'jobs', priority: 'high', title: 'Email worker wrk_4 stalled', detail: 'No heartbeat for 11 minutes. 7 jobs are waiting in the email queue.', createdAt: iso(-11 * MIN), resource: { type: 'worker', id: 'wrk_4', label: 'wrk_4 · email', to: '/provisioning/workers' }, related: [] });
+  items.sort((a, b) => ({ critical: 0, high: 1, medium: 2, low: 3 }[a.priority] - { critical: 0, high: 1, medium: 2, low: 3 }[b.priority]) || b.createdAt.localeCompare(a.createdAt));
+  // A few are already being worked.
+  const mine = staff.find((s) => s.id === 'stf_01')!;
+  if (items[0]) { items[0].assignee = mine.name; items[0].status = 'acknowledged'; items[0].history.push({ id: `${items[0].id}_h1`, at: iso(-30 * MIN), actor: mine.name, text: 'Acknowledged and assigned to self' }); }
+  if (items[5]) { items[5].assignee = 'Victor Lang'; }
+  return items;
+}
+
+export const approvals: ApprovalRequest[] = [
+  { id: 'apr_0001', kind: 'large_refund', summary: 'Refund 100% of an annual invoice (cancelled within 14-day window)', requestedBy: 'Ioana Marin', requestedAt: iso(-3 * HOUR), status: 'pending', resource: { type: 'refund', id: 'rfd_0004', label: 'rfd_0004', to: '/billing/refunds/rfd_0004' }, decidedBy: null, decidedAt: null, reason: null, amount: { amount: 28900, currency: 'EUR' } },
+  { id: 'apr_0002', kind: 'destructive_operation', summary: 'Terminate service of a closed account and delete provider server', requestedBy: 'Cătălin Rusu', requestedAt: iso(-22 * HOUR), status: 'pending', resource: { type: 'service', id: 'svc_0002', label: 'svc_0002', to: '/services/svc_0002' }, decidedBy: null, decidedAt: null, reason: null, amount: null },
+  { id: 'apr_0003', kind: 'permission_change', summary: 'Grant INFRASTRUCTURE → ADMINISTRATOR to Anton Weber', requestedBy: 'Daniel Voss', requestedAt: iso(-26 * HOUR), status: 'pending', resource: { type: 'staff', id: 'stf_09', label: 'Anton Weber', to: '/staff/directory/stf_09' }, decidedBy: null, decidedAt: null, reason: null, amount: null },
+  { id: 'apr_0004', kind: 'sensitive_account_change', summary: 'Change owner email on acc_0003 (restricted account)', requestedBy: 'Petra Novak', requestedAt: iso(-5 * 24 * HOUR), status: 'rejected', resource: { type: 'customer', id: 'acc_0003', label: 'Lena Hartmann', to: '/customers/acc_0003' }, decidedBy: 'Maria Ilie', decidedAt: iso(-4 * 24 * HOUR), reason: 'Identity not verified; account is under dispute review.', amount: null },
+  { id: 'apr_0005', kind: 'large_refund', summary: 'Refund €142.00 for prolonged outage on node-fra-02', requestedBy: 'Ioana Marin', requestedAt: iso(-9 * 24 * HOUR), status: 'approved', resource: { type: 'refund', id: 'rfd_0001', label: 'rfd_0001', to: '/billing/refunds/rfd_0001' }, decidedBy: 'Daniel Voss', decidedAt: iso(-9 * 24 * HOUR + 2 * HOUR), reason: 'Outage confirmed in incident record.', amount: { amount: 14200, currency: 'EUR' } },
+  { id: 'apr_0006', kind: 'permission_change', summary: 'Revoke staff access for Radu Pop', requestedBy: 'Maria Ilie', requestedAt: iso(-71 * 24 * HOUR), status: 'approved', resource: { type: 'staff', id: 'stf_08', label: 'Radu Pop', to: '/staff/directory/stf_08' }, decidedBy: 'Daniel Voss', decidedAt: iso(-70 * 24 * HOUR), reason: 'Offboarding.', amount: null },
+];

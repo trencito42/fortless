@@ -65,6 +65,8 @@ export interface DataTableProps<T> {
   renderExpanded?: (row: T) => ReactNode;
   /** Human name of a row for assistive tech (expand button, selection). Defaults to the row id. */
   rowLabel?: (row: T) => string;
+  /** Hide the pager when everything fits on one page (small embedded tables). */
+  hideSinglePagePager?: boolean;
 }
 
 /**
@@ -72,7 +74,7 @@ export interface DataTableProps<T> {
  * Below md it renders cards instead of a horizontally scrolling grid. Sorting and filtering are client-side,
  * so pass server-paginated data only when the dataset fits that model.
  */
-export function DataTable<T>({ data, columns, getRowId, caption, loading, error, onRetry, empty, selectable, bulkActions, searchable, searchPlaceholder = 'Search', columnPicker, pageSize = 10, maxHeight, onRowClick, mobileCard, toolbar, renderExpanded, rowLabel }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns, getRowId, caption, loading, error, onRetry, empty, selectable, bulkActions, searchable, searchPlaceholder = 'Search', columnPicker, pageSize = 10, maxHeight, onRowClick, mobileCard, toolbar, renderExpanded, rowLabel, hideSinglePagePager }: DataTableProps<T>) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const tableId = useId();
   const toggle = (id: string) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
@@ -230,7 +232,7 @@ export function DataTable<T>({ data, columns, getRowId, caption, loading, error,
         </ul>
       )}
 
-      {filteredTotal > 0 ? <Pagination page={pagination.pageIndex} pageCount={table.getPageCount()} onPageChange={(p) => table.setPageIndex(p)} total={filteredTotal} pageSize={pagination.pageSize} /> : null}
+      {filteredTotal > 0 && !(hideSinglePagePager && table.getPageCount() <= 1) ? <Pagination page={pagination.pageIndex} pageCount={table.getPageCount()} onPageChange={(p) => table.setPageIndex(p)} total={filteredTotal} pageSize={pagination.pageSize} /> : null}
 
       {selectable && bulkActions ? (
         <BulkActionBar count={selected.length} onClear={() => table.resetRowSelection()}>{bulkActions(selected)}</BulkActionBar>

@@ -84,7 +84,7 @@ export { ChartLegend, type ChartLegendProps } from './charts/ChartLegend';
 export { TimeSeriesChart, Sparkline, seriesColor, type Series } from './charts/TimeSeriesChart';
 export { ProgressRing, Gauge, DonutChart, toneForPercent, type DonutSegment } from './charts/Radial';
 export { SegmentedBar, type BarSegment, type SegmentedBarProps } from './charts/SegmentedBar';
-export { MetricCard, TimeRangeSelector, type TimeRange } from './charts/MetricCard';
+export { MetricCard, TimeRangeSelector, type TimeRange, type MetricCardProps } from './charts/MetricCard';
 
 // Wizard
 export { FormWizard, type WizardStep, type WizardContext, type WizardErrors } from './wizard/FormWizard';

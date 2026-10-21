@@ -15,6 +15,8 @@ export interface NavTreeProps {
   collapsed?: boolean;
   /** Larger touch rows, used inside the mobile sheet. */
   touch?: boolean;
+  /** Accessible name of the navigation landmark. Give each instance its own when several are on screen. */
+  label?: string;
 }
 
 const row = (active: boolean, current: boolean, touch?: boolean) =>
@@ -33,7 +35,7 @@ function Badge({ value, dot }: { value: string | number; dot?: boolean }) {
  * Grouped navigation. Expanding groups use aria-expanded buttons; the current page gets aria-current="page".
  * In collapsed mode, grouped items open a menu so every destination stays reachable without hover.
  */
-export function NavTree({ groups, currentId, onNavigate, collapsed, touch }: NavTreeProps) {
+export function NavTree({ groups, currentId, onNavigate, collapsed, touch, label = 'Main navigation' }: NavTreeProps) {
   const currentItem = findNav(groups, currentId)?.item;
   const [open, setOpen] = useState<Record<string, boolean>>(() => (currentItem ? { [currentItem.id]: true } : {}));
 
@@ -112,7 +114,7 @@ export function NavTree({ groups, currentId, onNavigate, collapsed, touch }: Nav
   };
 
   return (
-    <nav aria-label="Main navigation" className="flex flex-col">
+    <nav aria-label={label} className="flex flex-col">
       {groups.map((g) => (
         <div key={g.id} className="flex flex-col gap-px">
           {g.label ? (collapsed ? <div className="mx-3 my-3 h-px bg-ink/10" /> : <div className="px-3 pt-4.5 pb-2 text-xs font-bold text-ink3">{g.label}</div>) : <div className="h-1" />}

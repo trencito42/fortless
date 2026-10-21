@@ -20,6 +20,10 @@ export interface CommandPaletteProps {
   onOpenChange: (open: boolean) => void;
   placeholder?: string;
   footer?: ReactNode;
+  /** Caps rendered results (large entity indexes). The status line tells the user to keep typing. */
+  maxResults?: number;
+  /** With an empty query only commands passing this filter are listed (e.g. navigation, not every record). */
+  idleFilter?: (command: PaletteCommand) => boolean;
 }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -28,7 +32,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
  * Jump-to and quick-actions palette. Combobox pattern: focus stays in the input, arrows move aria-activedescendant,
  * Enter runs, Escape closes. The global shortcut lives in useCommandPaletteShortcut so there is exactly one listener.
  */
-export function CommandPalette({ commands, open, onOpenChange, placeholder = 'Search pages and actions', footer }: CommandPaletteProps) {
+export function CommandPalette({ commands, open, onOpenChange, placeholder = 'Search pages and actions', footer, maxResults, idleFilter }: CommandPaletteProps) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const listId = useId();
@@ -36,9 +40,10 @@ export function CommandPalette({ commands, open, onOpenChange, placeholder = 'Se
 
   const results = useMemo(() => {
     const t = norm(q.trim());
-    if (!t) return commands;
-    return commands.filter((c) => [c.label, c.section, ...(c.keywords ?? [])].some((s) => norm(s).includes(t)));
-  }, [commands, q]);
+    if (!t) return idleFilter ? commands.filter(idleFilter) : commands;
+    const hits = commands.filter((c) => [c.label, c.section, ...(c.keywords ?? [])].some((s) => norm(s).includes(t)));
+    return maxResults ? hits.slice(0, maxResults) : hits;
+  }, [commands, q, maxResults, idleFilter]);
 
   useEffect(() => { setActive(0); }, [q, open]);
   useEffect(() => { if (!open) setQ(''); }, [open]);
@@ -86,6 +91,7 @@ export function CommandPalette({ commands, open, onOpenChange, placeholder = 'Se
           </div>
           <div ref={listRef} id={listId} role="listbox" aria-label="Results" className="min-h-0 flex-1 overflow-auto px-2 pb-2">
             {results.length === 0 ? <p role="status" className="px-4 py-8 text-center font-semibold text-ink3">No results for “{q}”.</p> : null}
+            {maxResults && results.length >= maxResults ? <p role="status" className="px-3 pt-2 text-[12.5px] font-semibold text-ink3">Showing the first {maxResults} matches. Keep typing to narrow down.</p> : null}
             {results.map((c, i) => {
               const header = c.section !== lastSection ? c.section : null;
               lastSection = c.section;
