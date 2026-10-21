@@ -1,7 +1,7 @@
 # React Admin — view matrix
 
-Branch `feat/react-admin-ui` · isolated app in `frontend-react/src/admin/` · mounted only at `/admin-preview/*` (development, or a build made with `VITE_ADMIN_PREVIEW=1`).
-The legacy `/admin` HTML console, the Fastify routes, nginx, the database, Stripe and Pterodactyl are untouched. **Every number, name and id is synthetic** (`src/admin/fixtures`, deterministic, frozen at 21 Oct 2026 09:30 UTC).
+Branch `feat/react-admin-ui` · app in `frontend-react/src/admin/` · available through the independently gated `/admin-preview/*` staging route and through `/admin/*` only when `FORTLESS_REACT_ADMIN_UI=1`.
+The legacy `/admin` HTML console remains the default rollback path. Live mode uses authoritative Fastify responses and never falls back to fixtures. Synthetic fixture mode is restricted to builds with `VITE_ADMIN_DEMO=1`; the historical UI inventory below still describes that fixture implementation, while [REACT_ADMIN_API_MATRIX.md](./REACT_ADMIN_API_MATRIX.md) is authoritative for live integration status.
 
 ## Status vocabulary
 
@@ -13,7 +13,7 @@ The legacy `/admin` HTML console, the Fastify routes, nginx, the database, Strip
 | `NEEDS_BACKEND` | The screen works on demo data; the live endpoint or read model does not exist yet (last column). |
 | `VERIFIED_IN_BROWSER` | Opened in Chromium at desktop, tablet and mobile (light and dark sampled), with no console error and no horizontal overflow, by `tests-admin/admin-preview.spec.ts`, plus the functional tests listed below. Verification tier for all views: **`[MOCK_ONLY]`** — nothing was run against a real backend or provider. |
 
-77 views, 85 route patterns. Rows marked *NOT SUPPORTED* say so on screen and show no invented numbers.
+77 views, 85 route patterns. In live mode, supported routes are handled by `src/admin/live/LiveOutlet.tsx`; unsupported routes show an explicit backend-integration state and no invented numbers.
 
 ## Views
 

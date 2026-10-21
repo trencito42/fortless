@@ -957,6 +957,68 @@ export function listAdminCreditNotes(db: Database.Database, options: AdminListOp
   return { creditNotes: rows, total, summary, limit, offset };
 }
 
+export function listAdminTransactions(db: Database.Database, options: AdminListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const like = search(query);
+  const transactions = db.prepare(`
+    SELECT pa.id, pa.invoice_id, pa.psp_name, pa.psp_session_id, pa.psp_payment_intent_id,
+           pa.status, pa.amount_minor_units, pa.currency, pa.created_at,
+           inv.invoice_number, a.id AS account_id, a.name AS account_name,
+           u.name AS customer_name, u.email AS customer_email
+    FROM payment_attempts pa
+    JOIN invoices inv ON inv.id = pa.invoice_id
+    JOIN accounts a ON a.id = inv.account_id
+    JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR pa.id LIKE ? ESCAPE '\\' OR coalesce(pa.psp_payment_intent_id, '') LIKE ? ESCAPE '\\'
+      OR coalesce(inv.invoice_number, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
+    ORDER BY pa.created_at DESC, pa.id DESC LIMIT ? OFFSET ?
+  `).all(query, like, like, like, like, like, limit, offset);
+  const total = (db.prepare(`SELECT count(*) AS count FROM payment_attempts pa JOIN invoices inv ON inv.id = pa.invoice_id
+    JOIN accounts a ON a.id = inv.account_id JOIN users u ON u.id = a.owner_user_id
+    WHERE (? = '' OR pa.id LIKE ? ESCAPE '\\' OR coalesce(pa.psp_payment_intent_id, '') LIKE ? ESCAPE '\\'
+      OR coalesce(inv.invoice_number, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')`).get(query, like, like, like, like, like) as { count: number }).count;
+  return { transactions, total, limit, offset };
+}
+
+export function listAdminSubscriptions(db: Database.Database, options: AdminListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const like = search(query);
+  const subscriptions = db.prepare(`
+    SELECT sub.id, sub.service_id, sub.psp_subscription_id, sub.status, sub.billing_interval,
+           sub.current_period_start, sub.current_period_end, sub.next_renewal_date,
+           sub.renewal_price_minor_units, sub.currency, sub.auto_renew, sub.grace_period_end,
+           sub.dunning_attempts, sub.last_dunning_at, sub.created_at, sub.updated_at,
+           a.id AS account_id, a.name AS account_name, s.contract_status, s.identifier
+    FROM subscriptions sub JOIN accounts a ON a.id = sub.account_id JOIN services s ON s.id = sub.service_id
+    WHERE (? = '' OR sub.id LIKE ? ESCAPE '\\' OR sub.service_id LIKE ? ESCAPE '\\'
+      OR coalesce(sub.psp_subscription_id, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')
+    ORDER BY sub.updated_at DESC, sub.id DESC LIMIT ? OFFSET ?
+  `).all(query, like, like, like, like, limit, offset);
+  const total = (db.prepare(`SELECT count(*) AS count FROM subscriptions sub JOIN accounts a ON a.id = sub.account_id
+    WHERE (? = '' OR sub.id LIKE ? ESCAPE '\\' OR sub.service_id LIKE ? ESCAPE '\\'
+      OR coalesce(sub.psp_subscription_id, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\')`).get(query, like, like, like, like) as { count: number }).count;
+  return { subscriptions, total, limit, offset };
+}
+
+export function listAdminRefunds(db: Database.Database, options: AdminListOptions = {}) {
+  const { query, limit, offset } = page(options);
+  const like = search(query);
+  const refunds = db.prepare(`
+    SELECT r.id, r.payment_attempt_id, r.amount_minor_units, r.reason, r.status, r.psp_refund_id, r.created_at,
+           pa.invoice_id, pa.currency, inv.invoice_number, a.id AS account_id, a.name AS account_name
+    FROM refunds r JOIN payment_attempts pa ON pa.id = r.payment_attempt_id
+    JOIN invoices inv ON inv.id = pa.invoice_id JOIN accounts a ON a.id = inv.account_id
+    WHERE (? = '' OR r.id LIKE ? ESCAPE '\\' OR coalesce(r.psp_refund_id, '') LIKE ? ESCAPE '\\'
+      OR coalesce(inv.invoice_number, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\' OR r.reason LIKE ? ESCAPE '\\')
+    ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?
+  `).all(query, like, like, like, like, like, limit, offset);
+  const total = (db.prepare(`SELECT count(*) AS count FROM refunds r JOIN payment_attempts pa ON pa.id = r.payment_attempt_id
+    JOIN invoices inv ON inv.id = pa.invoice_id JOIN accounts a ON a.id = inv.account_id
+    WHERE (? = '' OR r.id LIKE ? ESCAPE '\\' OR coalesce(r.psp_refund_id, '') LIKE ? ESCAPE '\\'
+      OR coalesce(inv.invoice_number, '') LIKE ? ESCAPE '\\' OR a.name LIKE ? ESCAPE '\\' OR r.reason LIKE ? ESCAPE '\\')`).get(query, like, like, like, like, like) as { count: number }).count;
+  return { refunds, total, limit, offset };
+}
+
 export function getAdminCapacityPools(db: Database.Database) {
   const regions = db.prepare(`
     SELECT r.id, r.code, r.name, r.country, r.is_active,

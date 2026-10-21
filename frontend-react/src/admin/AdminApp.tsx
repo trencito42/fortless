@@ -8,6 +8,7 @@ import { AdminShell } from './shell/AdminShell';
 import { CrumbProvider } from './components/Page';
 import { NoAccess } from './components/PreviewNote';
 import { routes, type AdminRoute } from './routes';
+import { LiveOutlet } from './live/LiveOutlet';
 
 const cache = new Map<AdminRoute['load'], ComponentType<Record<string, string>>>();
 const resolve = (r: AdminRoute) => { let C = cache.get(r.load); if (!C) { C = lazy(async () => ({ default: (await r.load()).default as ComponentType<Record<string, string>> })); cache.set(r.load, C); } return C; };
@@ -19,10 +20,12 @@ function NotFound() {
 
 function Outlet() {
   const { path } = useAdminRouter();
-  const { can } = useSession();
+  const session = useSession();
+  const { can } = session;
   const hit = useMemo(() => { for (const r of routes) { const p = matchPath(r.pattern, path); if (p) return { route: r, params: p }; } return null; }, [path]);
   if (!hit) return <NotFound />;
   if (hit.route.permission && !can(hit.route.permission)) return <NoAccess permission={hit.route.permission} />;
+  if (session.live && path !== '/') return <LiveOutlet path={path} />;
   const Page = resolve(hit.route);
   return (
     <Suspense fallback={<div className="grid gap-4" aria-busy="true" aria-label="Loading page"><Skeleton className="h-9 w-full max-w-72" /><Skeleton className="h-48 w-full" /></div>}>
@@ -38,7 +41,7 @@ function SecuredApp() {
   return <AdminStoreProvider><ToastHost><CrumbProvider><AdminShell><Outlet /></AdminShell></CrumbProvider></ToastHost></AdminStoreProvider>;
 }
 
-/** The isolated React admin application. Mounted only at /admin-preview (development, or builds with VITE_ADMIN_PREVIEW=1). */
+/** React Admin shell used by the gated `/admin-preview` staging route and by `/admin` after cutover. */
 export default function AdminApp() {
   return (
     <AdminRouterProvider>

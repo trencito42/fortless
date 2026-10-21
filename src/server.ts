@@ -161,6 +161,9 @@ import {
   listAdminInvoices,
   getAdminInvoiceDetail,
   listAdminCreditNotes,
+  listAdminTransactions,
+  listAdminSubscriptions,
+  listAdminRefunds,
   getAdminCapacityPools,
   listAdminJobs,
   retryAdminJob,
@@ -425,6 +428,7 @@ export function buildServer(): FastifyInstance {
   };
   const isReactCustomerUiEnabled = () => process.env.FORTLESS_REACT_CUSTOMER_UI === 'true' || process.env.FORTLESS_REACT_CUSTOMER_UI === '1';
   const isReactAdminUiEnabled = () => process.env.FORTLESS_REACT_ADMIN_UI === 'true' || process.env.FORTLESS_REACT_ADMIN_UI === '1';
+  const isReactAdminPreviewEnabled = () => process.env.FORTLESS_REACT_ADMIN_PREVIEW === 'true' || process.env.FORTLESS_REACT_ADMIN_PREVIEW === '1';
   const reactDistDir = path.resolve(process.cwd(), 'frontend-react/dist-react-preview');
   const serveReactCustomerApp = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
@@ -742,6 +746,16 @@ export function buildServer(): FastifyInstance {
     const filePath = path.join(publicDir, 'admin.html');
     if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('admin.html'));
     return reply.status(503).send('Admin shell is not installed.');
+  });
+
+  app.get('/admin-preview', async (req, reply) => {
+    if (!isReactAdminPreviewEnabled()) return reply.status(404).send({ message: 'Route GET:/admin-preview not found', error: 'Not Found', statusCode: 404 });
+    return serveReactAdminApp(req, reply);
+  });
+
+  app.get('/admin-preview/*', async (req, reply) => {
+    if (!isReactAdminPreviewEnabled()) return reply.status(404).send({ message: `Route GET:${req.url} not found`, error: 'Not Found', statusCode: 404 });
+    return serveReactAdminApp(req, reply);
   });
 
   app.get('/admin/:view', async (req, reply) => {
@@ -3110,6 +3124,11 @@ export function buildServer(): FastifyInstance {
     };
   });
 
+  app.get('/api/v1/admin/status', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async () => {
+    const status = getPublicSystemStatus(getDatabase());
+    return { ...status, incidents: [...status.activeIncidents, ...status.pastIncidents] };
+  });
+
   app.get('/api/v1/admin/me', { preHandler: [requireAuth, requireStaff] }, async (req) => {
     return {
       user: { id: req.auth!.user.id, name: req.auth!.user.name, email: req.auth!.user.email },
@@ -3229,6 +3248,24 @@ export function buildServer(): FastifyInstance {
     const options = parseAdminList(req.query);
     if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
     return listAdminCreditNotes(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/transactions', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const options = parseAdminList(req.query);
+    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
+    return listAdminTransactions(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/subscriptions', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const options = parseAdminList(req.query);
+    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
+    return listAdminSubscriptions(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
+  });
+
+  app.get('/api/v1/admin/refunds', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {
+    const options = parseAdminList(req.query);
+    if (!options) return reply.status(400).send({ error: 'Invalid list query.' });
+    return listAdminRefunds(getDatabase(), { query: options.q, limit: options.limit, offset: options.offset });
   });
 
   app.get('/api/v1/admin/capacity', { preHandler: [requireAuth, requireStaffPermission('services:read')] }, async () => {

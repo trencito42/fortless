@@ -31,7 +31,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const openActions = data.actions.filter((a) => a.status !== 'resolved').length;
   const navGroups = groups.map((g) => ({ ...g, items: g.items.map((i) => (i.id === '/actions' ? { ...i, badge: openActions } : i)) }));
 
-  const quick: MenuEntry[] = QUICK_ACTIONS.map((a) => ({ id: a.id, label: a.label, icon: a.icon, disabled: !session.can(a.permission), disabledReason: `Requires ${a.permission}`, onSelect: () => navigate(a.to) }));
+  const quick: MenuEntry[] = QUICK_ACTIONS.filter((a) => !session.live || 'live' in a && a.live).map((a) => ({ id: a.id, label: a.label, icon: a.icon, disabled: !session.can(a.permission), disabledReason: `Requires ${a.permission}`, onSelect: () => navigate(a.to) }));
   const profile: MenuEntry[] = [
     { id: 'who', label: `${session.staffName} · ${session.role}`, disabled: true },
     { id: 'sep0', kind: 'separator' },

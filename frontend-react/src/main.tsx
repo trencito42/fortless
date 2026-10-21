@@ -8,8 +8,8 @@ import { ThemeProvider } from '@/design-system';
 const CustomerApp = lazy(() => import('./app/CustomerApp'));
 const SiteApp = lazy(() => import('./site/SiteApp'));
 const AuthApp = lazy(() => import('./auth/AuthApp'));
-// The admin preview is a separate, isolated app with synthetic data. It is mounted only in development or in builds made with VITE_ADMIN_PREVIEW=1,
-// so a normal production build contains no admin code at all and /admin (the legacy console) is untouched.
+// The admin bundle is mounted only in development or builds made with VITE_ADMIN_PREVIEW=1.
+// Runtime data is real unless VITE_ADMIN_DEMO=1 is explicitly selected by component tests.
 const adminPreviewEnabled = import.meta.env.DEV || import.meta.env.VITE_ADMIN_PREVIEW === '1';
 const AdminApp = lazy(() => import('./admin/AdminApp'));
 const { pathname, hash } = location;

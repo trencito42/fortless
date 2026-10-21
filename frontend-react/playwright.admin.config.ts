@@ -9,5 +9,5 @@ export default defineConfig({
   workers: 3,
   reporter: [['list']],
   use: { baseURL: `http://127.0.0.1:${port}`, launchOptions: { executablePath: process.env['PW_CHROMIUM'] ?? undefined } },
-  webServer: { command: `npx vite --host 127.0.0.1 --port ${port} --strictPort`, url: `http://127.0.0.1:${port}/admin-preview`, reuseExistingServer: true, timeout: 120_000 },
+  webServer: { command: `VITE_ADMIN_DEMO=1 npx vite --host 127.0.0.1 --port ${port} --strictPort`, url: `http://127.0.0.1:${port}/admin-preview`, reuseExistingServer: true, timeout: 120_000 },
 });

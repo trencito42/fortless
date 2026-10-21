@@ -6,12 +6,16 @@
 
 The flag must remain **off** until every critical row in the API and parity matrices is live and browser-tested against disposable Fastify data.
 
+`FORTLESS_REACT_ADMIN_PREVIEW=1` independently exposes the same real-data shell at `/admin-preview/*` for staging verification while leaving `/admin` on the legacy rollback UI. The preview build must be created with `VITE_ADMIN_PREVIEW=1`; fixtures are never enabled unless a test build explicitly sets `VITE_ADMIN_DEMO=1`.
+
 ## Deployment prerequisites
 
 1. Build `frontend-react/dist-react-preview` atomically with the server release.
 2. Run typecheck, production build, API integration tests and Admin browser tests.
 3. Verify authenticated staff MFA, restricted roles, direct deep links, CSRF and step-up in staging.
 4. Enable the flag only through the established deployment procedure; monitor 401/403/5xx, asset failures and privileged mutation audit events.
+
+Current local evidence: the production preview build loads authoritative data at desktop and 390 px mobile widths across dashboard, customers, services, orders, billing, infrastructure, jobs, monitoring, support, content, staff, audit and settings without console errors or horizontal overflow. This is not a substitute for public staging verification.
 
 ## Rollback
 

@@ -6,21 +6,21 @@ import { useNav } from '../router';
 import { useSession } from '../session';
 
 export const QUICK_ACTIONS = [
-  { id: 'qa-incident', label: 'Declare an incident', to: '/monitoring/incidents/new', icon: 'alert-01', permission: 'services:manage' },
+  { id: 'qa-incident', label: 'Declare an incident', to: '/monitoring/incidents/new', icon: 'alert-01', permission: 'services:manage', live: true },
   { id: 'qa-maint', label: 'Schedule maintenance', to: '/monitoring/maintenance/new', icon: 'calendar-01', permission: 'services:manage' },
   { id: 'qa-coupon', label: 'Create a coupon', to: '/products/coupons?new=1', icon: 'tag-01', permission: 'catalog:manage' },
   { id: 'qa-product', label: 'Create a product', to: '/products/new', icon: 'package', permission: 'catalog:manage' },
   { id: 'qa-plan', label: 'Open the plan builder', to: '/products/plans/new', icon: 'sliders-horizontal', permission: 'catalog:manage' },
-  { id: 'qa-announce', label: 'Write an announcement', to: '/content/announcements?new=1', icon: 'notification-01', permission: 'content:manage' },
-  { id: 'qa-article', label: 'Write a knowledge-base article', to: '/content/knowledge/new', icon: 'book-01', permission: 'content:manage' },
-  { id: 'qa-staff', label: 'Invite staff member', to: '/staff?invite=1', icon: 'user-add-01', permission: 'staff:manage' },
+  { id: 'qa-announce', label: 'Write an announcement', to: '/content/announcements?new=1', icon: 'notification-01', permission: 'content:manage', live: true },
+  { id: 'qa-article', label: 'Write a knowledge-base article', to: '/content/knowledge/new', icon: 'book-01', permission: 'content:manage', live: true },
+  { id: 'qa-staff', label: 'Grant staff access', to: '/staff?invite=1', icon: 'user-add-01', permission: 'staff:manage', live: true },
 ] as const;
 
 /** Ctrl/Cmd+K over pages, quick actions and every customer, service, order, invoice, ticket, node, job and incident in the demo data. */
 export function AdminCommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const { data } = useAdmin();
   const nav = useNav();
-  const { can } = useSession();
+  const { can, live } = useSession();
   const commands = useMemo<PaletteCommand[]>(() => {
     const out: PaletteCommand[] = [];
     for (const g of ADMIN_NAV) for (const i of g.items) {
@@ -28,7 +28,7 @@ export function AdminCommandPalette({ open, onOpenChange }: { open: boolean; onO
       if (!i.children?.length) out.push({ id: `nav:${i.id}`, label: i.label, section: 'Go to', icon: i.icon, keywords: [g.label ?? '', ...(i.keywords ?? [])], run: () => nav(i.id) });
       else for (const c of i.children) out.push({ id: `nav:${c.id}`, label: c.id === i.children[0]!.id ? i.label + (i.children[0]!.label === 'Overview' ? '' : `: ${c.label}`) : `${i.label}: ${c.label}`, section: 'Go to', icon: i.icon, keywords: [g.label ?? '', c.label, ...(i.keywords ?? [])], run: () => nav(c.id) });
     }
-    for (const a of QUICK_ACTIONS) if (can(a.permission)) out.push({ id: a.id, label: a.label, section: 'Quick actions', icon: a.icon, run: () => nav(a.to) });
+    for (const a of QUICK_ACTIONS) if (can(a.permission) && (!live || 'live' in a && a.live)) out.push({ id: a.id, label: a.label, section: 'Quick actions', icon: a.icon, run: () => nav(a.to) });
     const cust = new Map(data.customers.map((c) => [c.id, c.name]));
     if (can('accounts:read')) {
       for (const c of data.customers) out.push({ id: `c:${c.id}`, label: c.name, section: 'Customers', icon: 'user', hint: c.id, keywords: [c.email, c.id, c.country], run: () => nav(`/customers/${c.id}`) });
@@ -43,6 +43,6 @@ export function AdminCommandPalette({ open, onOpenChange }: { open: boolean; onO
     if (can('audit:read')) for (const j of data.jobs.slice(0, 200)) out.push({ id: `j:${j.id}`, label: `${j.id} · ${j.type}`, section: 'Jobs', icon: 'layers-01', hint: j.status, keywords: [j.status, j.correlationId], run: () => nav(`/provisioning/jobs/${j.id}`) });
     if (can('services:read')) for (const i of data.incidents) out.push({ id: `inc:${i.id}`, label: i.title, section: 'Incidents', icon: 'alert-01', hint: i.status, keywords: [i.id], run: () => nav(`/monitoring/incidents/${i.id}`) });
     return out;
-  }, [data, nav, can]);
+  }, [data, nav, can, live]);
   return <CommandPalette commands={commands} open={open} onOpenChange={onOpenChange} placeholder="Search customers, services, orders, invoices, tickets, nodes, jobs, pages" maxResults={40} idleFilter={(c) => c.section === 'Quick actions' || c.section === 'Go to'} footer="Type to search records. Enter opens, Esc closes." />;
 }

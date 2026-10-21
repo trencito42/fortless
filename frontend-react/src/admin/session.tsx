@@ -14,7 +14,8 @@ export const ALL_PERMISSIONS = ROLE_PERMISSIONS.OWNER;
 export const ROLES = Object.keys(ROLE_PERMISSIONS) as StaffRole[];
 export type PreviewState = 'normal' | 'loading' | 'error' | 'empty';
 const STEP_UP_WINDOW = 5 * 60_000;
-export const ADMIN_DEMO = location.pathname.startsWith('/admin-preview');
+/** Synthetic data is opt-in for component tests. `/admin-preview` is otherwise the real integration staging route. */
+export const ADMIN_DEMO = import.meta.env.VITE_ADMIN_DEMO === '1';
 
 interface Session {
   staffId: string; staffName: string; role: StaffRole; permissions: readonly StaffPermission[]; live: boolean; loading: boolean; error?: string;
@@ -40,7 +41,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const body = await response.json().catch(() => ({})) as SessionResponse & { message?: unknown; error?: unknown };
       if (!response.ok) throw new Error(String(body.message ?? body.error ?? `Admin session failed (${response.status}).`));
       if (!body.user || !body.staff || !Array.isArray(body.staff.permissions)) throw new Error('Admin identity response is invalid.');
-      setStaff({ id: String(body.user.id), name: String(body.user.name) }); setRole(body.staff.role as StaffRole); setPermissions(body.staff.permissions as StaffPermission[]);
+      if (typeof body.user.id !== 'string' || typeof body.user.name !== 'string' || !ROLES.includes(body.staff.role as StaffRole)) throw new Error('Admin identity response is invalid.');
+      setStaff({ id: body.user.id, name: body.user.name }); setRole(body.staff.role as StaffRole); setPermissions(body.staff.permissions.filter((permission): permission is StaffPermission => typeof permission === 'string' && ALL_PERMISSIONS.includes(permission as StaffPermission)));
       const verified = body.session?.stepUpVerifiedAt; setStepUp(typeof verified === 'string' ? Date.parse(verified) : null);
     }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Admin session unavailable.'); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
