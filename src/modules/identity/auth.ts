@@ -302,7 +302,11 @@ export function requestRegistration(
     trx.prepare(`INSERT INTO registration_requests (id, email, terms_accepted_at, ip_address, expires_at, consumed_at)
       VALUES (?, ?, datetime('now', 'utc'), ?, datetime('now', '+24 hours'), ${exists ? "datetime('now', 'utc')" : 'NULL'})`)
       .run(tokenDigest(rawToken), email, data.ipAddress);
-    if (exists) return;
+    if (exists) {
+      // Nothing on screen tells the visitor whether the address is known (NEW-362), so the owner of the mailbox is told instead.
+      queueEmail(trx, { recipient: email, template: 'email_verification', payload: { variant: 'account_exists', verifyUrl: `${config.APP_ORIGIN}/login` } });
+      return;
+    }
     queueEmail(trx, {
       recipient: email,
       template: 'email_verification',

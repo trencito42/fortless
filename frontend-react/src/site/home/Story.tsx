@@ -139,7 +139,6 @@ export function Story() {
                   </li>
                 ))}
               </ol>
-              <div className="hidden h-1 overflow-hidden rounded-full bg-s3 lg:block" aria-hidden="true"><div className="h-full rounded-full bg-brand" style={{ width: `${p * 100}%` }} /></div>
             </div>
             <div data-scrub className="relative h-[clamp(360px,52svh,540px)] rounded-[32px] bg-accent-bg p-4 sm:p-6" aria-live="polite">
               {CHAPTERS.map((c, i) => (

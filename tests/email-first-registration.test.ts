@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { makeHarness, type Harness } from './helpers/harness.js';
+import { renderEmail } from '../src/modules/email/outbox.js';
 
 let h: Harness;
 beforeAll(async () => { h = await makeHarness(); });
@@ -38,13 +39,22 @@ describe('email-first registration', () => {
     expect(rows[0].terms_accepted_at).toBeTruthy();
   });
 
-  it('answers an address that already has an account identically and sends it nothing', async () => {
+  it('answers an address that already has an account identically, and tells that mailbox to sign in instead of sending a link', async () => {
     h.db.prepare("INSERT INTO users (id, email, password_hash, name, status, email_verified_at) VALUES ('usr_has', 'has@example.com', 'x', 'Has', 'ACTIVE', datetime('now','utc'))").run();
     const fresh = await register('brand-new@example.com');
     const dup = await register('has@example.com');
     expect(dup.statusCode).toBe(fresh.statusCode);
     expect(dup.json()).toEqual(fresh.json());
-    expect(mails('has@example.com')).toHaveLength(0);
+    // The known mailbox gets a "you already have an account, sign in" message instead of a registration link.
+    const known = mails('has@example.com').map((m) => JSON.parse(m.payload_json) as { variant?: string; verifyUrl: string });
+    expect(known).toHaveLength(1);
+    expect(known[0]!.variant).toBe('account_exists');
+    expect(known[0]!.verifyUrl).toMatch(/\/login$/);
+    expect(known[0]!.verifyUrl).not.toContain('token=');
+    const sample = renderEmail('email_verification', known[0]!);
+    expect(sample.subject).toBe('You already have a Fortless account');
+    expect(sample.text).toContain('/login');
+    expect(mails('brand-new@example.com').map((m) => JSON.parse(m.payload_json).variant)).toEqual([undefined]);
   });
 
   it('sends at most one link a minute to an address', async () => {

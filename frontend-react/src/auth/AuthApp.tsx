@@ -75,7 +75,7 @@ function Frame({ title, intro, children, footer, note = 'Protected session acces
           <div className="grid gap-5" style={{ '--i': 1 } as CSSProperties}>{children}</div>
           {footer ? <p className="text-center text-[13px] text-ink2 [&_a]:font-bold [&_a]:text-accent-ink" style={{ '--i': 2 } as CSSProperties}>{footer}</p> : null}
         </div>
-        <p className="mt-auto flex items-center gap-2 pt-7 text-[12px] text-ink3"><span className="size-2 rounded-full bg-lime" aria-hidden="true" />{note}</p>
+        {note ? <p className="mt-auto flex items-center gap-2 pt-7 text-[12px] text-ink3"><span className="size-2 rounded-full bg-lime" aria-hidden="true" />{note}</p> : <span className="mt-auto" />}
       </main>
       <aside ref={art} aria-hidden="true" data-decorative className="auth-art max-[780px]:hidden" style={{ '--mark': `url("${markUrl}")`, '--mark-w': `url("${markWhiteUrl}")` } as CSSProperties}>
         <span className="pat" /><span className="shape s-lime" /><span className="shape s-blue" /><span className="shape s-dark" />
@@ -100,7 +100,7 @@ const b64 = (s: string) => { const b = atob(s.replace(/-/g, '+').replace(/_/g, '
 const b64u = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 function Login() {
-  const { search } = useRouter();
+  const { search, navigate } = useRouter();
   const [email, setEmail] = useState(search.get('email') ?? '');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -136,7 +136,7 @@ function Login() {
     controller.current?.abort();
     void run(async () => {
       const data = await post<{ requiresMfa?: boolean }>('/api/v1/auth/login', { email: email.trim(), password });
-      location.assign(data.requiresMfa ? `/mfa/challenge?next=${encodeURIComponent(next)}` : next);
+      if (data.requiresMfa) navigate(`/mfa/challenge?next=${encodeURIComponent(next)}`); else location.assign(next);
     });
   };
   return (
@@ -179,7 +179,7 @@ function Register() {
   };
 
   if (sent) return (
-    <Frame title="Check your inbox." intro={<>If <strong className="text-ink [overflow-wrap:anywhere]">{sent.email}</strong> can be registered, a confirmation link is on its way. It works once and expires in 24 hours.</>} footer={<>Wrong address? <button type="button" className="font-bold text-accent-ink" onClick={() => setSent(null)}>Use a different email</button></>} note="Email confirmation required">
+    <Frame title="Check your inbox." intro={<>We emailed <strong className="text-ink [overflow-wrap:anywhere]">{sent.email}</strong>. New here? The message has a one-time link, valid for 24 hours, to finish your account. Already registered? It tells you to sign in instead.</>} footer={<>Already have an account? <Link to="/login">Sign in</Link> · <button type="button" className="font-bold text-accent-ink" onClick={() => setSent(null)}>Use a different email</button></>} note="">
       {sent.delivery === 'CONFIGURATION_REQUIRED' ? <Notice tone="warn">Transactional email is not configured yet, so no message was sent.</Notice> : null}
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {note ? <Notice tone="good">{note}</Notice> : null}
@@ -187,7 +187,7 @@ function Register() {
     </Frame>
   );
   return (
-    <Frame title="Start with your email." intro="We’ll send a link to confirm it. Then you choose your name and password." footer={<>Already registered? <Link to="/login">Sign in</Link></>} note="Email confirmation required">
+    <Frame title="Start with your email." intro="We’ll send a link to confirm it. Then you choose your name and password." footer={<>Already have an account? <Link to="/login">Sign in</Link></>} note="">
       {error ? <Notice tone="bad">{error}</Notice> : null}
       <form noValidate onSubmit={onSubmit} className="grid gap-4">
         <AField label="Email address" type="email" autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} error={errors['email']} focusOnMount />

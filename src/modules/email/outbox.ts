@@ -196,7 +196,10 @@ export function renderEmail(
   payload: Record<string, unknown>,
   db?: Database.Database
 ): { subject: string; text: string; html: string } {
-  const canonical = effectiveTemplate(template, db);
+  // "You already have an account" travels as an email_verification outbox row (the outbox table only accepts a closed set of
+  // template names), marked by payload.variant, and is rendered from its own canonical message. Admin overrides do not apply to it.
+  const accountExists = template === 'email_verification' && payload['variant'] === 'account_exists' && !!canonicalTemplates['account_exists'];
+  const canonical = accountExists ? { ...canonicalTemplates['account_exists']!, overridden: false, updatedAt: null } : effectiveTemplate(template, db);
   const plain = templateReplacements(payload);
   if (template === 'mfa_changed' && payload['enabled'] === false) {
     plain.push(
