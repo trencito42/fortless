@@ -56,7 +56,7 @@ function AField({ label, type = 'text', value, onChange, error, description, aut
   );
 }
 
-function Frame({ title, intro, children, footer, note = 'Protected session access' }: { title: string; intro: ReactNode; children: ReactNode; footer?: ReactNode; note?: string }) {
+function Frame({ title, intro, children, footer }: { title: string; intro: ReactNode; children: ReactNode; footer?: ReactNode }) {
   const art = useRef<HTMLElement>(null);
   useEffect(() => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -75,7 +75,7 @@ function Frame({ title, intro, children, footer, note = 'Protected session acces
           <div className="grid gap-5" style={{ '--i': 1 } as CSSProperties}>{children}</div>
           {footer ? <p className="text-center text-[13px] text-ink2 [&_a]:font-bold [&_a]:text-accent-ink" style={{ '--i': 2 } as CSSProperties}>{footer}</p> : null}
         </div>
-        {note ? <p className="mt-auto flex items-center gap-2 pt-7 text-[12px] text-ink3"><span className="size-2 rounded-full bg-lime" aria-hidden="true" />{note}</p> : <span className="mt-auto" />}
+        <span className="mt-auto" />
       </main>
       <aside ref={art} aria-hidden="true" data-decorative className="auth-art max-[780px]:hidden" style={{ '--mark': `url("${markUrl}")`, '--mark-w': `url("${markWhiteUrl}")` } as CSSProperties}>
         <span className="pat" /><span className="shape s-lime" /><span className="shape s-blue" /><span className="shape s-dark" />
@@ -179,7 +179,7 @@ function Register() {
   };
 
   if (sent) return (
-    <Frame title="Check your inbox." intro={<>We emailed <strong className="text-ink [overflow-wrap:anywhere]">{sent.email}</strong>. New here? The message has a one-time link, valid for 24 hours, to finish your account. Already registered? It tells you to sign in instead.</>} footer={<>Already have an account? <Link to="/login">Sign in</Link> · <button type="button" className="font-bold text-accent-ink" onClick={() => setSent(null)}>Use a different email</button></>} note="">
+    <Frame title="Check your inbox." intro={<>We emailed <strong className="text-ink [overflow-wrap:anywhere]">{sent.email}</strong>. New here? The message has a one-time link, valid for 24 hours, to finish your account. Already registered? It tells you to sign in instead.</>} footer={<>Already have an account? <Link to="/login">Sign in</Link> · <button type="button" className="font-bold text-accent-ink" onClick={() => setSent(null)}>Use a different email</button></>}>
       {sent.delivery === 'CONFIGURATION_REQUIRED' ? <Notice tone="warn">Transactional email is not configured yet, so no message was sent.</Notice> : null}
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {note ? <Notice tone="good">{note}</Notice> : null}
@@ -187,7 +187,7 @@ function Register() {
     </Frame>
   );
   return (
-    <Frame title="Start with your email." intro="We’ll send a link to confirm it. Then you choose your name and password." footer={<>Already have an account? <Link to="/login">Sign in</Link></>} note="">
+    <Frame title="Start with your email." intro="We’ll send a link to confirm it. Then you choose your name and password." footer={<>Already have an account? <Link to="/login">Sign in</Link></>}>
       {error ? <Notice tone="bad">{error}</Notice> : null}
       <form noValidate onSubmit={onSubmit} className="grid gap-4">
         <AField label="Email address" type="email" autoComplete="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} error={errors['email']} focusOnMount />
@@ -227,9 +227,9 @@ function CompleteRegistration() {
     if (Object.keys(er).length) return;
     void run(async () => { const d = await post<{ next?: string }>('/api/v1/auth/register/complete', { token, name: name.trim(), password }); location.assign(d.next ?? '/app/onboarding'); });
   };
-  if (bad) return <Frame title="We couldn’t use this link." intro={bad} footer={<Link to="/register">Start again</Link>} note="Protected one-time link"><span /></Frame>;
+  if (bad) return <Frame title="We couldn’t use this link." intro={bad} footer={<Link to="/register">Start again</Link>}><span /></Frame>;
   return (
-    <Frame title="Almost there." intro="Your email is confirmed. Choose your name and a password to finish." note="Protected one-time link">
+    <Frame title="Almost there." intro="Your email is confirmed. Choose your name and a password to finish.">
       {error ? <Notice tone="bad">{error}</Notice> : null}
       {email === null ? <div className="h-48 rounded-2xl bg-s2" aria-busy="true" aria-label="Checking your link" /> : (
         <form noValidate onSubmit={onSubmit} className="grid gap-4">
@@ -250,7 +250,7 @@ function VerifyEmail() {
   const [state, setState] = useState<'working' | 'ok' | string>('working');
   useEffect(() => { let live = true; post('/api/v1/auth/verify-email', { token }).then(() => live && setState('ok')).catch((e) => live && setState(errorText(e))); return () => { live = false; }; }, [token]);
   return (
-    <Frame title={state === 'ok' ? 'Email verified.' : state === 'working' ? 'Confirming your address.' : 'We couldn’t verify this link.'} intro={state === 'ok' ? 'Sign in to continue.' : state === 'working' ? 'This takes a moment.' : state} note="Account activation requires verification">
+    <Frame title={state === 'ok' ? 'Email verified.' : state === 'working' ? 'Confirming your address.' : 'We couldn’t verify this link.'} intro={state === 'ok' ? 'Sign in to continue.' : state === 'working' ? 'This takes a moment.' : state}>
       {state === 'ok' ? <Button variant="primary" size="lg" onClick={() => location.assign('/login')}>Sign in</Button> : state === 'working' ? <div className="h-12 rounded-full bg-s2" aria-busy="true" /> : <Button variant="secondary" size="lg" onClick={() => location.assign('/login')}>Back to sign in</Button>}
     </Frame>
   );
@@ -321,9 +321,9 @@ function Mfa() {
     const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     setTimeout(() => location.assign(next), reduced ? 350 : 1000);
   });
-  if (verified) return <Frame title="Verified." intro="Taking you in…" note="Protected session challenge"><SuccessCheck /></Frame>;
+  if (verified) return <Frame title="Verified." intro="Taking you in…"><SuccessCheck /></Frame>;
   return (
-    <Frame title="Verify it’s you." intro={recovery ? 'Enter one of your recovery codes. Each works once.' : 'Enter the six-digit code from your authenticator app.'} footer={<Link to="/login">Use another account</Link>} note="Protected session challenge">
+    <Frame title="Verify it’s you." intro={recovery ? 'Enter one of your recovery codes. Each works once.' : 'Enter the six-digit code from your authenticator app.'} footer={<Link to="/login">Use another account</Link>}>
       {recovery ? (
         <form noValidate className="grid gap-4" onSubmit={(e) => { e.preventDefault(); if (code.trim().length < 6) { setError('Enter a valid recovery code.'); return; } void verify(code.trim()); }}>
           {error ? <Notice tone="bad">{error}</Notice> : null}
