@@ -35,15 +35,17 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const profile: MenuEntry[] = [
     { id: 'who', label: `${session.staffName} · ${session.role}`, disabled: true },
     { id: 'sep0', kind: 'separator' },
-    { id: 'role', kind: 'radio-group', label: 'View as role (preview)', value: session.role, onValueChange: (v) => session.setRole(v as never), options: ROLES.map((r) => ({ value: r, label: `${r[0]}${r.slice(1).toLowerCase()} — ${ROLE_BLURB[r]}` })) },
-    { id: 'sep1', kind: 'separator' },
-    { id: 'state', kind: 'radio-group', label: 'List state (preview)', value: session.previewState, onValueChange: (v) => session.setPreviewState(v as PreviewState), options: [{ value: 'normal', label: 'Normal' }, { value: 'loading', label: 'Loading' }, { value: 'error', label: 'Error' }, { value: 'empty', label: 'Empty' }] },
-    { id: 'sep2', kind: 'separator' },
+    ...(session.live ? [] : [
+      { id: 'role', kind: 'radio-group' as const, label: 'View as role (preview)', value: session.role, onValueChange: (v: string) => session.setRole(v as never), options: ROLES.map((r) => ({ value: r, label: `${r[0]}${r.slice(1).toLowerCase()} — ${ROLE_BLURB[r]}` })) },
+      { id: 'sep1', kind: 'separator' as const },
+      { id: 'state', kind: 'radio-group' as const, label: 'List state (preview)', value: session.previewState, onValueChange: (v: string) => session.setPreviewState(v as PreviewState), options: [{ value: 'normal', label: 'Normal' }, { value: 'loading', label: 'Loading' }, { value: 'error', label: 'Error' }, { value: 'empty', label: 'Empty' }] },
+      { id: 'sep2', kind: 'separator' as const },
+    ]),
     { id: 'theme', kind: 'radio-group', label: 'Theme', value: theme.preference, onValueChange: (v) => theme.setPreference(v as never), options: [{ value: 'system', label: 'System' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }] },
     { id: 'density', kind: 'radio-group', label: 'Density', value: theme.density, onValueChange: (v) => theme.setDensity(v as never), options: [{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }] },
     { id: 'sep3', kind: 'separator' },
-    { id: 'reset', label: 'Reset demo data', icon: 'refresh', onSelect: () => { reset(); } },
-    { id: 'exit', label: 'Leave preview (customer app)', icon: 'logout-01', onSelect: () => window.location.assign('/') },
+    ...(session.live ? [] : [{ id: 'reset', label: 'Reset demo data', icon: 'refresh' as const, onSelect: () => { reset(); } }]),
+    { id: 'exit', label: session.live ? 'Leave admin' : 'Leave preview (customer app)', icon: 'logout-01', onSelect: () => window.location.assign('/') },
   ];
   const userRow = (
     <ActionMenu label={`Profile and preview settings for ${session.staffName}`} align="start" side="top" trigger={
@@ -78,8 +80,8 @@ export function AdminShell({ children }: { children: ReactNode }) {
         <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-bg px-4 pt-[max(12px,env(safe-area-inset-top))] pb-2.5 md:px-6 md:pt-4 print:hidden">
           <div className="flex items-center gap-2 md:hidden"><LogoMark size={26} /></div>
           <div className="min-w-0 flex-1"><HeaderCrumbs /></div>
-          <Tooltip content="Everything here is synthetic. No live data, no provider calls."><span className="inline-flex"><Badge tone="warn" className="gap-1.5"><Icon name="information-circle" size={14} />Demo data</Badge></span></Tooltip>
-          <Badge tone="neutral" className="hidden lg:inline-flex">Environment: preview · no backend</Badge>
+          {session.live ? <Badge tone="good" className="gap-1.5"><Icon name="checkmark-circle-02" size={14} />Authenticated staff</Badge> : <Tooltip content="Everything here is synthetic. No live data, no provider calls."><span className="inline-flex"><Badge tone="warn" className="gap-1.5"><Icon name="information-circle" size={14} />Demo data</Badge></span></Tooltip>}
+          <Badge tone="neutral" className="hidden lg:inline-flex">{session.live ? 'Environment: live backend' : 'Environment: preview · no backend'}</Badge>
           <IconButton label="Search everything" icon="search-01" variant="secondary" className="md:hidden" onClick={() => setPalette(true)} />
           <ActionMenu label="Quick actions" align="end" entries={quick} trigger={<Button variant="primary" size="sm" leadingIcon="add-01" className="max-sm:hidden">Create</Button>} />
           <AdminNotifications />

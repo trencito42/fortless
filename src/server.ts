@@ -424,6 +424,7 @@ export function buildServer(): FastifyInstance {
       : ext === '.woff' ? 'font/woff' : ext === '.json' ? 'application/json' : 'application/octet-stream';
   };
   const isReactCustomerUiEnabled = () => process.env.FORTLESS_REACT_CUSTOMER_UI === 'true' || process.env.FORTLESS_REACT_CUSTOMER_UI === '1';
+  const isReactAdminUiEnabled = () => process.env.FORTLESS_REACT_ADMIN_UI === 'true' || process.env.FORTLESS_REACT_ADMIN_UI === '1';
   const reactDistDir = path.resolve(process.cwd(), 'frontend-react/dist-react-preview');
   const serveReactCustomerApp = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
@@ -433,6 +434,22 @@ export function buildServer(): FastifyInstance {
     }
     const html = fs.readFileSync(indexPath, 'utf8');
     return reply.type('text/html').header('Cache-Control', 'no-store, private').send(html);
+  };
+  const serveReactAdminApp = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.auth) return reply.redirect(`/login?next=${encodeURIComponent(req.url)}`);
+    if (!hasStaffPermission(req.auth.user.id, 'admin:access', getDatabase())) return reply.status(403).type('text/plain').send('Staff access is required.');
+    if (!req.auth.session.mfaVerifiedAt) return reply.status(403).type('text/plain').send('Staff MFA is required.');
+    const section = req.url.split('?')[0]!.split('/').filter(Boolean)[1] ?? '';
+    const sectionPermission: Record<string, StaffPermission> = {
+      customers: 'accounts:read', accounts: 'accounts:read', services: 'services:read', orders: 'accounts:read', billing: 'accounts:read',
+      products: 'catalog:read', infrastructure: 'services:read', provisioning: 'audit:read', monitoring: 'services:read', support: 'tickets:read', tickets: 'tickets:read',
+      content: 'content:read', marketing: 'content:read', staff: 'staff:read', audit: 'audit:read', settings: 'admin:access', actions: 'admin:access',
+    };
+    const required = sectionPermission[section];
+    if (section && (!required || !hasStaffPermission(req.auth.user.id, required, getDatabase()))) return reply.status(403).type('text/plain').send('This staff role cannot access this Admin route.');
+    const indexPath = path.join(reactDistDir, 'index.html');
+    if (!fs.existsSync(indexPath)) return reply.status(503).type('text/plain').send('React Admin build not found; the feature flag is enabled but its assets are unavailable.');
+    return reply.type('text/html').header('Cache-Control', 'no-store, private').send(fs.readFileSync(indexPath, 'utf8'));
   };
   // Public marketing pages of the React build. Only reachable when FORTLESS_REACT_CUSTOMER_UI is on; otherwise the legacy pages answer.
   const servePublicReactSite = async (_req: FastifyRequest, reply: FastifyReply) => {
@@ -719,6 +736,7 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/admin', async (req, reply) => {
+    if (isReactAdminUiEnabled()) return serveReactAdminApp(req, reply);
     if (!req.auth) return reply.redirect('/login?next=/admin');
     if (!hasStaffPermission(req.auth.user.id, 'admin:access', getDatabase()) || !req.auth.session.mfaVerifiedAt) return reply.status(403).type('text/plain').send('Staff MFA is required.');
     const filePath = path.join(publicDir, 'admin.html');
@@ -727,6 +745,7 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/admin/:view', async (req, reply) => {
+    if (isReactAdminUiEnabled()) return serveReactAdminApp(req, reply);
     const { view } = req.params as { view: string };
     const viewPermissions: Record<string, StaffPermission> = {
       accounts: 'accounts:read', services: 'services:read', orders: 'accounts:read', billing: 'accounts:read',
@@ -742,6 +761,7 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/admin/:view/:id', async (req, reply) => {
+    if (isReactAdminUiEnabled()) return serveReactAdminApp(req, reply);
     const { view, id } = req.params as { view: string; id: string };
     const viewPermissions: Record<string, StaffPermission> = {
       accounts: 'accounts:read',
@@ -759,6 +779,11 @@ export function buildServer(): FastifyInstance {
     const filePath = path.join(publicDir, 'admin.html');
     if (fs.existsSync(filePath)) return reply.type('text/html').header('Cache-Control', 'no-store').send(renderHtml('admin.html'));
     return reply.status(503).send('Admin shell is not installed.');
+  });
+
+  app.get('/admin/*', async (req, reply) => {
+    if (isReactAdminUiEnabled()) return serveReactAdminApp(req, reply);
+    return reply.redirect('/admin');
   });
 
   app.get('/favicon.svg', async (_req, reply) => {
@@ -3086,7 +3111,11 @@ export function buildServer(): FastifyInstance {
   });
 
   app.get('/api/v1/admin/me', { preHandler: [requireAuth, requireStaff] }, async (req) => {
-    return { staff: getStaffAccess(req.auth!.user.id, getDatabase()) };
+    return {
+      user: { id: req.auth!.user.id, name: req.auth!.user.name, email: req.auth!.user.email },
+      staff: getStaffAccess(req.auth!.user.id, getDatabase()),
+      session: { mfaVerifiedAt: req.auth!.session.mfaVerifiedAt, stepUpVerifiedAt: req.auth!.session.stepUpVerifiedAt },
+    };
   });
 
   app.get('/api/v1/admin/accounts', { preHandler: [requireAuth, requireStaffPermission('accounts:read')] }, async (req, reply) => {

@@ -3,17 +3,22 @@ import { buildAdminData, type AdminData } from './fixtures';
 import type { AuditEvent } from './types';
 import { ADMIN_NOW } from './lib/format';
 import { useSession } from './session';
+import { ADMIN_DEMO } from './session';
 
 type Listener = () => void;
 class Store {
-  private state: AdminData = buildAdminData();
+  private state: AdminData = (() => {
+    const data = buildAdminData();
+    if (!ADMIN_DEMO) for (const key of Object.keys(data) as Array<keyof AdminData>) (data[key] as unknown[]) = [];
+    return data;
+  })();
   private listeners = new Set<Listener>();
   private seq = 0;
   getState = () => this.state;
   subscribe = (l: Listener) => { this.listeners.add(l); return () => { this.listeners.delete(l); }; };
   set(fn: (s: AdminData) => AdminData) { this.state = fn(this.state); this.listeners.forEach((l) => l()); }
   nextId(prefix: string) { this.seq += 1; return `${prefix}_prev${this.seq.toString(36)}${Date.now().toString(36).slice(-4)}`; }
-  reset() { this.state = buildAdminData(); this.listeners.forEach((l) => l()); }
+  reset() { if (ADMIN_DEMO) { this.state = buildAdminData(); this.listeners.forEach((l) => l()); } }
 }
 
 type Keys = { [K in keyof AdminData]: AdminData[K] extends unknown[] ? K : never }[keyof AdminData];

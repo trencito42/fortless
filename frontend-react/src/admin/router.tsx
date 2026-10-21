@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
  * The admin preview has its own tiny History-API router mounted under /admin-preview. It never touches the customer router,
  * and nothing here is reachable from production routes: main.tsx only mounts AdminApp in development or when VITE_ADMIN_PREVIEW=1.
  */
-export const ADMIN_BASE = '/admin-preview';
+export const ADMIN_BASE = location.pathname.startsWith('/admin-preview') ? '/admin-preview' : '/admin';
 interface Ctx { path: string; search: URLSearchParams; navigate: (to: string, opts?: { replace?: boolean }) => void }
 const RouterContext = createContext<Ctx | null>(null);
 

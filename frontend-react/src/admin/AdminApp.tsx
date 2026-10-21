@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, type ComponentType } from 'react';
-import { Button, Skeleton } from '@/design-system';
+import { Button, EmptyState, Skeleton } from '@/design-system';
 import { AdminRouterProvider, matchPath, useAdminRouter } from './router';
 import { SessionProvider, useSession } from './session';
 import { AdminStoreProvider } from './store';
@@ -31,18 +31,19 @@ function Outlet() {
   );
 }
 
+function SecuredApp() {
+  const session = useSession();
+  if (session.loading) return <div className="grid min-h-dvh place-items-center"><Skeleton className="h-28 w-full max-w-md" /></div>;
+  if (session.error) return <div className="grid min-h-dvh place-items-center p-6"><EmptyState tone="error" icon="alert-circle" title="Admin session unavailable" description={session.error} action={<Button variant="secondary" onClick={() => location.reload()}>Retry</Button>} /></div>;
+  return <AdminStoreProvider><ToastHost><CrumbProvider><AdminShell><Outlet /></AdminShell></CrumbProvider></ToastHost></AdminStoreProvider>;
+}
+
 /** The isolated React admin application. Mounted only at /admin-preview (development, or builds with VITE_ADMIN_PREVIEW=1). */
 export default function AdminApp() {
   return (
     <AdminRouterProvider>
       <SessionProvider>
-        <AdminStoreProvider>
-          <ToastHost>
-            <CrumbProvider>
-              <AdminShell><Outlet /></AdminShell>
-            </CrumbProvider>
-          </ToastHost>
-        </AdminStoreProvider>
+        <SecuredApp />
       </SessionProvider>
     </AdminRouterProvider>
   );

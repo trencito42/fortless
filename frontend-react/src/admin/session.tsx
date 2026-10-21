@@ -1,8 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { StaffPermission, StaffRole } from './types';
 import { ADMIN_NOW } from './lib/format';
 
-/** Copied from src/modules/admin/access.ts. If the backend map changes this must change with it. */
 export const ROLE_PERMISSIONS: Record<StaffRole, readonly StaffPermission[]> = {
   OWNER: ['admin:access', 'accounts:read', 'accounts:manage', 'services:read', 'services:manage', 'tickets:read', 'tickets:manage', 'audit:read', 'staff:read', 'staff:manage', 'catalog:read', 'catalog:manage', 'content:read', 'content:manage'],
   ADMINISTRATOR: ['admin:access', 'accounts:read', 'accounts:manage', 'services:read', 'services:manage', 'tickets:read', 'tickets:manage', 'audit:read', 'staff:read', 'catalog:read', 'catalog:manage', 'content:read', 'content:manage'],
@@ -13,31 +12,46 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly StaffPermission[]> = {
 };
 export const ALL_PERMISSIONS = ROLE_PERMISSIONS.OWNER;
 export const ROLES = Object.keys(ROLE_PERMISSIONS) as StaffRole[];
-
 export type PreviewState = 'normal' | 'loading' | 'error' | 'empty';
 const STEP_UP_WINDOW = 5 * 60_000;
+export const ADMIN_DEMO = location.pathname.startsWith('/admin-preview');
 
 interface Session {
-  staffId: string; staffName: string; role: StaffRole; setRole: (r: StaffRole) => void; can: (p: StaffPermission) => boolean;
-  stepUpAt: number | null; stepUpValid: boolean; grantStepUp: () => void;
+  staffId: string; staffName: string; role: StaffRole; permissions: readonly StaffPermission[]; live: boolean; loading: boolean; error?: string;
+  setRole: (r: StaffRole) => void; can: (p: StaffPermission) => boolean; stepUpAt: number | null; stepUpValid: boolean; grantStepUp: () => void;
   previewState: PreviewState; setPreviewState: (s: PreviewState) => void;
 }
 const Ctx = createContext<Session | null>(null);
+interface SessionResponse { user?: { id?: unknown; name?: unknown }; staff?: { role?: StaffRole; permissions?: unknown }; session?: { stepUpVerifiedAt?: unknown } }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<StaffRole>('OWNER');
+  const [staff, setStaff] = useState({ id: '', name: '' });
+  const [permissions, setPermissions] = useState<readonly StaffPermission[]>(ADMIN_DEMO ? ROLE_PERMISSIONS.OWNER : []);
   const [stepUpAt, setStepUp] = useState<number | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>('normal');
-  const can = useCallback((p: StaffPermission) => ROLE_PERMISSIONS[role].includes(p), [role]);
-  const grantStepUp = useCallback(() => { setStepUp(Date.now()); }, []);
+  const [loading, setLoading] = useState(!ADMIN_DEMO);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    if (ADMIN_DEMO) return;
+    const controller = new AbortController();
+    fetch('/api/v1/admin/me', { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal: controller.signal }).then(async (response) => {
+      if (response.status === 401) { location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`); throw new Error('Session expired.'); }
+      const body = await response.json().catch(() => ({})) as SessionResponse & { message?: unknown; error?: unknown };
+      if (!response.ok) throw new Error(String(body.message ?? body.error ?? `Admin session failed (${response.status}).`));
+      if (!body.user || !body.staff || !Array.isArray(body.staff.permissions)) throw new Error('Admin identity response is invalid.');
+      setStaff({ id: String(body.user.id), name: String(body.user.name) }); setRole(body.staff.role as StaffRole); setPermissions(body.staff.permissions as StaffPermission[]);
+      const verified = body.session?.stepUpVerifiedAt; setStepUp(typeof verified === 'string' ? Date.parse(verified) : null);
+    }).catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : 'Admin session unavailable.'); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
+  const effectivePermissions = ADMIN_DEMO ? ROLE_PERMISSIONS[role] : permissions;
+  const can = useCallback((permission: StaffPermission) => effectivePermissions.includes(permission), [effectivePermissions]);
+  const grantStepUp = useCallback(() => { if (ADMIN_DEMO) setStepUp(Date.now()); }, []);
   const stepUpValid = stepUpAt != null && Date.now() - stepUpAt < STEP_UP_WINDOW;
-  const value = useMemo<Session>(() => ({ staffId: 'stf_01', staffName: 'Maria Ilie', role, setRole, can, stepUpAt, stepUpValid, grantStepUp, previewState, setPreviewState }), [role, can, stepUpAt, stepUpValid, grantStepUp, previewState]);
+  const value = useMemo<Session>(() => ({ staffId: ADMIN_DEMO ? 'stf_01' : staff.id, staffName: ADMIN_DEMO ? 'Maria Ilie' : staff.name, role, permissions: effectivePermissions, live: !ADMIN_DEMO, loading, error, setRole: ADMIN_DEMO ? setRole : () => {}, can, stepUpAt, stepUpValid, grantStepUp, previewState, setPreviewState }), [staff, role, effectivePermissions, loading, error, can, stepUpAt, stepUpValid, grantStepUp, previewState]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
-export function useSession(): Session {
-  const c = useContext(Ctx);
-  if (!c) throw new Error('SessionProvider missing');
-  return c;
-}
+export function useSession(): Session { const context = useContext(Ctx); if (!context) throw new Error('SessionProvider missing'); return context; }
 export const STEP_UP_MINUTES = STEP_UP_WINDOW / 60_000;
 export { ADMIN_NOW };

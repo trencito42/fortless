@@ -10,8 +10,10 @@ import { useAdmin } from '../../store';
 import { ADMIN_NOW, DAY, mb, money, num, relative } from '../../lib/format';
 import { CURRENCIES, collected, dailySeries, mrr, nodeCapacity, overdue, supportOpen } from '../../lib/metrics';
 import type { Currency } from '../../types';
+import { useSession } from '../../session';
+import LiveDashboard from './LiveDashboard';
 
-export default function Dashboard() {
+function PreviewDashboard() {
   const { data } = useAdmin();
   const nav = useNav();
   const [cur, setCur] = useState<Currency>('EUR');
@@ -84,4 +86,9 @@ export default function Dashboard() {
       </>} />
     </AdminPage>
   );
+}
+
+export default function Dashboard() {
+  const session = useSession();
+  return session.live ? <LiveDashboard /> : <PreviewDashboard />;
 }

@@ -54,7 +54,7 @@ function ActionDialog({ spec, onClose }: { spec: ActionSpec; onClose: () => void
   const stepOk = !spec.stepUp || session.stepUpValid;
   const typedOk = !spec.requireText || typed === spec.requireText;
   const reasonOk = !reasonRequired || reason.trim().length >= 8;
-  const ready = allowed && stepOk && typedOk && reasonOk;
+  const ready = allowed && stepOk && typedOk && reasonOk && !session.live;
 
   const confirm = () => {
     const e: Record<string, string> = {};
@@ -83,7 +83,7 @@ function ActionDialog({ spec, onClose }: { spec: ActionSpec; onClose: () => void
       </>}
     >
       <div className="grid gap-4">
-        <Notice tone="info" title="Preview only">This changes demo data in this tab. The real operation is not executed.</Notice>
+        {session.live ? <Notice tone="warn" title="Operation not connected">This control is disabled until its typed Fastify mutation is connected and integration-tested. No browser-only result will be presented as successful.</Notice> : <Notice tone="info" title="Preview only">This changes demo data in this tab. The real operation is not executed.</Notice>}
         {spec.effects?.length ? (
           <div className="grid gap-1.5">
             <p className="text-[13px] font-bold text-ink2">In production this would</p>
@@ -101,7 +101,7 @@ function ActionDialog({ spec, onClose }: { spec: ActionSpec; onClose: () => void
         {spec.stepUp ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-s2 p-3">
             <div className="flex items-center gap-2"><Icon name="finger-print-scan" size={20} className="text-ink3" /><div><p className="font-bold">Step-up verification</p><p className="text-[13px] text-ink3">The real endpoint requires MFA re-verification within {STEP_UP_MINUTES} minutes.</p></div></div>
-            {stepOk ? <StatusBadge tone="good">Verified (simulated)</StatusBadge> : <Button size="sm" variant="secondary" onClick={session.grantStepUp}>Simulate step-up</Button>}
+            {stepOk ? <StatusBadge tone="good">Verified</StatusBadge> : session.live ? <StatusBadge tone="warn">Recent verification required</StatusBadge> : <Button size="sm" variant="secondary" onClick={session.grantStepUp}>Simulate step-up</Button>}
           </div>
         ) : null}
         {spec.fields?.({ values, set: (k, v) => setValues((s) => ({ ...s, [k]: v })), errors })}
