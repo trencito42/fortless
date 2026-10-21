@@ -37,7 +37,7 @@ export default function SiteApp() {
       <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[90] focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-on-ink">Skip to content</a>
       <TopicProvider>
         <SiteNav />
-        <main id="main" className="overflow-x-clip">
+        <main id="main" className="site-root overflow-x-clip">
           <Pages />
         </main>
         <SiteFooter />
