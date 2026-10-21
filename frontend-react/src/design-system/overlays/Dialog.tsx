@@ -1,4 +1,5 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useRef, type ReactElement, type ReactNode } from 'react';
+import { useSheetDrag } from './useSheetDrag';
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
@@ -45,13 +46,17 @@ export interface DialogProps extends VariantProps<typeof panel> {
  * page scroll is locked. Below md it becomes a bottom sheet so thumbs can reach the actions.
  */
 export function Dialog({ open, defaultOpen, onOpenChange, trigger, title, description, children, footer, placement, size, hideClose, className }: DialogProps) {
+  const closer = useRef<HTMLButtonElement>(null);
+  const drag = useSheetDrag(() => closer.current?.click());
   return (
     <BaseDialog.Root open={open} defaultOpen={defaultOpen} onOpenChange={onOpenChange}>
       {trigger ? <BaseDialog.Trigger render={trigger} /> : null}
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="fixed inset-0 z-[60] bg-overlay transition-opacity duration-300 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
-        <BaseDialog.Popup className={cn(panel({ placement, size }), 'z-[61]', className)}>
-          <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-3">
+        <BaseDialog.Popup ref={drag.popup as never} className={cn(panel({ placement, size }), 'z-[61] max-md:overscroll-contain', className)}>
+          <BaseDialog.Close ref={closer} tabIndex={-1} aria-hidden="true" className="hidden" />
+          <div aria-hidden="true" {...drag.handleProps} className="mx-auto mt-2 h-6 w-full shrink-0 cursor-grab md:hidden"><div className="mx-auto mt-1.5 h-1.25 w-10 rounded-full bg-s4" /></div>
+          <div {...drag.handleProps} className="flex items-start justify-between gap-4 px-6 pt-6 pb-3 max-md:pt-1">
             <div className="grid min-w-0 gap-1">
               <BaseDialog.Title className="text-[22px] leading-tight font-extrabold tracking-[-0.04em]">{title}</BaseDialog.Title>
               {description ? <BaseDialog.Description className="text-ink2">{description}</BaseDialog.Description> : null}
