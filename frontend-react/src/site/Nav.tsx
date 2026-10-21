@@ -90,7 +90,7 @@ export function SiteNav() {
   const hover = (id: string | null) => { clearTimeout(closeTimer.current); if (id) setOpen(id); else closeTimer.current = setTimeout(() => setOpen(null), 160); };
   const active = MENUS.find((m) => m.id === open);
 
-  const link = 'relative inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[15px] font-bold text-ink2 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-accent';
+  const link = 'relative inline-flex h-10 items-center gap-1.5 rounded-full px-4 font-menu text-[14.5px] font-semibold text-ink2 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-accent';
 
   return (
     <header ref={root} className="pointer-events-none fixed inset-x-0 top-0 z-40 px-3 sm:px-6" onMouseLeave={() => hover(null)}>
@@ -150,15 +150,15 @@ export function SiteNav() {
           <ul className="grid gap-2">
             {MENUS.map((m) => (
               <li key={m.id} className="rounded-3xl bg-s1 p-2">
-                <p className="px-4 pb-1 pt-3 text-[13px] font-bold text-ink3">{m.label}</p>
+                <p className="px-4 pb-1 pt-3 font-menu text-[13px] font-semibold text-ink3">{m.label}</p>
                 <ul>{m.items.map((it) => (
                   <li key={it.title}><button type="button" onClick={() => { setMobile(false); pick(it); }} className="flex min-h-12 w-full items-center gap-3 rounded-2xl px-4 py-2 text-left font-menu text-[16px] font-bold tracking-[-0.01em] hover:bg-s2"><Icon name={it.icon} size={20} className="text-accent-ink" />{it.title}</button></li>
                 ))}</ul>
               </li>
             ))}
             <li className="grid grid-cols-2 gap-2">
-              <Link to="/status" className="grid h-14 place-items-center rounded-2xl bg-s1 text-[16px] font-extrabold">Status</Link>
-              <button type="button" onClick={() => { setMobile(false); goto('/#faq'); }} className="grid h-14 place-items-center rounded-2xl bg-s1 text-[16px] font-extrabold">FAQ</button>
+              <Link to="/status" className="grid h-14 place-items-center rounded-2xl bg-s1 font-menu text-[15px] font-bold">Status</Link>
+              <button type="button" onClick={() => { setMobile(false); goto('/#faq'); }} className="grid h-14 place-items-center rounded-2xl bg-s1 font-menu text-[15px] font-bold">FAQ</button>
             </li>
           </ul>
           <div className="mt-4 grid gap-2"><SiteButton to="/register" size="lg" icon="arrow-up-right-01">Start hosting</SiteButton><SiteButton to="/login" size="lg" variant="soft">Sign in</SiteButton></div>
