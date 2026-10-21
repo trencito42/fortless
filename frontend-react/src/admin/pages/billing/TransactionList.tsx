@@ -31,7 +31,7 @@ export default function TransactionList() {
         onRowClick={(p) => nav(`/billing/transactions/${p.id}`)}
         columns={[
           col<Payment>('id', 'Payment', (p) => <PaymentLink id={p.id} />, { sort: (p) => p.id, primary: true }),
-          col<Payment>('c', 'Customer', (p) => <span className="block min-w-[8rem]"><CustomerLink id={p.customerId} /></span>, { sort: (p) => cust.get(p.customerId) ?? '' }),
+          col<Payment>('c', 'Customer', (p) => <span className="block md:min-w-[8rem]"><CustomerLink id={p.customerId} /></span>, { sort: (p) => cust.get(p.customerId) ?? '' }),
           col<Payment>('i', 'Invoice', (p) => (p.invoiceId ? <InvoiceLink id={p.invoiceId} /> : '—'), { hideOnMobile: true }),
           col<Payment>('s', 'Status', (p) => <Status map={paymentStatus} value={p.status} />, { sort: (p) => p.status }),
           col<Payment>('a', 'Amount', (p) => <MoneyText value={p.amount} />, { sort: (p) => p.amount.amount, numeric: true }),

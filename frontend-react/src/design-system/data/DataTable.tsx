@@ -132,7 +132,7 @@ export function DataTable<T>({ data, columns, getRowId, caption, loading, error,
   ) : null;
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
       {searchable || columnPicker || toolbar ? (
         <div className="flex flex-wrap items-center gap-2">
           {searchable ? <SearchField value={filter} onChange={(e) => table.setGlobalFilter(e.target.value)} onClear={() => table.setGlobalFilter('')} placeholder={searchPlaceholder} className="min-w-0 flex-1 sm:max-w-[320px]" /> : null}
@@ -195,7 +195,7 @@ export function DataTable<T>({ data, columns, getRowId, caption, loading, error,
           </table>
         </div>
       ) : (
-        <ul aria-label={caption} className="grid gap-2">
+        <ul aria-label={caption} className="grid grid-cols-[minmax(0,1fr)] gap-2">
           {selectable ? <li className="flex items-center rounded-lg bg-s1 px-4 py-2">{selectAll}<span className="ml-2 text-[13.5px] font-semibold text-ink3">Select all on this page</span></li> : null}
           {rows.map((r) => {
             const cells = r.getVisibleCells();
@@ -210,7 +210,7 @@ export function DataTable<T>({ data, columns, getRowId, caption, loading, error,
                   <div className="grid gap-2.5">
                     <div className="flex items-start gap-3">
                       {selectable ? <Checkbox label={<span className="sr-only">Select {rowLabel ? rowLabel(r.original) : `row ${r.id}`}</span>} checked={r.getIsSelected()} onCheckedChange={(v) => r.toggleSelected(v)} /> : null}
-                      <div className="min-w-0 flex-1 font-bold">{primary ? flexRender(primary.column.columnDef.cell, primary.getContext()) : null}</div>
+                      <div className="min-w-0 flex-1 font-bold [&_.grid]:grid-cols-[minmax(0,1fr)]">{primary ? flexRender(primary.column.columnDef.cell, primary.getContext()) : null}</div>
                       {onRowClick ? <IconButton label={`Open ${rowLabel ? rowLabel(r.original) : `row ${r.id}`}`} icon="arrow-right-01" variant="ghost" size="sm" onClick={() => onRowClick(r.original)} /> : null}
                       {renderExpanded ? toggleButton(r.id, rowLabel ? rowLabel(r.original) : r.id) : null}
                       {actionCell ? <div className="-my-1 -mr-1 shrink-0">{flexRender(actionCell.column.columnDef.cell, actionCell.getContext())}</div> : null}
@@ -219,7 +219,7 @@ export function DataTable<T>({ data, columns, getRowId, caption, loading, error,
                       {rest.map((c) => (
                         <div key={c.id} className="flex items-center justify-between gap-3">
                           <dt className="text-[13px] font-semibold text-ink3">{label(c.column.id, c.column.columnDef.header, c.column.columnDef.meta)}</dt>
-                          <dd className="min-w-0 text-right font-semibold">{flexRender(c.column.columnDef.cell, c.getContext())}</dd>
+                          <dd className="min-w-0 text-right font-semibold [&_.grid]:grid-cols-[minmax(0,1fr)]">{flexRender(c.column.columnDef.cell, c.getContext())}</dd>
                         </div>
                       ))}
                     </dl>

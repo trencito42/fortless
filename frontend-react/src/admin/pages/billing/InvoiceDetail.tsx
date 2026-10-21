@@ -38,7 +38,7 @@ export default function InvoiceDetail({ id }: { id: string }) {
       {inv.status === 'OPEN' && Date.parse(inv.dueAt) < Date.parse('2026-10-21T09:30:00Z') ? <Notice tone="warn" title="Overdue">Balance due {money(bal)}. Services linked to this invoice may be past due.</Notice> : null}
       <Split main={<>
         <Section title="Lines">
-          <RelatedTable rows={inv.lines} getRowId={(l) => l.id} caption="Invoice lines" pageSize={10} columns={[col<InvoiceLine>('d', 'Description', (l) => <span className="block min-w-[12rem] font-semibold">{l.description}</span>, { primary: true }), col<InvoiceLine>('q', 'Qty', (l) => l.quantity, { numeric: true }), col<InvoiceLine>('u', 'Unit (net)', (l) => <MoneyText value={l.unit} />, { numeric: true }), col<InvoiceLine>('t', 'Tax', (l) => `${l.taxRatePct}%`, { numeric: true })]} />
+          <RelatedTable rows={inv.lines} getRowId={(l) => l.id} caption="Invoice lines" pageSize={10} columns={[col<InvoiceLine>('d', 'Description', (l) => <span className="block md:min-w-[12rem] font-semibold">{l.description}</span>, { primary: true }), col<InvoiceLine>('q', 'Qty', (l) => l.quantity, { numeric: true }), col<InvoiceLine>('u', 'Unit (net)', (l) => <MoneyText value={l.unit} />, { numeric: true }), col<InvoiceLine>('t', 'Tax', (l) => `${l.taxRatePct}%`, { numeric: true })]} />
           <dl className="mt-4 ml-auto grid max-w-sm gap-1.5 text-[14px]">
             <div className="flex justify-between gap-4"><dt className="text-ink3">Subtotal (net)</dt><dd className="tabular-nums">{money(inv.subtotal)}</dd></div>
             {inv.discount.amount ? <div className="flex justify-between gap-4"><dt className="text-ink3">Discount</dt><dd className="tabular-nums">−{money(inv.discount)}</dd></div> : null}

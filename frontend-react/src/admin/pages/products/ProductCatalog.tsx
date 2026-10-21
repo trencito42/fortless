@@ -38,7 +38,7 @@ export default function ProductCatalog() {
         filters={[{ id: 'cat', label: 'Category', options: data.categories.map((c) => ({ value: c.id, label: c.name })), test: (p, v) => p.categoryId === v }, { id: 'prov', label: 'Provider', options: [{ value: 'PTERODACTYL', label: 'Pterodactyl' }, { value: 'NONE', label: 'None' }], test: (p, v) => p.providerType === v }]}
         pageSize={10} onRowClick={(p) => nav(`/products/${p.id}`)}
         columns={[
-          col<Product>('n', 'Product', (p) => <span className="grid min-w-[10rem]"><EntityLink to={`/products/${p.id}`}>{p.name}</EntityLink><span className="font-mono text-[12px] text-ink3">/{p.slug}</span></span>, { primary: true, sort: (p) => p.name }),
+          col<Product>('n', 'Product', (p) => <span className="grid md:min-w-[10rem]"><EntityLink to={`/products/${p.id}`}>{p.name}</EntityLink><span className="font-mono text-[12px] text-ink3">/{p.slug}</span></span>, { primary: true, sort: (p) => p.name }),
           col<Product>('c', 'Category', (p) => data.categories.find((c) => c.id === p.categoryId)?.name ?? '—', { sort: (p) => p.categoryId }),
           col<Product>('pv', 'Provider', (p) => <Badge tone={p.providerType === 'NONE' ? 'warn' : 'neutral'}>{p.providerType === 'NONE' ? 'No adapter' : p.providerType}</Badge>),
           col<Product>('pl', 'Plans', (p) => { const s = stats.get(p.id)!; return <span className="whitespace-nowrap text-[13.5px]">{s.active} active · {s.draft} draft · {s.retired} retired</span>; }, { sort: (p) => stats.get(p.id)!.active }),

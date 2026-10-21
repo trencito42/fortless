@@ -32,7 +32,7 @@ export default function RefundList() {
           col<Refund>('id', 'Reference', (r) => <EntityLink to={`/billing/refunds/${r.id}`} mono>{r.id}</EntityLink>, { sort: (r) => r.id, primary: true }),
           col<Refund>('k', 'Kind', (r) => <Badge tone={r.kind === 'refund' ? 'info' : 'violet'}>{r.kind === 'refund' ? 'Refund' : 'Credit note'}</Badge>, { sort: (r) => r.kind }),
           col<Refund>('s', 'Status', (r) => <Status map={refundStatus} value={r.status} />, { sort: (r) => r.status }),
-          col<Refund>('c', 'Customer', (r) => <span className="block min-w-[8rem]"><CustomerLink id={r.customerId} /></span>, { sort: (r) => cust.get(r.customerId) ?? '' }),
+          col<Refund>('c', 'Customer', (r) => <span className="block md:min-w-[8rem]"><CustomerLink id={r.customerId} /></span>, { sort: (r) => cust.get(r.customerId) ?? '' }),
           col<Refund>('i', 'Invoice', (r) => <InvoiceLink id={r.invoiceId} />, { hideOnMobile: true }),
           col<Refund>('a', 'Amount', (r) => <MoneyText value={r.amount} />, { sort: (r) => r.amount.amount, numeric: true }),
           col<Refund>('r', 'Reason', (r) => <span className="block max-w-[22rem] truncate" title={r.reason}>{r.reason}</span>, { hideOnMobile: true }),

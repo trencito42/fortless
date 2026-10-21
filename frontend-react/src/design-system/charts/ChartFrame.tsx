@@ -48,7 +48,7 @@ export function ChartFrame({ title, description, state = 'ready', summary, empty
         ) : state === 'error' ? (
           <div role="alert" className="grid h-full place-content-center justify-items-center gap-2 rounded-md bg-bad-bg px-4 text-center text-bad"><p className="font-semibold">{errorMessage}</p>{onRetry ? <Button size="sm" variant="secondary" leadingIcon="refresh" onClick={onRetry}>Try again</Button> : null}</div>
         ) : (
-          <div role="img" aria-label={summary} className={cn('h-full', state === 'stale' && 'opacity-70')}>{children}</div>
+          <div role="group" aria-label={summary} className={cn('h-full', state === 'stale' && 'opacity-70')}>{children}</div>
         )}
       </div>
     </section>

@@ -55,9 +55,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="flex h-dvh min-h-0 bg-bg text-ink">
+    <div className="flex h-dvh min-h-0 bg-bg text-ink print:block print:h-auto">
       <a href="#admin-main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[90] focus:rounded-md focus:bg-s1 focus:px-3 focus:py-2">Skip to content</a>
-      <aside aria-label="Sidebar" className={cn('m-3 mr-0 hidden shrink-0 flex-col rounded-xl bg-s1 p-3 transition-[width] duration-300 ease-[var(--ease)] md:flex', collapsed ? 'w-[72px] px-2.5' : 'w-[272px]')}>
+      <aside aria-label="Sidebar" className={cn('m-3 mr-0 hidden shrink-0 flex-col rounded-xl bg-s1 p-3 transition-[width] duration-300 ease-[var(--ease)] md:flex print:hidden', collapsed ? 'w-[72px] px-2.5' : 'w-[272px]')}>
         <div className={cn('flex h-11 items-center gap-2.5 px-1.5', collapsed && 'justify-center px-0')}>
           <LogoMark />
           {collapsed ? null : <><span className="text-[20px] font-extrabold tracking-[-0.04em]">fortless</span><Badge tone="violet">Admin</Badge></>}
@@ -75,7 +75,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-bg px-4 pt-[max(12px,env(safe-area-inset-top))] pb-2.5 md:px-6 md:pt-4">
+        <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 bg-bg px-4 pt-[max(12px,env(safe-area-inset-top))] pb-2.5 md:px-6 md:pt-4 print:hidden">
           <div className="flex items-center gap-2 md:hidden"><LogoMark size={26} /></div>
           <div className="min-w-0 flex-1"><HeaderCrumbs /></div>
           <Tooltip content="Everything here is synthetic. No live data, no provider calls."><span className="inline-flex"><Badge tone="warn" className="gap-1.5"><Icon name="information-circle" size={14} />Demo data</Badge></span></Tooltip>
@@ -86,12 +86,12 @@ export function AdminShell({ children }: { children: ReactNode }) {
           <IconButton label={theme.resolved === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} icon={theme.resolved === 'dark' ? 'sun-03' : 'moon-01'} variant="secondary" onClick={theme.toggle} className="max-sm:hidden" />
           <div className="md:hidden">{userRow}</div>
         </header>
-        <main id="admin-main" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-[calc(96px+env(safe-area-inset-bottom))] outline-none md:px-6 md:pb-10">
+        <main id="admin-main" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto px-4 pt-2 pb-[calc(96px+env(safe-area-inset-bottom))] outline-none md:px-6 md:pb-10 print:overflow-visible print:p-0">
           <div className="mx-auto w-full min-w-0 max-w-[1440px]">{children}</div>
         </main>
       </div>
 
-      <nav aria-label="Primary" className="fixed inset-x-2.5 bottom-[max(10px,env(safe-area-inset-bottom))] z-[40] flex h-[66px] items-center justify-between rounded-full bg-s1 p-1.5 md:hidden">
+      <nav aria-label="Primary" className="fixed inset-x-2.5 bottom-[max(10px,env(safe-area-inset-bottom))] z-[40] flex h-[66px] items-center justify-between rounded-full bg-s1 p-1.5 md:hidden print:hidden">
         {ADMIN_TABS.map((t) => {
           const isMore = t.id === 'more';
           const on = !isMore && currentId === t.id;

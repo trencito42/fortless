@@ -28,11 +28,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<StaffRole>('OWNER');
   const [stepUpAt, setStepUp] = useState<number | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState>('normal');
-  const [tick, setTick] = useState(0);
   const can = useCallback((p: StaffPermission) => ROLE_PERMISSIONS[role].includes(p), [role]);
-  const grantStepUp = useCallback(() => { setStepUp(Date.now()); setTick((t) => t + 1); }, []);
+  const grantStepUp = useCallback(() => { setStepUp(Date.now()); }, []);
   const stepUpValid = stepUpAt != null && Date.now() - stepUpAt < STEP_UP_WINDOW;
-  const value = useMemo<Session>(() => ({ staffId: 'stf_01', staffName: 'Maria Ilie', role, setRole, can, stepUpAt, stepUpValid, grantStepUp, previewState, setPreviewState }), [role, can, stepUpAt, stepUpValid, grantStepUp, previewState, tick]);
+  const value = useMemo<Session>(() => ({ staffId: 'stf_01', staffName: 'Maria Ilie', role, setRole, can, stepUpAt, stepUpValid, grantStepUp, previewState, setPreviewState }), [role, can, stepUpAt, stepUpValid, grantStepUp, previewState]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 export function useSession(): Session {

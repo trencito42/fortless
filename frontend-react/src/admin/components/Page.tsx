@@ -20,7 +20,7 @@ export function HeaderCrumbs() {
   const { crumbs } = useCrumbState();
   const list = crumbs ?? navTrail(currentNavId(path));
   const shown = list.length > 0 ? list : [{ label: 'Dashboard' }];
-  return <Breadcrumbs crumbs={shown.map((c, i) => ({ id: c.to ?? String(i), label: c.label, current: i === shown.length - 1 }))} onNavigate={(id) => id.startsWith('/') && navigate(id)} />;
+  return <div className="min-w-0 [&_li:not(:last-child)]:hidden [&_li:last-child_svg]:hidden sm:[&_li:not(:last-child)]:flex sm:[&_li:last-child_svg]:block [&_button]:whitespace-nowrap"><Breadcrumbs crumbs={shown.map((c, i) => ({ id: c.to ?? String(i), label: c.label, current: i === shown.length - 1 }))} onNavigate={(id) => id.startsWith('/') && navigate(id)} /></div>;
 }
 
 export interface AdminPageProps {
@@ -52,7 +52,7 @@ export function AdminPage({ title, description, actions, status, parents, detail
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   return (
-    <div className="grid min-w-0 gap-5">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
       <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="grid min-w-0 gap-1.5">
           {status ? <div className="flex flex-wrap items-center gap-2">{status}</div> : null}

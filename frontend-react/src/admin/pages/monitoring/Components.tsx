@@ -24,7 +24,7 @@ export default function Components() {
         segments={[{ value: 'all', label: 'All', test: () => true }, { value: 'issues', label: 'Not operational', test: (c) => c.health !== 'operational' }, { value: 'public', label: 'Public', test: (c) => c.public }, { value: 'internal', label: 'Internal only', test: (c) => !c.public }]}
         filters={[{ id: 'g', label: 'Group', options: [...new Set(data.components.map((c) => c.group))].map((g) => ({ value: g, label: g })), test: (c, v) => c.group === v }]}
         columns={[
-          col<StatusComponent>('n', 'Component', (c) => <span className="grid min-w-[12rem]"><b>{c.name}</b><span className="text-[12.5px] text-ink3">{c.description}</span></span>, { primary: true, sort: (c) => c.name }),
+          col<StatusComponent>('n', 'Component', (c) => <span className="grid md:min-w-[12rem]"><b>{c.name}</b><span className="text-[12.5px] text-ink3">{c.description}</span></span>, { primary: true, sort: (c) => c.name }),
           col<StatusComponent>('g', 'Group', (c) => c.group, { sort: (c) => c.group }),
           col<StatusComponent>('h', 'Health', (c) => <Status map={componentHealth} value={c.health} />, { sort: (c) => c.health }),
           col<StatusComponent>('u', '30-day uptime', (c) => `${c.uptime30d.toFixed(2)}%`, { numeric: true, sort: (c) => c.uptime30d }),

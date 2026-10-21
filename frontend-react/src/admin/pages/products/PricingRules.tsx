@@ -25,7 +25,7 @@ export default function PricingRules() {
         tableId="price-rules" caption="Pricing rules" rows={data.priceRules} getRowId={(r) => r.id} rowLabel={(r) => r.name} searchText={(r) => `${r.name} ${r.description} ${r.scope}`}
         segments={[{ value: 'all', label: 'All', test: () => true }, ...(['currency', 'cycle', 'discount', 'tax'] as const).map((k) => ({ value: k, label: kindLabel[k], test: (r: PriceRule) => r.kind === k }))]}
         columns={[
-          col<PriceRule>('n', 'Rule', (r) => <span className="grid min-w-[14rem]"><b>{r.name}</b><span className="text-[13px] text-ink2">{r.description}</span></span>, { primary: true, sort: (r) => r.name }),
+          col<PriceRule>('n', 'Rule', (r) => <span className="grid md:min-w-[14rem]"><b>{r.name}</b><span className="text-[13px] text-ink2">{r.description}</span></span>, { primary: true, sort: (r) => r.name }),
           col<PriceRule>('k', 'Kind', (r) => <Badge>{kindLabel[r.kind]}</Badge>, { sort: (r) => r.kind }),
           col<PriceRule>('v', 'Value', (r) => r.value, { hideOnMobile: true }),
           col<PriceRule>('s', 'Scope', (r) => r.scope, { hideOnMobile: true }),

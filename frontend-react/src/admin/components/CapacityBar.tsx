@@ -12,7 +12,7 @@ export function CapacityBar({ label, physical, sold, used, limit, format }: { la
   return (
     <div className="grid gap-1.5" role="group" aria-label={`${label}: physical ${format(physical)}, sold ${format(sold)} (${soldPct}%), used ${format(used)}`}>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-[13px]"><b>{label}</b><span className="font-semibold text-ink3">sold {soldPct}% of physical</span></div>
-      <div className="relative">
+      <div className="relative" aria-hidden="true">
         <SegmentedBar size="lg" total={track} segments={[{ key: 'used', label: 'used', value: used, tone: 'bg-ink2' }, { key: 'sold', label: 'sold, not used', value: Math.max(0, sold - used), tone }]} summary="" />
         {physical < track ? <span aria-hidden="true" className="absolute -top-0.5 -bottom-0.5 w-0.5 rounded-full bg-ink" style={{ left: `${(physical / track) * 100}%` }} title="Physical capacity" /> : null}
       </div>

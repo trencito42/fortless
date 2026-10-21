@@ -40,7 +40,7 @@ export default function Capacity() {
       ]} />
       <Section title="Per node" description="Cost, revenue and capacity side by side.">
         <RelatedTable rows={rows} getRowId={(r) => r.n.id} caption="Node economics" pageSize={10} columns={[
-          col<Row>('n', 'Node', (r) => <span className="grid min-w-[8rem]"><EntityLink to={`/infrastructure/nodes/${r.n.id}`}>{r.n.name}</EntityLink><span className="text-[12.5px] text-ink3">{REGION_NAMES[r.n.region]}</span></span>, { primary: true, sort: (r) => r.n.name }),
+          col<Row>('n', 'Node', (r) => <span className="grid md:min-w-[8rem]"><EntityLink to={`/infrastructure/nodes/${r.n.id}`}>{r.n.name}</EntityLink><span className="text-[12.5px] text-ink3">{REGION_NAMES[r.n.region]}</span></span>, { primary: true, sort: (r) => r.n.name }),
           col<Row>('c', 'Monthly cost', (r) => (r.n.monthlyCost ? money(r.n.monthlyCost) : <Badge tone="warn">Unknown</Badge>), { numeric: true, sort: (r) => r.n.monthlyCost?.amount ?? -1 }),
           col<Row>('rev', 'Recurring revenue', (r) => <span className="grid">{r.mrr.length ? r.mrr.map((x) => <span key={x.currency} className="tabular-nums">{money(x)}</span>) : '—'}</span>, { numeric: true, sort: (r) => r.eurMrr }),
           col<Row>('m', 'Est. margin (EUR)', (r) => (r.margin == null ? <span className="text-ink3">n/a: cost unknown</span> : <span className={r.margin < 0 ? 'font-bold text-bad' : 'font-bold text-good'}>{money({ amount: r.margin, currency: 'EUR' })}{r.otherCur.length ? <span className="block text-[11.5px] font-semibold text-ink3">excl. {r.otherCur.join(', ')}</span> : null}</span>), { numeric: true, sort: (r) => r.margin ?? -999999 }),

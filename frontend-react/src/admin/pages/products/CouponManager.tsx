@@ -43,7 +43,9 @@ export function CouponManager({ openNew }: { openNew?: boolean }) {
       add('coupons', c); audit('catalog.coupon_created', { type: 'coupon', id: c.id, label: c.code }, { after: { code: c.code, discount: discountText(c) } }); return `Coupon ${c.code} created`;
     },
   });
-  useEffect(() => { if ((openNew || search.get('new') === '1') && !started && manage) { setStarted(true); create(); } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [openNew, search, manage]);
+  // Opens the create dialog once when arriving from a quick action (?new=1).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if ((openNew || search.get('new') === '1') && !started && manage) { setStarted(true); create(); } }, [openNew, search, manage]);
   const toggle = (c: Coupon, v: boolean) => act.run({ title: v ? `Activate ${c.code}` : `Deactivate ${c.code}`, confirmLabel: v ? 'Activate' : 'Deactivate', permission: 'catalog:manage', description: v ? 'Customers can apply it again until it expires.' : 'No new quote can use it. Existing orders keep their discount.', onConfirm: () => { patch('coupons', c.id, { isActive: v }); audit('catalog.coupon_status_changed', { type: 'coupon', id: c.id, label: c.code }, { after: { active: String(v) } }); return `${c.code} ${v ? 'activated' : 'deactivated'}`; } });
   return (
     <>

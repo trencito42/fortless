@@ -1,4 +1,4 @@
-import type { EmailDelivery, EmailTemplate, FeatureFlag } from '../types';
+import type { EmailDelivery, EmailTemplate, FeatureFlag, ScheduledTask, SettingsSection } from '../types';
 import { DAY, HOUR, MIN, iso } from '../lib/format';
 
 export const featureFlags: FeatureFlag[] = [
@@ -26,4 +26,23 @@ export const emailDeliveries: EmailDelivery[] = [
   { id: 'eml_4', template: 'ticket_reply', to: 'm***@example.test', status: 'sent', at: iso(-2 * HOUR), error: null },
   { id: 'eml_5', template: 'invoice_paid', to: 'l***@kestrel-esports.example', status: 'queued', at: iso(-2 * MIN), error: null },
   { id: 'eml_6', template: 'service_suspended', to: 't***@example.test', status: 'sent', at: iso(-11 * DAY), error: null },
+];
+
+export const settings: SettingsSection[] = [
+  { id: 'general', values: { company: 'Fortless Hosting (demo entity)', siteUrl: 'https://fortless.net', supportEmail: 'support@fortless.example', billingEmail: 'billing@fortless.example', timezone: 'UTC', defaultCurrency: 'EUR', statusUrl: 'https://fortless.net/status' } },
+  { id: 'auth', values: { minPassword: '12', sessionHours: '12', stepUpMinutes: '5', lockoutAttempts: '10', staffMfaRequired: 'true', customerMfaOffered: 'true', allowedOrigins: 'https://fortless.net', oidcDiscord: 'true', oidcGithub: 'false', oidcGoogle: 'false' } },
+  { id: 'payments', values: { mode: 'live', publishable: 'pk_live_••••••••••••••••Zq3m', secret: 'sk_live_••••••••••••••••Qx7p', webhookSecret: 'whsec_••••••••••••••••8Kd2', endpoint: 'https://fortless.net/api/v1/webhooks/stripe', descriptor: 'FORTLESS HOSTING', methodCard: 'true', methodSepa: 'true', threeDs: 'automatic', lastVerified: '' } },
+  { id: 'email', values: { host: 'smtp.relay.example', port: '587', security: 'starttls', username: 'fortless-relay', password: '••••••••••••', fromName: 'Fortless', fromAddress: 'no-reply@fortless.example', replyTo: 'support@fortless.example' } },
+  { id: 'notifications', values: { 'critical.email': 'true', 'critical.inapp': 'true', 'critical.push': 'false', 'payments.email': 'true', 'payments.inapp': 'true', 'payments.push': 'false', 'security.email': 'true', 'security.inapp': 'true', 'security.push': 'false', 'support.email': 'false', 'support.inapp': 'true', 'support.push': 'false', 'infra.email': 'true', 'infra.inapp': 'true', 'infra.push': 'false', quietHours: 'false', digest: 'daily' } },
+  { id: 'localization', values: { defaultLanguage: 'en', langEn: 'true', langRo: 'true', langDe: 'false', dateFormat: 'dd MMM yyyy', timeFormat: '24h', firstDay: 'monday', currencyEur: 'true', currencyUsd: 'true', currencyRon: 'true', currencyGbp: 'false', roundRon: 'whole' } },
+  { id: 'system', values: { maintenanceMode: 'false', maintenanceMessage: '', registrationOpen: 'true', checkoutOpen: 'true' } },
+];
+
+export const scheduledTasks: ScheduledTask[] = [
+  { id: 'tsk_renew', name: 'Process renewals', schedule: 'Every 15 minutes', lastRunAt: new Date('2026-10-21T09:15:00Z').toISOString(), lastStatus: 'ok', durationMs: 4200, nextRunAt: new Date('2026-10-21T09:30:00Z').toISOString() },
+  { id: 'tsk_sync', name: 'Runtime sync', schedule: 'Every 5 minutes', lastRunAt: new Date('2026-10-21T09:25:00Z').toISOString(), lastStatus: 'ok', durationMs: 1800, nextRunAt: new Date('2026-10-21T09:30:00Z').toISOString() },
+  { id: 'tsk_dunning', name: 'Dunning and grace checks', schedule: 'Hourly', lastRunAt: new Date('2026-10-21T09:00:00Z').toISOString(), lastStatus: 'ok', durationMs: 900, nextRunAt: new Date('2026-10-21T10:00:00Z').toISOString() },
+  { id: 'tsk_backup', name: 'Database backup', schedule: 'Daily 02:00 UTC', lastRunAt: new Date('2026-10-21T02:00:00Z').toISOString(), lastStatus: 'ok', durationMs: 61000, nextRunAt: new Date('2026-10-22T02:00:00Z').toISOString() },
+  { id: 'tsk_email', name: 'Email retry sweep', schedule: 'Every 10 minutes', lastRunAt: new Date('2026-10-21T09:20:00Z').toISOString(), lastStatus: 'failed', durationMs: 30000, nextRunAt: new Date('2026-10-21T09:30:00Z').toISOString() },
+  { id: 'tsk_capacity', name: 'Release expired capacity reservations', schedule: 'Every 5 minutes', lastRunAt: new Date('2026-10-21T09:25:00Z').toISOString(), lastStatus: 'ok', durationMs: 120, nextRunAt: new Date('2026-10-21T09:30:00Z').toISOString() },
 ];

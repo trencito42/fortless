@@ -155,3 +155,6 @@ export interface SecurityEvent { id: string; at: string; kind: 'login_failed' | 
 export interface FeatureFlag { key: string; label: string; description: string; enabled: boolean; scope: 'global' | 'staff_only' | 'percentage'; rollout: number; owner: string; updatedAt: string; risk: 'low' | 'medium' | 'high' }
 export interface EmailTemplate { key: string; name: string; subject: string; body: string; updatedAt: string; customized: boolean }
 export interface EmailDelivery { id: string; template: string; to: string; status: 'sent' | 'failed' | 'bounced' | 'queued'; at: string; error: string | null }
+
+export interface SettingsSection { id: string; values: Record<string, string> }
+export interface ScheduledTask { id: string; name: string; schedule: string; lastRunAt: string; lastStatus: 'ok' | 'failed' | 'skipped'; durationMs: number; nextRunAt: string }

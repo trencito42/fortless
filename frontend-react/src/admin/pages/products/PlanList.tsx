@@ -26,7 +26,7 @@ export default function PlanList() {
         filters={[{ id: 'prod', label: 'Product', options: data.products.map((p) => ({ value: p.id, label: p.name })), test: (p, v) => p.productId === v }]}
         onRowClick={(p) => nav(`/products/plans/${p.id}`)} pageSize={12}
         columns={[
-          col<Plan>('n', 'Plan', (p) => <span className="grid min-w-[10rem]"><EntityLink to={`/products/plans/${p.id}`}>{p.name}</EntityLink><span className="text-[12.5px] text-ink3">{prod.get(p.productId)} · v{p.version}</span></span>, { primary: true, sort: (p) => p.name }),
+          col<Plan>('n', 'Plan', (p) => <span className="grid md:min-w-[10rem]"><EntityLink to={`/products/plans/${p.id}`}>{p.name}</EntityLink><span className="text-[12.5px] text-ink3">{prod.get(p.productId)} · v{p.version}</span></span>, { primary: true, sort: (p) => p.name }),
           col<Plan>('s', 'Status', (p) => <Status map={planStatus} value={p.status} />, { sort: (p) => p.status }),
           col<Plan>('r', 'Resources', (p) => <span className="whitespace-nowrap text-[13px]">{mb(p.resources.memoryMb)} · {p.resources.cpuPct}% CPU · {mb(p.resources.diskMb)}</span>, { sort: (p) => p.resources.memoryMb }),
           col<Plan>('p', 'Monthly (EUR)', (p) => money({ amount: monthlyEur(p), currency: 'EUR' }), { sort: monthlyEur, numeric: true }),

@@ -37,7 +37,7 @@ export default function InvoiceList() {
         onRowClick={(i) => nav(`/billing/invoices/${i.id}`)}
         columns={[
           col<Invoice>('n', 'Invoice', (i) => <InvoiceLink id={i.id} />, { sort: (i) => i.number, primary: true }),
-          col<Invoice>('c', 'Customer', (i) => <span className="block min-w-[8rem]"><CustomerLink id={i.customerId} /></span>, { sort: (i) => cust.get(i.customerId) ?? '' }),
+          col<Invoice>('c', 'Customer', (i) => <span className="block md:min-w-[8rem]"><CustomerLink id={i.customerId} /></span>, { sort: (i) => cust.get(i.customerId) ?? '' }),
           col<Invoice>('s', 'Status', (i) => <Status map={invoiceStatus} value={invoiceKey(i)} />, { sort: (i) => invoiceKey(i) }),
           col<Invoice>('iss', 'Issued', (i) => nw(date(i.issuedAt)), { sort: (i) => i.issuedAt }),
           col<Invoice>('due', 'Due', (i) => nw(date(i.dueAt)), { sort: (i) => i.dueAt }),

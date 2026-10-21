@@ -36,8 +36,8 @@ export default function OrderList() {
         onRowClick={(o) => nav(`/orders/${o.id}`)}
         columns={[
           col<Order>('id', 'Order', (o) => <OrderLink id={o.id} />, { sort: (o) => o.id, primary: true }),
-          col<Order>('cust', 'Customer', (o) => <span className="block min-w-[8rem]"><CustomerLink id={o.customerId} /></span>, { sort: (o) => cust.get(o.customerId) ?? '' }),
-          col<Order>('items', 'Items', (o) => <span className="block min-w-[10rem] text-[13.5px]">{o.lines[0]?.description.split(' — ')[0]}{o.lines.length > 1 ? <Badge className="ml-1.5">+{o.lines.length - 1}</Badge> : null}</span>, { hideOnMobile: true }),
+          col<Order>('cust', 'Customer', (o) => <span className="block md:min-w-[8rem]"><CustomerLink id={o.customerId} /></span>, { sort: (o) => cust.get(o.customerId) ?? '' }),
+          col<Order>('items', 'Items', (o) => <span className="block md:min-w-[10rem] text-[13.5px]">{o.lines[0]?.description.split(' — ')[0]}{o.lines.length > 1 ? <Badge className="ml-1.5">+{o.lines.length - 1}</Badge> : null}</span>, { hideOnMobile: true }),
           col<Order>('status', 'Order', (o) => <Status map={orderStatus} value={o.status} />, { sort: (o) => o.status }),
           col<Order>('pay', 'Payment', (o) => <Status map={paymentState} value={o.payment} />, { sort: (o) => o.payment }),
           col<Order>('ful', 'Fulfillment', (o) => <Status map={fulfillmentState} value={o.fulfillment} />, { sort: (o) => o.fulfillment }),

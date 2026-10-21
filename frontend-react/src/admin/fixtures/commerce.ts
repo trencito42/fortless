@@ -36,14 +36,16 @@ export function buildCommerce(customers: Customer[]): Commerce {
   const subscriptions: Subscription[] = [];
   const jobs: Job[] = [];
   const webhooks: WebhookEvent[] = [];
-  let sN = 0, oN = 0, iN = 0, pN = 0, jN = 0, subN = 0, evN = 0;
+  let sN = 0, oN = 0, iN = 0, pN = 0, jN = 0;
   const m = (amount: number, currency: Currency): Money => ({ amount, currency });
   const zeroM = (c: Currency) => m(0, c);
   const custById = new Map(customers.map((c) => [c.id, c]));
+  const usedPorts = new Set<string>();
+  const freePort = (node: string) => { let p = r.int(25000, 29999); while (usedPorts.has(`${node}:${p}`)) p = r.int(25000, 29999); usedPorts.add(`${node}:${p}`); return p; };
 
   const event = (type: string, objectId: string, status: WebhookEvent['status'], at: string, customerId: string | null, error: string | null = null): WebhookEvent => {
     const e: WebhookEvent = { id: `evt_${r.hex(14)}`, provider: 'stripe', type, status, objectId, receivedAt: at, processedAt: status === 'processed' || status === 'duplicate' ? new Date(Date.parse(at) + r.int(300, 4000)).toISOString() : null, signatureVerified: true, attempts: status === 'failed' ? r.int(2, 5) : 1, error, customerId };
-    evN++; webhooks.push(e); return e;
+    webhooks.push(e); return e;
   };
 
   const mkLines = (planId: string, cur: Currency, interval: BillingInterval, name: string, serviceId: string | null): { order: OrderLine; net: Money } => {
@@ -131,7 +133,7 @@ export function buildCommerce(customers: Customer[]): Commerce {
       const endedMs = lifecycle === 'CANCELLED' || lifecycle === 'TERMINATED' ? Math.min(ADMIN_NOW - 2 * DAY, createdMs + r.int(20, 300) * DAY) : null;
       const svc: Service = {
         id, name: `${word}-${r.hex(3)}`, customerId: c.id, orderId: '', productId: product.id, planId, productName: product.name, planName: plan.name, lifecycle, runtime, nodeId: nodeDef.id, region,
-        ip: nodeDef.ip, port: r.int(25000, 29999),
+        ip: nodeDef.ip, port: freePort(nodeDef.id),
         resources: { ...plan.resources }, usage: { memoryMb: Math.round(mem * usedFrac), cpuPct: Math.round(plan.resources.cpuPct * usedFrac * 0.8), diskMb: Math.round(disk * (0.05 + r.next() * 0.5)) },
         provider: { type: 'PTERODACTYL', serverUuid: `${r.hex(8)}-${r.hex(4)}-4${r.hex(3)}-a${r.hex(3)}-${r.hex(12)}`, identifier: r.hex(8), externalId: sync === 'unlinked' ? null : 1000 + sN, allocationId: sync === 'unlinked' ? null : 5000 + sN, sync, lastSyncAt: iso(-r.int(1, 55) * MIN), correlationTag: `fl:${id}` },
         billing: { interval, price, nextRenewal: alive ? new Date(lifecycle === 'PAST_DUE' ? ADMIN_NOW - r.int(3, 9) * DAY : next).toISOString() : null, autoRenew: lifecycle === 'ACTIVE' && r.chance(0.92), subscriptionId: `sub_${pad(sN)}` },
@@ -173,7 +175,6 @@ export function buildCommerce(customers: Customer[]): Commerce {
       }
 
       /* subscription */
-      subN++;
       let subStatus: SubscriptionStatus = 'ACTIVE';
       if (lifecycle === 'PAST_DUE') subStatus = 'PAST_DUE'; else if (lifecycle === 'CANCELLED' || lifecycle === 'TERMINATED') subStatus = 'CANCELED'; else if (lifecycle === 'SUSPENDED') subStatus = 'PAST_DUE'; else if (!svc.billing.autoRenew) subStatus = 'CANCEL_AT_PERIOD_END';
       subscriptions.push({

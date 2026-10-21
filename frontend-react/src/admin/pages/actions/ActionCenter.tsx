@@ -45,7 +45,7 @@ export default function ActionCenter() {
         onRowClick={(a) => nav(`/actions/${a.id}`)}
         columns={[
           col<ActionItem>('pr', 'Priority', (a) => <Status map={priority} value={a.priority} />, { sort: (a) => order[a.priority] }),
-          col<ActionItem>('t', 'Issue', (a) => <span className="grid min-w-[16rem] max-w-[34rem]"><EntityLink to={`/actions/${a.id}`}>{a.title}</EntityLink><span className="line-clamp-2 text-[12.5px] font-medium text-ink3">{a.detail}</span></span>, { primary: true, sort: (a) => a.title }),
+          col<ActionItem>('t', 'Issue', (a) => <span className="grid md:min-w-[16rem] max-w-[34rem]"><EntityLink to={`/actions/${a.id}`}>{a.title}</EntityLink><span className="line-clamp-2 text-[12.5px] font-medium text-ink3">{a.detail}</span></span>, { primary: true, sort: (a) => a.title }),
           col<ActionItem>('c', 'Category', (a) => <Badge>{title(a.category)}</Badge>, { sort: (a) => a.category }),
           col<ActionItem>('r', 'Resource', (a) => <EntityLink to={a.resource.to}>{a.resource.label}</EntityLink>, { hideOnMobile: true }),
           col<ActionItem>('a', 'Assignee', (a) => a.assignee ?? <span className="text-ink3">Unassigned</span>, { sort: (a) => a.assignee ?? '~' }),

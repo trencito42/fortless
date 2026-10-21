@@ -44,8 +44,8 @@ export default function SubscriptionList() {
         dateField={{ label: 'Period ends', get: (s) => s.currentPeriodEnd }}
         onRowClick={(s) => nav(`/services/${s.serviceId}/billing`)}
         columns={[
-          col<Subscription>('s', 'Service', (s) => <span className="grid min-w-[8rem]"><ServiceLink id={s.serviceId} /><span className="text-[12.5px] text-ink3">{s.planName}</span></span>, { primary: true, sort: (s) => s.serviceId }),
-          col<Subscription>('c', 'Customer', (s) => <span className="block min-w-[8rem]"><CustomerLink id={s.customerId} /></span>, { sort: (s) => cust.get(s.customerId) ?? '' }),
+          col<Subscription>('s', 'Service', (s) => <span className="grid md:min-w-[8rem]"><ServiceLink id={s.serviceId} /><span className="text-[12.5px] text-ink3">{s.planName}</span></span>, { primary: true, sort: (s) => s.serviceId }),
+          col<Subscription>('c', 'Customer', (s) => <span className="block md:min-w-[8rem]"><CustomerLink id={s.customerId} /></span>, { sort: (s) => cust.get(s.customerId) ?? '' }),
           col<Subscription>('st', 'Status', (s) => <Status map={subscriptionStatus} value={s.status} />, { sort: (s) => s.status }),
           col<Subscription>('i', 'Cycle', (s) => intervalLabel[s.interval], { sort: (s) => s.interval }),
           col<Subscription>('p', 'Price', (s) => <MoneyText value={s.price} />, { sort: (s) => s.price.amount, numeric: true }),

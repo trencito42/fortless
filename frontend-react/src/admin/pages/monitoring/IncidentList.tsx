@@ -24,7 +24,7 @@ export default function IncidentList() {
         filters={[{ id: 'sev', label: 'Severity', options: ['minor', 'major', 'critical'].map((s) => ({ value: s, label: s })), test: (i, v) => i.severity === v }, { id: 'st', label: 'Status', options: Object.keys(incidentStatus).map((s) => ({ value: s, label: incidentStatus[s]!.label })), test: (i, v) => i.status === v }]}
         dateField={{ label: 'Started', get: (i) => i.startedAt }} onRowClick={(i) => nav(`/monitoring/incidents/${i.id}`)}
         columns={[
-          col<Incident>('t', 'Incident', (i) => <span className="grid min-w-[14rem]"><EntityLink to={`/monitoring/incidents/${i.id}`}>{i.title}</EntityLink><span className="font-mono text-[12px] text-ink3">{i.id}</span></span>, { primary: true, sort: (i) => i.title }),
+          col<Incident>('t', 'Incident', (i) => <span className="grid md:min-w-[14rem]"><EntityLink to={`/monitoring/incidents/${i.id}`}>{i.title}</EntityLink><span className="font-mono text-[12px] text-ink3">{i.id}</span></span>, { primary: true, sort: (i) => i.title }),
           col<Incident>('s', 'Status', (i) => <Status map={incidentStatus} value={i.status} />, { sort: (i) => i.status }),
           col<Incident>('v', 'Severity', (i) => <Status map={severity} value={i.severity} />, { sort: (i) => i.severity }),
           col<Incident>('c', 'Components', (i) => <span className="block max-w-[18rem] truncate" title={names(i)}>{names(i)}</span>, { hideOnMobile: true }),

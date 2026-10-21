@@ -85,6 +85,7 @@ export function ResourceTable<T>(p: ResourceTableProps<T>) {
     if (!p.rowActions) return p.columns;
     const col: ColumnDef<T, unknown> = { id: 'actions', header: () => <span className="sr-only">Actions</span>, enableSorting: false, enableHiding: false, meta: { actions: true }, cell: ({ row }) => <ActionMenu label={`Actions for ${p.rowLabel ? p.rowLabel(row.original) : p.getRowId(row.original)}`} entries={p.rowActions!(row.original)} /> };
     return [...p.columns, col];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.columns, p.rowActions, p.rowLabel, p.getRowId]);
 
   const applyView = (v: SavedView) => { setSegment(v.segment); setFv(v.filters); setSearch(v.search); setRules(v.rules); setRange(v.range); };
@@ -107,7 +108,7 @@ export function ResourceTable<T>(p: ResourceTableProps<T>) {
   const noMatches = p.rows.length > 0 && filtered.length === 0 && previewState === 'normal';
 
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3">
       {p.segments ? (
         <Tabs label={`${p.caption} segments`} value={segment} onValueChange={setSegment} items={p.segments.map((s) => ({ value: s.value, label: s.label, badge: counts[s.value] }))} />
       ) : null}

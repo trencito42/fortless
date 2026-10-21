@@ -29,7 +29,7 @@ export default function NodeList() {
         filters={[{ id: 'region', label: 'Region', options: Object.entries(REGION_NAMES).map(([k, l]) => ({ value: k, label: l })), test: (n, v) => n.region === v }]}
         onRowClick={(n) => nav(`/infrastructure/nodes/${n.id}`)}
         columns={[
-          col<InfraNode>('n', 'Node', (n) => <span className="grid min-w-[9rem]"><EntityLink to={`/infrastructure/nodes/${n.id}`}>{n.name}</EntityLink><span className="font-mono text-[12px] text-ink3">{n.id}</span></span>, { primary: true, sort: (n) => n.name }),
+          col<InfraNode>('n', 'Node', (n) => <span className="grid md:min-w-[9rem]"><EntityLink to={`/infrastructure/nodes/${n.id}`}>{n.name}</EntityLink><span className="font-mono text-[12px] text-ink3">{n.id}</span></span>, { primary: true, sort: (n) => n.name }),
           col<InfraNode>('r', 'Region', (n) => REGION_NAMES[n.region], { sort: (n) => n.region }),
           col<InfraNode>('h', 'Health', (n) => <span className="flex flex-wrap gap-1"><Status map={nodeHealth} value={n.health} />{n.maintenance.enabled ? <Status map={{ m: { tone: 'info', label: n.maintenance.drain ? 'Draining' : 'Maintenance' } }} value="m" /> : null}</span>, { sort: (n) => n.health }),
           col<InfraNode>('svc', 'Services', (n) => ops.hosted(n).length, { sort: (n) => ops.hosted(n).length, numeric: true }),

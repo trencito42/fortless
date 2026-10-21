@@ -16,15 +16,15 @@ export function Section({ title, description, actions, children, className, leve
 /** Responsive row of KPI cards. */
 export function KpiGrid({ items, cols = 4 }: { items: Array<MetricCardProps & { to?: string }>; cols?: 2 | 3 | 4 | 5 | 6 }) {
   const c = { 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-2 xl:grid-cols-3', 4: 'sm:grid-cols-2 xl:grid-cols-4', 5: 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5', 6: 'sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6' }[cols];
-  return <div className={cn('grid grid-cols-1 gap-3', c)}>{items.map(({ to, ...m }) => to ? <Link key={m.label} to={to} aria-label={`${m.label}: open details`} className="block rounded-lg focus-visible:outline-2 focus-visible:outline-accent [&>div]:h-full [&>div]:transition-colors [&:hover>div]:bg-s2"><MetricCard {...m} /></Link> : <MetricCard key={m.label} {...m} />)}</div>;
+  return <div className={cn('grid grid-cols-[minmax(0,1fr)] gap-3', c)}>{items.map(({ to, ...m }) => to ? <Link key={m.label} to={to} aria-label={`${m.label}: open details`} className="block rounded-lg focus-visible:outline-2 focus-visible:outline-accent [&>div]:h-full [&>div]:transition-colors [&:hover>div]:bg-s2"><MetricCard {...m} /></Link> : <MetricCard key={m.label} {...m} />)}</div>;
 }
 
 export function Split({ main, aside, asideWidth = 360 }: { main: ReactNode; aside: ReactNode; asideWidth?: number }) {
-  return <div className="grid min-w-0 items-start gap-5 xl:[grid-template-columns:minmax(0,1fr)_var(--aside)]" style={{ ['--aside' as string]: `${asideWidth}px` }}><div className="grid min-w-0 gap-5">{main}</div><div className="grid min-w-0 gap-5">{aside}</div></div>;
+  return <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-5 xl:[grid-template-columns:minmax(0,1fr)_var(--aside)]" style={{ ['--aside' as string]: `${asideWidth}px` }}><div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">{main}</div><div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">{aside}</div></div>;
 }
 
 export function Columns({ children, cols = 2 }: { children: ReactNode; cols?: 2 | 3 }) {
-  return <div className={cn('grid min-w-0 gap-5', cols === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-3')}>{children}</div>;
+  return <div className={cn('grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5', cols === 2 ? 'lg:grid-cols-2' : 'lg:grid-cols-3')}>{children}</div>;
 }
 
 /** Plain label/value stat for dense summaries. */

@@ -1,5 +1,5 @@
 import type {
-  ActionItem, Announcement, ApprovalRequest, AuditEvent, Campaign, Category, Coupon, Customer, Department, EmailDelivery, EmailTemplate, FeatureFlag, Incident, InfraNode, Invoice, IpAllocation, Job,
+  ActionItem, Announcement, ApprovalRequest, AuditEvent, Campaign, Category, Coupon, Customer, Department, EmailDelivery, EmailTemplate, FeatureFlag, ScheduledTask, SettingsSection, Incident, InfraNode, Invoice, IpAllocation, Job,
   KbArticle, KbCategory, LegalDoc, Macro, MaintenanceWindow, MarketingBlock, Order, Payment, Plan, PriceRule, Product, ProviderConnection, ProviderEgg, Refund, SecurityEvent, Service, StaffMember,
   StatusComponent, Subscription, Ticket, WebhookEvent, Worker,
 } from '../types';
@@ -10,7 +10,7 @@ import { buildTickets, departments, macros } from './support';
 import { buildComponents, incidents, maintenance } from './monitoring';
 import { approvals, buildActions, connections, workers } from './ops';
 import { announcements, campaigns, kbArticles, kbCategories, legalDocs, marketingBlocks } from './content';
-import { emailDeliveries, emailTemplates, featureFlags } from './system';
+import { emailDeliveries, emailTemplates, featureFlags, scheduledTasks, settings } from './system';
 import { buildAudit } from './audit';
 
 export interface AdminData {
@@ -21,7 +21,7 @@ export interface AdminData {
   tickets: Ticket[]; departments: Department[]; macros: Macro[];
   kbCategories: KbCategory[]; kbArticles: KbArticle[]; announcements: Announcement[]; marketingBlocks: MarketingBlock[]; legalDocs: LegalDoc[]; campaigns: Campaign[];
   staff: StaffMember[]; approvals: ApprovalRequest[]; audit: AuditEvent[]; security: SecurityEvent[];
-  featureFlags: FeatureFlag[]; emailTemplates: EmailTemplate[]; emailDeliveries: EmailDelivery[];
+  featureFlags: FeatureFlag[]; emailTemplates: EmailTemplate[]; emailDeliveries: EmailDelivery[]; settings: SettingsSection[]; scheduledTasks: ScheduledTask[];
 }
 
 /** Builds the whole synthetic universe. Deterministic: same input, same ids, same relationships, on every load. */
@@ -37,6 +37,6 @@ export function buildAdminData(): AdminData {
     categories, products, plans, coupons, priceRules, eggs, nodes: c.nodes, ips: c.ips, connections, jobs: c.jobs, workers, webhooks: c.webhooks, actions,
     components: buildComponents(c.nodes), incidents, maintenance, tickets, departments, macros,
     kbCategories, kbArticles, announcements, marketingBlocks, legalDocs, campaigns, staff, approvals, audit, security,
-    featureFlags, emailTemplates, emailDeliveries,
+    featureFlags, emailTemplates, emailDeliveries, settings, scheduledTasks,
   };
 }

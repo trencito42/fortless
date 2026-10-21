@@ -46,9 +46,9 @@ export default function ServiceList() {
         advanced={{ fields: [{ id: 'ram', label: 'RAM (MB)', type: 'number' }, { id: 'price', label: 'Price (major units)', type: 'number' }, { id: 'name', label: 'Service name', type: 'text' }], getValue: (s, f) => (f === 'ram' ? s.resources.memoryMb : f === 'price' ? s.billing.price.amount / 100 : s.name) }}
         onRowClick={(s) => nav(`/services/${s.id}`)}
         columns={[
-          col<Service>('name', 'Service', (s) => <span className="grid min-w-[9rem]"><EntityLink to={`/services/${s.id}`}>{s.name}</EntityLink><span className="font-mono text-[12px] text-ink3">{s.id}</span></span>, { sort: (s) => s.name, primary: true }),
-          col<Service>('cust', 'Customer', (s) => <span className="block min-w-[8rem]"><CustomerLink id={s.customerId} /></span>, { sort: (s) => cust.get(s.customerId) ?? '' }),
-          col<Service>('plan', 'Product · plan', (s) => <span className="grid min-w-[8rem]"><span className="font-semibold">{s.productName}</span><span className="text-[12.5px] text-ink3">{s.planName}</span></span>, { sort: (s) => s.planName }),
+          col<Service>('name', 'Service', (s) => <span className="grid md:min-w-[9rem]"><EntityLink to={`/services/${s.id}`}>{s.name}</EntityLink><span className="font-mono text-[12px] text-ink3">{s.id}</span></span>, { sort: (s) => s.name, primary: true }),
+          col<Service>('cust', 'Customer', (s) => <span className="block md:min-w-[8rem]"><CustomerLink id={s.customerId} /></span>, { sort: (s) => cust.get(s.customerId) ?? '' }),
+          col<Service>('plan', 'Product · plan', (s) => <span className="grid md:min-w-[8rem]"><span className="font-semibold">{s.productName}</span><span className="text-[12.5px] text-ink3">{s.planName}</span></span>, { sort: (s) => s.planName }),
           col<Service>('life', 'Contract', (s) => <Status map={lifecycle} value={s.lifecycle} />, { sort: (s) => s.lifecycle }),
           col<Service>('rt', 'Runtime', (s) => <Status map={runtime} value={s.runtime} />, { sort: (s) => s.runtime }),
           col<Service>('node', 'Node', (s) => <span className="grid"><NodeLink id={s.nodeId} /><span className="text-[12.5px] text-ink3">{REGION_NAMES[s.region]}</span></span>, { sort: (s) => s.nodeId }),
