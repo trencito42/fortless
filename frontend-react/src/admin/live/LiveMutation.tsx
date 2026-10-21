@@ -6,7 +6,11 @@ import { useToast } from '../toast';
 export interface MutationSpec {
   title: string;
   confirmLabel: string;
-  endpoint: string | ((values: Record<string, string>) => string);
+  endpoint?: string | ((values: Record<string, string>) => string);
+  /** Custom operation (downloads, uploads). It runs under the same step-up handling as an endpoint call. */
+  run?: (input: { values: Record<string, string>; reason: string }) => Promise<unknown>;
+  description?: string;
+  successMessage?: string;
   method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   tone?: 'default' | 'danger';
   reason?: boolean;
@@ -31,7 +35,9 @@ export function LiveMutation({ spec, onDone, trigger }: { spec: MutationSpec; on
   const close = () => { if (!busy) { setOpen(false); setError(undefined); setStepUp(false); setPassword(''); setCode(''); } };
   const mutate = async () => {
     const body = spec.body?.(reason.trim(), values) ?? (spec.reason ? { reason: reason.trim() } : {});
+    if (spec.run) return spec.run({ values, reason: reason.trim() });
     const endpoint = typeof spec.endpoint === 'function' ? spec.endpoint(values) : spec.endpoint;
+    if (!endpoint) throw new Error('No endpoint configured for this operation.');
     return adminRequest<Record<string, unknown>>(endpoint, { method: spec.method ?? 'POST', body: JSON.stringify(body) });
   };
   const submit = async () => {
@@ -47,7 +53,7 @@ export function LiveMutation({ spec, onDone, trigger }: { spec: MutationSpec; on
         await authRequest('/step-up', { method: 'POST', body: JSON.stringify({ password, code }) });
       }
       await mutate();
-      toast({ tone: 'good', title: `${spec.title} completed`, description: 'The authoritative API accepted the operation.' });
+      toast({ tone: 'good', title: `${spec.title} completed`, description: spec.successMessage ?? 'The authoritative API accepted the operation.' });
       setOpen(false); onDone();
     } catch (cause) {
       if (cause instanceof AdminApiError && cause.code === 'STEP_UP_REQUIRED') { setStepUp(true); setError('Confirm your identity to continue.'); }
@@ -56,7 +62,7 @@ export function LiveMutation({ spec, onDone, trigger }: { spec: MutationSpec; on
   };
   return <>
     {cloneElement(trigger, { onClick: (event) => { event.stopPropagation(); setOpen(true); } })}
-    <Dialog open={open} onOpenChange={(value) => value ? setOpen(true) : close()} title={spec.title} description="This action is executed by Fastify and recorded by the backend." footer={<><Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button><Button variant={spec.tone === 'danger' ? 'danger' : 'primary'} onClick={() => void submit()} loading={busy}>{spec.confirmLabel}</Button></>}>
+    <Dialog open={open} onOpenChange={(value) => value ? setOpen(true) : close()} title={spec.title} description={spec.description ?? 'This action is executed by Fastify and recorded by the backend.'} footer={<><Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button><Button variant={spec.tone === 'danger' ? 'danger' : 'primary'} onClick={() => void submit()} loading={busy}>{spec.confirmLabel}</Button></>}>
       <div className="grid gap-4">
         {error ? <Notice tone="bad" title="Operation not completed">{error}</Notice> : null}
         {spec.fields?.({ values, set: (key, value) => setValues((current) => ({ ...current, [key]: value })), errors: fieldErrors })}

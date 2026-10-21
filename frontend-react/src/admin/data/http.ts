@@ -24,3 +24,14 @@ export function adminRequest<T>(path: string, init: RequestInit = {}): Promise<T
 export function authRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   return requestJson<T>(`/api/v1/auth${path}`, init);
 }
+
+/** Authenticated GET that returns a file (audit CSV). Errors are JSON and keep their code so step-up can be requested. */
+export async function adminDownload(path: string): Promise<{ blob: Blob; truncated: boolean }> {
+  const response = await fetch(`/api/v1/admin${path}`, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'text/csv, application/json' } });
+  if (response.status === 401) { location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search)}`); throw new AdminApiError('Session expired.', 'SESSION_EXPIRED', 401); }
+  if (!response.ok) {
+    let body: Record<string, unknown> = {}; try { body = await response.json() as Record<string, unknown>; } catch { /* non-JSON error */ }
+    throw new AdminApiError(String(body['message'] ?? body['error'] ?? `Download failed (${response.status}).`), String(body['code'] ?? 'HTTP_ERROR'), response.status);
+  }
+  return { blob: await response.blob(), truncated: response.headers.get('X-Fortless-Truncated') === 'true' };
+}

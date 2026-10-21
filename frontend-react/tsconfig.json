@@ -36,6 +36,11 @@
     "vite.config.ts",
     "playwright.config.ts",
     "tests-admin",
-    "playwright.admin.config.ts"
+    "playwright.admin.config.ts",
+    "tests-admin-live",
+    "playwright.admin-live.config.ts"
+  ],
+  "exclude": [
+    "tests-admin-live/server.ts"
   ]
 }

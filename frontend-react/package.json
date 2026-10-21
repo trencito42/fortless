@@ -10,9 +10,10 @@
     "preview": "vite preview --port 4173",
     "test": "playwright test",
     "registry": "tsx scripts/list-stories.ts && tsx scripts/registry-report.ts",
-    "lint": "eslint src tests tests-admin",
+    "lint": "eslint src tests tests-admin tests-admin-live",
     "test:admin": "playwright test -c playwright.admin.config.ts",
-    "test:admin-fixtures": "tsx scripts/check-admin-fixtures.ts"
+    "test:admin-fixtures": "tsx scripts/check-admin-fixtures.ts",
+    "test:admin-live": "playwright test -c playwright.admin-live.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

@@ -6,7 +6,7 @@ type Row = Record<string, unknown>;
 const rows = (value: unknown): Row[] => Array.isArray(value) ? value.filter((item): item is Row => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : [];
 const slugValid = (value = '') => /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 
-export function LiveContentActions({ payload, reload, articleId }: { payload: Row; reload: () => void; articleId?: string }) {
+export function LiveContentActions({ payload, reload, articleId, compact }: { payload: Row; reload: () => void; articleId?: string; compact?: boolean }) {
   const { can } = useSession();
   if (!can('content:manage')) return null;
   const knowledgeCategories = rows(payload['knowledgeCategories']);
@@ -36,7 +36,7 @@ export function LiveContentActions({ payload, reload, articleId }: { payload: Ro
   };
 
   return <div className="flex flex-wrap gap-2">
-    <LiveMutation spec={articleSpec} onDone={reload} trigger={<Button size="sm" variant="primary">{article ? 'Edit article' : 'New article'}</Button>} />
+    <LiveMutation spec={articleSpec} onDone={reload} trigger={<Button size="sm" variant={compact ? 'secondary' : 'primary'}>{article ? (compact ? 'Edit' : 'Edit article') : 'New article'}</Button>} />
     {!articleId ? <LiveMutation spec={announcementSpec} onDone={reload} trigger={<Button size="sm" variant="secondary">New announcement</Button>} /> : null}
     {!articleId ? <LiveMutation spec={categorySpec} onDone={reload} trigger={<Button size="sm" variant="secondary">New category</Button>} /> : null}
   </div>;
