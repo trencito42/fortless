@@ -90,7 +90,7 @@ export function SiteNav() {
   const hover = (id: string | null) => { clearTimeout(closeTimer.current); if (id) setOpen(id); else closeTimer.current = setTimeout(() => setOpen(null), 160); };
   const active = MENUS.find((m) => m.id === open);
 
-  const link = 'relative inline-flex h-10 items-center gap-1.5 rounded-full px-4 font-menu text-[14.5px] font-semibold text-ink2 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-accent';
+  const link = 'relative inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-[15px] font-bold text-ink2 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-accent';
 
   return (
     <header ref={root} className="pointer-events-none fixed inset-x-0 top-0 z-40 px-3 sm:px-6" onMouseLeave={() => hover(null)}>
@@ -131,7 +131,7 @@ export function SiteNav() {
                       <li key={it.title}>
                         <button type="button" onClick={() => { setOpen(null); pick(it); }} className="group grid w-full grid-cols-[44px_minmax(0,1fr)_auto] items-center gap-4 rounded-2xl p-3 text-left outline-none transition-colors hover:bg-s2 focus-visible:ring-2 focus-visible:ring-accent">
                           <span className="grid size-11 place-items-center rounded-xl bg-accent-bg text-accent-ink transition-transform duration-300 ease-petal group-hover:scale-105"><Icon name={it.icon} size={20} /></span>
-                          <span className="min-w-0"><span className="block font-menu text-[17px] font-bold leading-tight tracking-[-0.01em]">{it.title}</span><span className="block text-[14px] text-ink2">{it.desc}</span></span>
+                          <span className="min-w-0"><span className="block text-[19px] font-extrabold leading-tight tracking-[-0.03em]">{it.title}</span><span className="block text-[14px] text-ink2">{it.desc}</span></span>
                           <Icon name="arrow-right-01" size={18} className="text-ink3 transition-transform duration-200 group-hover:translate-x-1" />
                         </button>
                       </li>
@@ -150,15 +150,15 @@ export function SiteNav() {
           <ul className="grid gap-2">
             {MENUS.map((m) => (
               <li key={m.id} className="rounded-3xl bg-s1 p-2">
-                <p className="px-4 pb-1 pt-3 font-menu text-[13px] font-semibold text-ink3">{m.label}</p>
+                <p className="px-4 pb-1 pt-3 text-[13px] font-bold text-ink3">{m.label}</p>
                 <ul>{m.items.map((it) => (
-                  <li key={it.title}><button type="button" onClick={() => { setMobile(false); pick(it); }} className="flex min-h-12 w-full items-center gap-3 rounded-2xl px-4 py-2 text-left font-menu text-[16px] font-bold tracking-[-0.01em] hover:bg-s2"><Icon name={it.icon} size={20} className="text-accent-ink" />{it.title}</button></li>
+                  <li key={it.title}><button type="button" onClick={() => { setMobile(false); pick(it); }} className="flex min-h-12 w-full items-center gap-3 rounded-2xl px-4 py-2 text-left text-[18px] font-extrabold tracking-[-0.03em] hover:bg-s2"><Icon name={it.icon} size={20} className="text-accent-ink" />{it.title}</button></li>
                 ))}</ul>
               </li>
             ))}
             <li className="grid grid-cols-2 gap-2">
-              <Link to="/status" className="grid h-14 place-items-center rounded-2xl bg-s1 font-menu text-[15px] font-bold">Status</Link>
-              <button type="button" onClick={() => { setMobile(false); goto('/#faq'); }} className="grid h-14 place-items-center rounded-2xl bg-s1 font-menu text-[15px] font-bold">FAQ</button>
+              <Link to="/status" className="grid h-14 place-items-center rounded-2xl bg-s1 text-[16px] font-extrabold">Status</Link>
+              <button type="button" onClick={() => { setMobile(false); goto('/#faq'); }} className="grid h-14 place-items-center rounded-2xl bg-s1 text-[16px] font-extrabold">FAQ</button>
             </li>
           </ul>
           <div className="mt-4 grid gap-2"><SiteButton to="/register" size="lg" icon="arrow-up-right-01">Start hosting</SiteButton><SiteButton to="/login" size="lg" variant="soft">Sign in</SiteButton></div>

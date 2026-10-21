@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter-tight";
 @import "@fontsource-variable/jetbrains-mono";
-@import "@fontsource-variable/montserrat";
 
 /*
  * Fortless design tokens (Petal). Extracted from Fortless.html / Fortless App Nav.html / Fortless Views.html.
@@ -199,7 +198,6 @@
   --color-brand: var(--brand);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
-  --font-menu: "Montserrat Variable", "Montserrat", var(--font-sans);
   --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
@@ -317,3 +315,4 @@
 @keyframes ok-tick { to { stroke-dashoffset: 0; } }
 @keyframes ok-pop { 0% { transform: scale(0.88); } 60% { transform: scale(1.05); } 100% { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .ok-check, .ok-check .ring, .ok-check .disc, .ok-check .tick { animation: none; } .ok-check .ring, .ok-check .tick { stroke-dashoffset: 0; } .ok-check .disc { fill-opacity: 1; } }
+

@@ -557,3 +557,5 @@ h1 {
   background: var(--s2);
   color: var(--ink);
 }
+
+.status-line { display: none; }
